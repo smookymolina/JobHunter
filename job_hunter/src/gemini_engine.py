@@ -11,7 +11,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 from openai import OpenAI
 
 # ── Logger (mismo archivo que mcp_server usa) ─────────────────────────────────
-_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'mcp_debug.log')
+_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'mcp_debug.log')
 _log = _logging.getLogger("gemini_engine")
 if not _log.handlers:
     _fh = _logging.FileHandler(os.path.abspath(_LOG_PATH), encoding='utf-8')
@@ -24,7 +24,7 @@ if not _log.handlers:
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL   = "llama-3.3-70b-versatile"   # mejor calidad de código en free tier
 
-BASE_DIR      = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+BASE_DIR      = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 DB_PATH       = os.path.join(BASE_DIR, 'db', 'vacantes.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'latex_templates')
 OUTPUTS_DIR   = os.path.join(BASE_DIR, 'outputs')

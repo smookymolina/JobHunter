@@ -49,7 +49,7 @@ function PdfModal({ vacanteId, onClose }: { vacanteId: number; onClose: () => vo
           </span>
           <div className="flex items-center gap-2">
             <a
-              href={`http://localhost:8000/pdf/${vacanteId}?download=true`}
+              href={`http://127.0.0.1:8000/pdf/${vacanteId}?download=true`}
               className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
             >
               <Download size={11} /> Descargar
@@ -64,7 +64,7 @@ function PdfModal({ vacanteId, onClose }: { vacanteId: number; onClose: () => vo
         </div>
         <div className="flex-1 overflow-hidden">
           <iframe
-            src={`http://localhost:8000/pdf/${vacanteId}`}
+            src={`http://127.0.0.1:8000/pdf/${vacanteId}`}
             width="100%"
             height="100%"
             className="block bg-zinc-800"
@@ -333,7 +333,7 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
                   <Code size={13} /> Editar LaTeX
                 </button>
                 <a
-                  href={`http://localhost:8000/pdf/${vacante.id}?download=true`}
+                  href={`http://127.0.0.1:8000/pdf/${vacante.id}?download=true`}
                   className="inline-flex items-center justify-center rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
                   title="Descargar PDF"
                 >

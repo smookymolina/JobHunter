@@ -41,6 +41,7 @@ No_Creado â†’ En_Proceso â†’ Revisado_IA â†’ Listo_Manual
 | DELETE | `/vacantes/{id}` | Borra vacante |
 | GET | `/latex/{id}` | Devuelve `.tex` como texto plano |
 | POST | `/latex/{id}` | Body: LaTeX crudo â†’ sobrescribe y recompila |
+| POST | `/generar_cv/{id}` | Genera CV con Groq+LaTeX, audita con Inspector IA, retorna aprobado/rechazado |
 | POST | `/scrape` | Lanza browser_agent con `{"cantidad": N}` |
 | GET | `/scrape/status` | Estado del scraping activo |
 | GET | `/pdf/{id}` | PDF inline o `?download=true` |
@@ -55,6 +56,24 @@ No_Creado â†’ En_Proceso â†’ Revisado_IA â†’ Listo_Manual
 - Archivos de salida en `job_hunter/outputs/` (`cv_vacante_{id}.tex` y `.pdf`).
 - MigraciÃ³n de schema: `python src/migrate_db.py` (ya aplicada).
 
+
+## Actualizacion 2026-06-03 (rev 8 — Rutas Absolutas + Hard Reset)
+
+- **Política de rutas absolutas**: todos los módulos (`gemini_engine.py`, `init_db.py`, `reset_db.py`, `api.py`) usan `os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ...))`. Garantiza rutas correctas sin importar el CWD al lanzar el proceso.
+- **Archivos de salida**: `.tex` y `.pdf` se escriben **siempre** en `job_hunter/outputs/`. Nunca en la raíz.
+- **Hard Reset validado**: `reset_db.py` borra `db/vacantes.db`, limpia `outputs/` y recrea el schema con `CREATE TABLE vacantes` fresco.
+- **Organización de scripts**: scripts de debug/test (`check_db.py`, `debug_*.py`, etc.) movidos a `job_hunter/src/`.
+- **Validación E2E** confirmada: `POST /vacantes` → `GET /vacantes` → `POST /generar_cv/1` → PDF en `job_hunter/outputs/cv_vacante_1.pdf`, raíz limpia.
+
+## Actualizacion 2026-06-03 (rev 7 — API-First Sync)
+
+- **`browser_agent.py` ya no toca SQLite**. Cada vacante encontrada se envía via `POST /vacantes` a la API (API_BASE_URL en `.env`). Elimina bloqueos WAL y garantiza que el frontend reciba los datos en tiempo real.
+- **`POST /generar_cv/{vid}`**: nuevo endpoint para que el bot genere CVs sin importar `gemini_engine` directamente. Flujo: `En_Proceso → generar_y_compilar → evaluar_cv → Revisado_IA / Requiere_Correccion`.
+- `GET /vacantes` y `GET /scrape/status` → header `Cache-Control: no-store`.
+- `GET /vacantes` registra en consola el número de filas retornadas (`_log.info`).
+- Dashboard polling reducido a **2 s**.
+- Bot: `_cb_generar` y `_cb_genall` usan `POST /generar_cv/{vid}` en lugar de imports directos.
+- Bot: todas las acciones (marcar listo, borrar, generar) incluyen botón **◀️ Menú Principal**.
 
 ## Actualizacion 2026-06-02 (rev 5 — Smart Search)
 

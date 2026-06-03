@@ -20,6 +20,25 @@ vacante -> SQLite -> API -> MCP/IA -> .tex -> pdflatex -> PDF -> Revisado_IA
 ```
 
 ## Cambios clave
-- El listado `/vacantes` devuelve `requerimientos` de forma consistente.
-- El dashboard hace auto-refresco silencioso cada 5 segundos.
-- El prompt MCP de la tarjeta es minimo y directo para ahorrar tokens.
+- `browser_agent.py` usa `POST /vacantes` (nunca SQLite directo) — elimina bloqueos WAL.
+- Nuevo endpoint `POST /generar_cv/{id}`: bot genera CVs 100% vía API, sin imports locales.
+- Dashboard polling a **2 s** + `Cache-Control: no-store` en `/vacantes`.
+- Bot Telegram: todas las acciones muestran botón ◀️ Menú Principal al finalizar.
+
+## Política de rutas absolutas (rev 2026-06-03)
+
+Todos los módulos usan rutas absolutas derivadas de `__file__`:
+
+```python
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+```
+
+| Constante | Ruta absoluta canónica |
+|---|---|
+| `DB_PATH` | `job_hunter/db/vacantes.db` |
+| `OUTPUTS_DIR` | `job_hunter/outputs/` |
+| `TEMPLATES_DIR` | `job_hunter/latex_templates/` |
+| `CONTEXT_DIR` | `job_hunter/context/` (o `PROFILE_BASE_DIR` del `.env`) |
+
+Los archivos `.tex` y `.pdf` generados aterrizan **siempre** en `job_hunter/outputs/`.
+Nunca se escriben en la raíz del proyecto.

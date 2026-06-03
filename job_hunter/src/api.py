@@ -2,18 +2,23 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
 import json
+import logging
 import sqlite3
 import os
 import shutil
 import subprocess
 from contextlib import asynccontextmanager
 
+logging.basicConfig(format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO)
+_log = logging.getLogger("api")
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from gemini_engine import TEMPLATES_DIR, DB_PATH, OUTPUTS_DIR, CONTEXT_DIR, compilar_pdf, evaluar_compatibilidad_rapida, generar_terminos_busqueda
+from watcher import DeepHealthWatcher, deep_health_check
 
 try:
     import PyPDF2 as _pypdf2
@@ -22,7 +27,7 @@ except ImportError:
     _HAS_PYPDF2 = False
 
 PERFIL_MAESTRO_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', 'data', 'perfil_maestro.json')
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'perfil_maestro.json')
 )
 
 # ── Estado en memoria ─────────────────────────────────────────────────────────
@@ -34,7 +39,12 @@ _scrape_status: dict = {"running": False, "last": None}
 async def lifespan(app: FastAPI):
     os.makedirs(OUTPUTS_DIR, exist_ok=True)
     os.makedirs(TEMPLATES_DIR, exist_ok=True)
+    app.state.health_watcher = DeepHealthWatcher(interval_seconds=20, dry_run=False)
+    app.state.health_watcher.start()
     yield
+    watcher = getattr(app.state, "health_watcher", None)
+    if watcher:
+        watcher.stop()
 
 app = FastAPI(title="Job Hunter API", version="1.0", lifespan=lifespan)
 
@@ -45,6 +55,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/")
+def root_health():
+    return {
+        "ok": True,
+        "service": "job-hunter-api",
+        "scrape": dict(_scrape_status),
+    }
 
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────
 
@@ -149,7 +168,9 @@ def listar_vacantes(limit: int = 50, status: str | None = None):
         ).fetchall()
     conn.close()
     cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro"]
-    return [dict(zip(cols, r)) for r in rows]
+    result = [dict(zip(cols, r)) for r in rows]
+    _log.info("GET /vacantes → %d filas (status=%s, limit=%d)", len(result), status or "all", limit)
+    return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/vacantes/{vid}")
@@ -211,6 +232,28 @@ def sync_vacante(vid: int):
             _set_status(vid, "Requiere_Correccion")
             return {"ok": False, "synced": False, "status": "Requiere_Correccion", "error": str(e)}
     return {"ok": False, "synced": False, "detail": f"No existe .tex ni .pdf para vacante #{vid}."}
+
+
+@app.get("/debug/sync-health")
+def debug_sync_health():
+    watcher = getattr(app.state, "health_watcher", None)
+    snapshot = deep_health_check(dry_run=True)
+    if watcher:
+        watcher_snapshot = watcher.snapshot()
+    else:
+        watcher_snapshot = {"running": False, "interval_seconds": None, "last_error": "watcher no inicializado", "last_snapshot": {}}
+    snapshot["watcher"] = watcher_snapshot
+    return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/debug/sync-health")
+def debug_sync_health_apply():
+    snapshot = deep_health_check(dry_run=False)
+    watcher = getattr(app.state, "health_watcher", None)
+    if watcher:
+        watcher._last_snapshot = snapshot
+    snapshot["watcher"] = watcher.snapshot() if watcher else {"running": False, "interval_seconds": None, "last_error": None, "last_snapshot": snapshot}
+    return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
 
 
 @app.patch("/vacantes/{vid}/compatibilidad")
@@ -275,8 +318,40 @@ async def upload_template(file: UploadFile = File(...)):
     return {"ok": True, "mensaje": "Plantilla visual actualizada con éxito.", "ruta": dest}
 
 
-# POST /generar_cv/{vid} eliminado — la generación de CVs es ahora Human-in-the-loop
-# vía Claude Desktop + MCP. Ver docs/PIPELINE_IA.md.
+@app.post("/generar_cv/{vid}")
+async def generar_cv_endpoint(vid: int):
+    """Genera CV con Groq+LaTeX y lo audita con Inspector IA. Actualiza status vía API.
+    Requiere GROQ_API_KEY configurada en .env.
+    Retorna: {ok, aprobado, comentarios, pdf, tex_path, pdf_path}
+    """
+    import asyncio
+    from gemini_engine import generar_y_compilar
+    from inspector import evaluar_cv
+
+    _set_status(vid, "En_Proceso")
+
+    loop = asyncio.get_event_loop()
+    try:
+        tex_path, pdf_path = await loop.run_in_executor(None, generar_y_compilar, vid)
+    except Exception as e:
+        _set_status(vid, "Requiere_Correccion")
+        raise HTTPException(status_code=500, detail=f"Error generando CV: {e}")
+
+    if not tex_path:
+        _set_status(vid, "Requiere_Correccion")
+        raise HTTPException(status_code=500, detail="Falló la generación del LaTeX.")
+
+    auditoria = await loop.run_in_executor(None, evaluar_cv, vid, tex_path)
+    tiene_pdf = bool(pdf_path and os.path.exists(pdf_path))
+
+    return {
+        "ok": True,
+        "aprobado": auditoria["aprobado"],
+        "comentarios": auditoria["comentarios"],
+        "pdf": tiene_pdf,
+        "tex_path": tex_path,
+        "pdf_path": pdf_path if tiene_pdf else None,
+    }
 
 
 @app.post("/vacantes")
@@ -386,7 +461,7 @@ async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks)
 @app.get("/scrape/status")
 def scrape_status():
     """Informa si hay un scraping activo y el resultado del último."""
-    return _scrape_status
+    return JSONResponse(content=_scrape_status, headers={"Cache-Control": "no-store"})
 
 
 @app.delete("/vacantes/{vid}")

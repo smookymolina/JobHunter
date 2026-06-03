@@ -25,7 +25,7 @@ from telegram.ext import (
 
 TOKEN       = os.getenv("TELEGRAM_BOT_TOKEN", "8987674164:AAG0pnCvhXcII0ZncPHXOYIlKalw2eOdA7E")
 ADMIN_ID    = int(os.getenv("TELEGRAM_ADMIN_ID", "0"))
-API_BASE    = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_BASE    = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 OUTPUTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'outputs'))
 TEMPLATES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'latex_templates'))
 PAGE_SIZE   = 5
@@ -82,6 +82,19 @@ async def api(method: str, path: str, data=None,
     return await loop.run_in_executor(
         None, lambda: _api_sync(method, path, data, raw_body, content_type)
     )
+
+def heartbeat_api() -> None:
+    try:
+        req = urllib.request.Request(f"{API_BASE}/vacantes?limit=1", method="GET")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            payload = json.loads(r.read().decode("utf-8"))
+        if not isinstance(payload, list):
+            raise RuntimeError("Respuesta inesperada del endpoint /vacantes")
+        log.info("Conexión con API establecida: OK")
+        print("Conexión con API establecida: OK")
+    except Exception as e:
+        log.critical("Fallo crítico en el heartbeat con la API: %s", e)
+        raise SystemExit(f"Fallo crítico: no se pudo conectar con la API en {API_BASE}.")
 
 # ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -507,44 +520,38 @@ async def _cb_buscar(q, cantidad: int):
 # ── Generar CV ────────────────────────────────────────────────────────────────
 
 async def _cb_generar(q, ctx, vid: int):
-    from gemini_engine import generar_y_compilar
-    from inspector    import evaluar_cv
-
     await q.edit_message_text(
         f"⚙️ Generando CV para vacante *\\#{vid}*...\n"
         f"Esto puede tardar hasta 30 segundos.",
         parse_mode="Markdown",
     )
-
-    loop = asyncio.get_event_loop()
     try:
-        tex_path, pdf_path = await loop.run_in_executor(None, generar_y_compilar, vid)
-    except Exception as e:
+        result = await api("POST", f"/generar_cv/{vid}")
+    except RuntimeError as e:
         await q.message.reply_text(
             f"❌ *Error generando CV \\#{vid}:*\n`{esc(str(e))}`",
             parse_mode="Markdown",
-            reply_markup=kb_back("vacantes:0"),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"🔄 Reintentar", callback_data=f"gen:{vid}")],
+                [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+            ]),
         )
         return
 
-    if not tex_path:
-        await q.message.reply_text(
-            f"❌ Falló la generación del CV \\#{vid}.\n"
-            "Verifica la `GROQ_API_KEY` y los datos de la vacante.",
-            parse_mode="Markdown",
-            reply_markup=kb_back("vacantes:0"),
-        )
-        return
+    aprobado    = result.get("aprobado", False)
+    comentarios = esc(result.get("comentarios", "—"))
+    tiene_pdf   = result.get("pdf", False)
+    pdf_path    = result.get("pdf_path") or os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf")
+    tex_path    = result.get("tex_path") or os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex")
 
-    await q.message.reply_text("🔍 Auditando CV con Inspector IA...")
-    auditoria   = await loop.run_in_executor(None, evaluar_cv, vid, tex_path)
-    aprobado    = auditoria["aprobado"]
-    comentarios = esc(auditoria.get("comentarios", "—"))
-
-    if aprobado and pdf_path and os.path.exists(pdf_path):
+    if aprobado and tiene_pdf and os.path.exists(pdf_path):
         await q.message.reply_text(
             f"✅ *CV aprobado por Inspector IA*\n\n💬 _{comentarios}_\n\n🟡 Status → *Revisado\\_IA*",
             parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📄 Ver PDF", callback_data=f"pdf:{vid}")],
+                [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+            ]),
         )
         with open(pdf_path, "rb") as f:
             await q.message.reply_document(
@@ -556,16 +563,18 @@ async def _cb_generar(q, ctx, vid: int):
         await q.message.reply_text(
             f"⚠️ *Inspector IA: requiere correcciones*\n\n📋 {comentarios}\n\n🔴 Status → *Requiere\\_Correccion*",
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(f"🚀 Regenerar #{vid}", callback_data=f"gen:{vid}"),
-            ]]),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"🚀 Regenerar #{vid}", callback_data=f"gen:{vid}")],
+                [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+            ]),
         )
     else:
         await q.message.reply_text(
             f"⚠️ Inspector IA aprobó pero el PDF no compiló.\n\n💬 _{comentarios}_",
             parse_mode="Markdown",
+            reply_markup=kb_back("menu"),
         )
-        if tex_path and os.path.exists(tex_path):
+        if os.path.exists(tex_path):
             with open(tex_path, "rb") as f:
                 await q.message.reply_document(
                     document=f,
@@ -622,7 +631,15 @@ async def _cb_marcar_listo(q, vid: int):
     try:
         await api("PATCH", f"/vacantes/{vid}/status", {"status": "Listo_Manual"})
         await q.answer("✅ Marcado como Listo_Manual")
-        await _cb_vacante_detalle(q, vid)
+        await q.edit_message_text(
+            f"🟢 *Vacante \\#{vid} marcada como Listo\\_Manual*\n\n"
+            "El dashboard web se actualizará en menos de 2 segundos.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"📋 Ver vacante #{vid}", callback_data=f"vac:{vid}")],
+                [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+            ]),
+        )
     except RuntimeError as e:
         await q.answer(f"❌ {str(e)[:100]}", show_alert=True)
 
@@ -630,7 +647,14 @@ async def _cb_borrar(q, vid: int):
     try:
         await api("DELETE", f"/vacantes/{vid}")
         await q.answer(f"🗑️ Vacante #{vid} eliminada")
-        await _cb_vacantes(q, 0)
+        await q.edit_message_text(
+            f"🗑️ *Vacante \\#{vid} eliminada.*\n\nEl dashboard web reflejará el cambio en 2 segundos.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Mis Vacantes", callback_data="vacantes:0")],
+                [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+            ]),
+        )
     except RuntimeError as e:
         await q.answer(f"❌ {str(e)[:100]}", show_alert=True)
 
@@ -678,8 +702,6 @@ async def _cb_clean_exec(q):
     )
 
 async def _cb_genall(q, ctx):
-    from gemini_engine import generar_y_compilar
-
     try:
         nc = await api("GET", "/vacantes?status=No_Creado&limit=50")
         rc = await api("GET", "/vacantes?status=Requiere_Correccion&limit=50")
@@ -706,11 +728,10 @@ async def _cb_genall(q, ctx):
     )
 
     ok, fail = 0, 0
-    loop = asyncio.get_event_loop()
     for v in pendientes:
         try:
-            tex, pdf = await loop.run_in_executor(None, generar_y_compilar, v["id"])
-            if tex:
+            result = await api("POST", f"/generar_cv/{v['id']}")
+            if result.get("ok"):
                 ok += 1
             else:
                 fail += 1
@@ -722,7 +743,10 @@ async def _cb_genall(q, ctx):
         f"✅ Exitosos: *{ok}*\n"
         f"❌ Fallidos: *{fail}*",
         parse_mode="Markdown",
-        reply_markup=kb_back(),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Mis Vacantes", callback_data="vacantes:0")],
+            [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+        ]),
     )
 
 # ── Recepción de archivos .tex ────────────────────────────────────────────────
@@ -815,6 +839,7 @@ def main():
         print(f"✓ Admin ID: {ADMIN_ID}")
 
     print(f"✓ API target: {API_BASE}")
+    heartbeat_api()
 
     app = Application.builder().token(TOKEN).build()
     app.bot_data["auto_scrape"] = False

@@ -1,4 +1,4 @@
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
 
 export interface PerfilMaestro {
   nombre: string
@@ -66,6 +66,32 @@ export interface LatexSaveResult {
 export interface TemplateInfo {
   activa: string
   personalizada: boolean
+}
+
+export interface SyncHealthReport {
+  ok: boolean
+  state: 'healthy' | 'degraded' | 'idle'
+  total: number
+  by_status: Record<string, number>
+  issues: Array<{
+    id: number
+    status: string
+    pdf_exists: boolean
+    tex_exists: boolean
+    pdf: string
+    tex: string
+    desired_status?: string | null
+    changed?: boolean
+    error?: string | null
+  }>
+  dry_run: boolean
+  timestamp: number
+  watcher?: {
+    running: boolean
+    interval_seconds: number | null
+    last_error: string | null
+    last_snapshot: unknown
+  }
 }
 
 async function req<T>(input: string, init?: RequestInit): Promise<T> {
@@ -155,6 +181,9 @@ export const api = {
 
   scrapeStatus: () =>
     req<{ running: boolean; last: string | null }>('/scrape/status'),
+
+  debugSyncHealth: () =>
+    req<SyncHealthReport>('/debug/sync-health'),
 
   perfil: () =>
     req<{ ok: boolean; contenido: string; ruta: string }>('/perfil'),

@@ -1,59 +1,71 @@
 """
 Browser Agent — scraping con Playwright (headed, anti-bot evasion).
-Reemplaza scraper.py para sitios con lazy-load y protecciones JS.
+Cada vacante encontrada se envía vía POST al API REST (localhost:8000/vacantes).
+El agente NO escribe directamente a SQLite.
 
 Uso:
-    python browser_agent.py                       # todos los términos, sin límite
-    python browser_agent.py "IoT Developer"       # término específico
+    python browser_agent.py                       # todos los términos del perfil
     python browser_agent.py --limit 5             # máximo 5 vacantes globales
-    python browser_agent.py --limit 5 "IoT Dev"  # límite + término
+    python browser_agent.py --limit 5 --terms "IoT Developer" "Backend Python"
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
 import argparse
-import re
-import sqlite3
+import json
 import os
+import re
 import time
 import random
+import urllib.request
+import urllib.error
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
-from gemini_engine import DB_PATH, evaluar_compatibilidad_rapida, generar_terminos_busqueda
+from gemini_engine import generar_terminos_busqueda
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-# Términos derivados del perfil maestro en tiempo de ejecución
+API_BASE     = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 SEARCH_TERMS: list[str] = generar_terminos_busqueda()
+MAX_PER_TERM = 8
+HEADLESS     = False
 
-MAX_PER_TERM = 8   # vacantes a revisar por término (paginación interna)
-HEADLESS     = False  # True = sin ventana (puede fallar anti-bot)
+# ── API helper ────────────────────────────────────────────────────────────────
 
-# ── DB ────────────────────────────────────────────────────────────────────────
-
-def _update_compat(conn, enlace: str, compat: str):
+def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bool, str]:
+    """
+    Envia vacante al endpoint POST /vacantes.
+    Retorna (insertada: bool, compatibilidad: str).
+    La API evalúa compatibilidad y gestiona duplicados.
+    """
+    payload = json.dumps({
+        "titulo":         titulo[:200],
+        "empresa":        (empresa or "Desconocida")[:100],
+        "enlace":         enlace,
+        "requerimientos": (reqs or "")[:5000],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{API_BASE}/vacantes",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
-        conn.execute("UPDATE vacantes SET compatibilidad=? WHERE enlace=?", (compat, enlace))
-        conn.commit()
-    except Exception as e:
-        print(f"  [compat-update] {e}")
-
-
-def _insert(conn, titulo, empresa, enlace, reqs):
-    try:
-        conn.execute(
-            "INSERT OR IGNORE INTO vacantes (titulo, empresa, enlace, requerimientos) "
-            "VALUES (?,?,?,?)",
-            (titulo[:200], (empresa or "Desconocida")[:100], enlace, (reqs or "")[:3000])
-        )
-        conn.commit()
-        return conn.execute("SELECT changes()").fetchone()[0] == 1
-    except Exception as e:
-        print(f"  [DB] {e}")
-        return False
+        with urllib.request.urlopen(req, timeout=15) as r:
+            result = json.loads(r.read().decode())
+            return True, result.get("compatibilidad", "Nula")
+    except urllib.error.HTTPError as e:
+        if e.code == 409:  # duplicada
+            return False, ""
+        body = e.read().decode("utf-8", errors="replace")[:200]
+        print(f"  [API] HTTP {e.code}: {body}")
+        return False, ""
+    except Exception as ex:
+        print(f"  [API] Error al insertar vacante: {ex}")
+        return False, ""
 
 # ── Anti-bot helpers ──────────────────────────────────────────────────────────
 
@@ -73,8 +85,7 @@ def _human_type(page: Page, selector: str, text: str):
 
 # ── Scrapers por sitio ────────────────────────────────────────────────────────
 
-def scrape_computrabajo(page: Page, conn, term: str, counter: list, limite: int | None) -> int:
-    """counter[0] es el total global insertado; limite corta cuando se alcanza."""
+def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None) -> int:
     count = 0
     url = f"https://www.computrabajo.com.mx/trabajo-de-{term.lower().replace(' ', '-')}"
     try:
@@ -95,7 +106,7 @@ def scrape_computrabajo(page: Page, conn, term: str, counter: list, limite: int 
                 enlace = ("https://www.computrabajo.com.mx" + href) if href.startswith("/") else href
 
                 emp_el  = card.query_selector("p.fs16, p.dcolor, a.dcolor")
-                empresa = emp_el.inner_text().strip() if emp_el else None
+                empresa = emp_el.inner_text().strip() if emp_el else ""
 
                 reqs = ""
                 if enlace:
@@ -112,18 +123,19 @@ def scrape_computrabajo(page: Page, conn, term: str, counter: list, limite: int 
                                 }
                             """)
                             if jld_raw:
-                                import json
                                 try:
                                     jld = json.loads(jld_raw)
                                     items = jld if isinstance(jld, list) else [jld]
                                     for item in items:
                                         if item.get("@type") == "JobPosting":
                                             h = item.get("hiringOrganization", {})
-                                            empresa = h.get("name") if isinstance(h, dict) else None
+                                            empresa = h.get("name") if isinstance(h, dict) else ""
                                 except Exception:
                                     pass
 
-                        req_el = detail.query_selector("div[div-link='oferta'], section.description, div.job-description")
+                        req_el = detail.query_selector(
+                            "div[div-link='oferta'], section.description, div.job-description"
+                        )
                         if req_el:
                             reqs = req_el.inner_text()[:3000]
                         detail.close()
@@ -132,13 +144,13 @@ def scrape_computrabajo(page: Page, conn, term: str, counter: list, limite: int 
                         print(f"    [detail] {ex}")
 
                 if len(reqs.strip()) < 50:
-                    print(f"  [Skipped] Sin requerimientos suficientes: {titulo[:45]}")
+                    print(f"  [Skipped] Sin requerimientos: {titulo[:45]}")
                     continue
-                if _insert(conn, titulo, empresa, enlace, reqs):
+
+                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                if insertada:
                     counter[0] += 1
                     count += 1
-                    compat = evaluar_compatibilidad_rapida(reqs)
-                    _update_compat(conn, enlace, compat)
                     print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}")
             except Exception as ex:
                 print(f"  [card] {ex}")
@@ -147,7 +159,7 @@ def scrape_computrabajo(page: Page, conn, term: str, counter: list, limite: int 
     return count
 
 
-def scrape_occ(page: Page, conn, term: str, counter: list, limite: int | None) -> int:
+def scrape_occ(page: Page, term: str, counter: list, limite: int | None) -> int:
     count = 0
     url = f"https://www.occ.com.mx/empleos/de-{term.lower().replace(' ', '-')}/"
     try:
@@ -166,7 +178,9 @@ def scrape_occ(page: Page, conn, term: str, counter: list, limite: int | None) -
 
                 empresa = ""
                 parent  = link.evaluate_handle("el => el.closest('article, div[data-testid]')")
-                emp_el  = parent.as_element() and parent.as_element().query_selector("[data-testid='company-name'], p.company")
+                emp_el  = parent.as_element() and parent.as_element().query_selector(
+                    "[data-testid='company-name'], p.company"
+                )
                 if emp_el:
                     empresa = emp_el.inner_text().strip()
 
@@ -176,7 +190,9 @@ def scrape_occ(page: Page, conn, term: str, counter: list, limite: int | None) -
                         detail = page.context.new_page()
                         detail.goto(enlace, wait_until="domcontentloaded", timeout=15000)
                         _sleep(0.8, 1.5)
-                        req_el = detail.query_selector("div.job-description, section[class*='description']")
+                        req_el = detail.query_selector(
+                            "div.job-description, section[class*='description']"
+                        )
                         if req_el:
                             reqs = req_el.inner_text()[:3000]
                         detail.close()
@@ -184,13 +200,13 @@ def scrape_occ(page: Page, conn, term: str, counter: list, limite: int | None) -
                         pass
 
                 if len(reqs.strip()) < 50:
-                    print(f"  [Skipped] Sin requerimientos suficientes: {titulo[:45]}")
+                    print(f"  [Skipped] Sin requerimientos: {titulo[:45]}")
                     continue
-                if _insert(conn, titulo, empresa, enlace, reqs):
+
+                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                if insertada:
                     counter[0] += 1
                     count += 1
-                    compat = evaluar_compatibilidad_rapida(reqs)
-                    _update_compat(conn, enlace, compat)
                     print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}")
             except Exception as ex:
                 print(f"  [occ-card] {ex}")
@@ -201,9 +217,9 @@ def scrape_occ(page: Page, conn, term: str, counter: list, limite: int | None) -
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Browser Agent — scraping de vacantes")
+    parser = argparse.ArgumentParser(description="Browser Agent — scraping de vacantes vía API")
     parser.add_argument('--limit', type=int, default=None,
-                        help="Número máximo de vacantes a insertar (global, todos los términos)")
+                        help="Número máximo de vacantes a insertar (global)")
     parser.add_argument('--terms', nargs='*', dest='named_terms',
                         help="Términos de búsqueda (sobrescribe perfil_maestro)")
     parser.add_argument('positional_terms', nargs='*',
@@ -213,11 +229,11 @@ def main():
     limite = args.limit
     terms  = args.named_terms or args.positional_terms or SEARCH_TERMS
 
+    print(f"[config] API target: {API_BASE}")
     if limite is not None:
         print(f"[config] Límite global: {limite} vacantes")
 
-    conn    = sqlite3.connect(DB_PATH)
-    counter = [0]   # contador global mutable compartido entre scrapers
+    counter = [0]
 
     browser = None
     try:
@@ -239,8 +255,9 @@ def main():
                 viewport={"width": 1280, "height": 900},
                 locale="es-MX",
             )
-            context.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
-
+            context.add_init_script(
+                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+            )
             page = context.new_page()
 
             for term in terms:
@@ -249,7 +266,7 @@ def main():
                     break
 
                 print(f"\n[Computrabajo] '{term}'")
-                scrape_computrabajo(page, conn, term, counter, limite)
+                scrape_computrabajo(page, term, counter, limite)
                 _sleep(2, 4)
 
                 if limite is not None and counter[0] >= limite:
@@ -257,7 +274,7 @@ def main():
                     break
 
                 print(f"\n[OCC] '{term}'")
-                scrape_occ(page, conn, term, counter, limite)
+                scrape_occ(page, term, counter, limite)
                 _sleep(2, 4)
 
             browser.close()
@@ -270,20 +287,11 @@ def main():
                 browser.close()
             except Exception:
                 pass
-        conn.close()
 
     total = counter[0]
     print(f"\n{'='*50}")
-    print(f"Total insertadas: {total} vacantes nuevas")
+    print(f"Total enviadas a la API: {total} vacantes nuevas")
 
-    conn2 = sqlite3.connect(DB_PATH)
-    rows = conn2.execute(
-        "SELECT id, titulo, empresa, status FROM vacantes ORDER BY id DESC LIMIT 10"
-    ).fetchall()
-    conn2.close()
-    print(f"\n--- Últimas {len(rows)} en DB ---")
-    for r in rows:
-        print(f"  [{r[0]:>3}] {r[1][:48]:<48} | {r[2][:22]:<22} | {r[3]}")
 
 if __name__ == "__main__":
     main()

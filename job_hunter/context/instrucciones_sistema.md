@@ -27,11 +27,14 @@ Automatizar la búsqueda, clasificación y postulación a vacantes técnicas ali
 
 ## Flujo de Estados (vía API REST, NUNCA sqlite directo)
 `No_Creado` → `En_Proceso` → `Revisado_IA` → `Listo_Manual`
-| Estado       | Lo activa                                    |
-|--------------|----------------------------------------------|
-| En_Proceso   | Inicio de save_latex_cv (PATCH automático)   |
-| Revisado_IA  | save_latex_cv exitoso (PATCH automático)     |
-| Listo_Manual | El usuario lo marca manualmente en el dashboard |
+                                ↘ `Requiere_Correccion`
+
+| Estado              | Lo activa                                                                   |
+|---------------------|-----------------------------------------------------------------------------|
+| En_Proceso          | **Primer paso al recibir el prompt de generación** — antes de leer perfil ni escribir LaTeX |
+| Revisado_IA         | save_latex_cv exitoso (PDF compilado sin errores)                           |
+| Requiere_Correccion | save_latex_cv falla (error de compilación, escritura o vacante inválida)    |
+| Listo_Manual        | El usuario lo marca manualmente en el dashboard                             |
 
 ## Reglas de Generación de CV
 - Leer datos REALES desde `data/perfil_maestro.json` — PROHIBIDO inventar datos

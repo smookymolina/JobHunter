@@ -1,26 +1,27 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Plus, RefreshCw, WifiOff, Loader2, TrendingUp, Radio } from 'lucide-react'
-import { api, type Vacante, type Status } from '@/lib/api'
-import KanbanBoard from '@/components/KanbanBoard'
+import { Loader2, Plus, Radio, RefreshCw, TrendingUp, WifiOff } from 'lucide-react'
+import { api, type Status, type SyncHealthReport, type Vacante } from '@/lib/api'
 import AddVacanteModal from '@/components/AddVacanteModal'
+import KanbanBoard from '@/components/KanbanBoard'
 
 const STAT_COLS: { id: Status; label: string; color: string }[] = [
-  { id: 'No_Creado',           label: 'Sin iniciar',  color: 'text-zinc-400' },
-  { id: 'En_Proceso',          label: 'En proceso',   color: 'text-blue-400' },
-  { id: 'Revisado_IA',         label: 'Revisado IA',  color: 'text-amber-400' },
-  { id: 'Requiere_Correccion', label: 'Con error',    color: 'text-rose-400' },
-  { id: 'Listo_Manual',        label: 'Listos',       color: 'text-emerald-400' },
+  { id: 'No_Creado', label: 'Sin iniciar', color: 'text-zinc-400' },
+  { id: 'En_Proceso', label: 'En proceso', color: 'text-blue-400' },
+  { id: 'Revisado_IA', label: 'Revisado IA', color: 'text-amber-400' },
+  { id: 'Requiere_Correccion', label: 'Con error', color: 'text-rose-400' },
+  { id: 'Listo_Manual', label: 'Listos', color: 'text-emerald-400' },
 ]
 
 export default function DashboardPage() {
-  const [vacantes, setVacantes]         = useState<Vacante[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [error, setError]               = useState('')
-  const [spinning, setSpinning]         = useState(false)
-  const [addOpen, setAddOpen]           = useState(false)
+  const [vacantes, setVacantes] = useState<Vacante[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [spinning, setSpinning] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [scrapeRunning, setScrapeRunning] = useState(false)
+  const [health, setHealth] = useState<SyncHealthReport | null>(null)
 
   const fetchVacantes = useCallback(async (silent = false) => {
     try {
@@ -28,9 +29,7 @@ export default function DashboardPage() {
       setVacantes(data)
       if (!silent) setError('')
     } catch {
-      if (!silent) {
-        setError('No se pudo conectar con la API. ¿Está corriendo en localhost:8000?')
-      }
+      if (!silent) setError('No se pudo conectar con la API. Verifica http://127.0.0.1:8000.')
     } finally {
       if (!silent) {
         setLoading(false)
@@ -39,40 +38,74 @@ export default function DashboardPage() {
     }
   }, [])
 
-  // Monitorea el estado del scraping
   useEffect(() => {
     const checkScrape = async () => {
       try {
         const s = await api.scrapeStatus()
         setScrapeRunning(s.running)
-      } catch { /* ignorar si la API no responde */ }
+      } catch {
+        setScrapeRunning(false)
+      }
     }
-    checkScrape()
+    void checkScrape()
     const id = setInterval(checkScrape, 3000)
     return () => clearInterval(id)
   }, [])
 
   useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        setHealth(await api.debugSyncHealth())
+      } catch {
+        setHealth(null)
+      }
+    }
+    void checkHealth()
+    const id = setInterval(checkHealth, 5000)
+    return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    void fetchVacantes()
+  }, [fetchVacantes])
+
+  useEffect(() => {
     const id = setInterval(() => {
       void fetchVacantes(true)
-    }, 3000)
+    }, 2000)
     return () => clearInterval(id)
   }, [fetchVacantes])
 
-  useEffect(() => { void fetchVacantes() }, [fetchVacantes])
-
-  const handleRefresh = () => { setSpinning(true); void fetchVacantes() }
+  const handleRefresh = () => {
+    setSpinning(true)
+    void fetchVacantes()
+  }
 
   const count = (s: Status) => vacantes.filter(v => v.status === s).length
+  const healthState = health?.state ?? 'idle'
+  const healthDot =
+    healthState === 'healthy'
+      ? 'bg-emerald-400 shadow-emerald-400/40'
+      : healthState === 'degraded'
+        ? 'bg-amber-400 shadow-amber-400/40'
+        : 'bg-zinc-500 shadow-zinc-500/30'
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-radial-indigo">
-      {/* Top bar */}
       <header className="flex shrink-0 flex-col gap-2 border-b border-white/[0.06] px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-[18px] font-semibold tracking-tight text-zinc-50">Dashboard</h1>
-            <p className="text-[12px] text-zinc-500">Vista Kanban · {vacantes.length} vacantes totales</p>
+            <div className="mt-1 flex items-center gap-2 text-[12px] text-zinc-500">
+              <span className={`h-2.5 w-2.5 rounded-full ${healthDot}`} />
+              <span>
+                {healthState === 'healthy'
+                  ? 'Salud del sistema: estable'
+                  : healthState === 'degraded'
+                    ? `Salud del sistema: degradada (${health?.issues.length ?? 0} incidencias)`
+                    : `Salud del sistema: sin telemetría · ${vacantes.length} vacantes totales`}
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -92,6 +125,7 @@ export default function DashboardPage() {
             </button>
           </div>
         </div>
+
         {scrapeRunning && (
           <div className="flex items-center gap-2 self-start rounded-lg border border-blue-800/40 bg-blue-950/30 px-3 py-1.5 text-[12px] text-blue-300">
             <Radio size={13} className="animate-pulse" />
@@ -101,7 +135,6 @@ export default function DashboardPage() {
         )}
       </header>
 
-      {/* Stats row */}
       {!loading && !error && (
         <div className="flex shrink-0 gap-4 border-b border-white/[0.06] px-6 py-3">
           {STAT_COLS.map(({ id, label, color }) => (
@@ -119,7 +152,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Content */}
       <main className="flex-1 overflow-hidden px-4 py-4">
         {loading && (
           <div className="flex h-full items-center justify-center">
@@ -131,7 +163,10 @@ export default function DashboardPage() {
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <WifiOff size={32} className="text-zinc-700" />
             <p className="max-w-sm text-[13px] text-zinc-500">{error}</p>
-            <button onClick={handleRefresh} className="text-[12px] text-indigo-400 hover:text-indigo-300 transition-colors">
+            <button
+              onClick={handleRefresh}
+              className="text-[12px] text-indigo-400 transition-colors hover:text-indigo-300"
+            >
               Reintentar
             </button>
           </div>
