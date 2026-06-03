@@ -1,0 +1,69 @@
+===================================================================
+  INSTRUCCIONES: Conectar Job Hunter a Claude Desktop via MCP
+===================================================================
+
+ARCHIVO DE CONFIG:  %APPDATA%\Claude\claude_desktop_config.json
+  (C:\Users\GIRTEC\AppData\Roaming\Claude\claude_desktop_config.json)
+
+CONTENIDO EXACTO (ya aplicado):
+
+{
+  "mcpServers": {
+    "job-hunter": {
+      "command": "C:\\Users\\GIRTEC\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "args": [
+        "C:\\Users\\GIRTEC\\Desktop\\Trabajo\\job_hunter\\src\\mcp_server.py"
+      ],
+      "cwd": "C:\\Users\\GIRTEC\\Desktop\\Trabajo\\job_hunter\\src"
+    }
+  }
+}
+
+PUNTOS CLAVE:
+  ✓ command   → ruta ABSOLUTA al python.exe (no solo "python")
+  ✓ cwd       → job_hunter\src  (para que gemini_engine sea importable)
+  ✓ API_BASE  → http://127.0.0.1:8000 (127.0.0.1, no localhost — evita bug IPv6 Windows)
+
+===================================================================
+  ORDEN DE ARRANQUE OBLIGATORIO
+===================================================================
+
+1. PowerShell (Terminal 1):
+     cd C:\Users\GIRTEC\Desktop\Trabajo\job_hunter
+     .\start_api.ps1
+   → Mantener abierta durante toda la sesión
+
+2. Opcional — Bot Telegram (Terminal 2):
+     cd C:\Users\GIRTEC\Desktop\Trabajo\job_hunter\src
+     python bot.py
+
+3. Opcional — Frontend (Terminal 3):
+     cd C:\Users\GIRTEC\Desktop\Trabajo\frontend
+     npm run dev
+
+4. Claude Desktop → ya carga el MCP automáticamente con el config de arriba
+
+===================================================================
+  HERRAMIENTAS MCP DISPONIBLES
+===================================================================
+
+  get_vacancy_by_id(vacante_id)          → datos de la vacante desde API
+  get_pending_vacancies()                → lista No_Creado / Requiere_Correccion
+  update_compatibility(vacante_id, nivel) → Alta / Media / Baja / Nula
+  save_latex_cv(vacante_id, tex_content) → guarda .tex, compila PDF,
+                                           PATCH status → Revisado_IA
+
+  ⚠ Si cualquier tool retorna "🔴 STOP": la API no está corriendo.
+     Ejecuta .\start_api.ps1 y reintenta. NO uses bash/sqlite.
+
+===================================================================
+  FLUJO COMPLETO (copiar prompt desde dashboard)
+===================================================================
+
+  1. Dashboard → tarjeta → "Copiar Prompt MCP"
+  2. Pegar en Claude Desktop
+  3. Claude ejecuta: get_vacancy_by_id → perfil_maestro.json → save_latex_cv
+  4. Status → En_Proceso (al inicio) → Revisado_IA (al compilar PDF)
+  5. Dashboard actualiza automáticamente (polling 3s)
+
+===================================================================

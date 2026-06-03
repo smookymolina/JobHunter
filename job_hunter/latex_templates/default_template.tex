@@ -1,0 +1,71 @@
+% ============================================================
+%  JOB HUNTER - Plantilla Base de CV
+%  La IA sustituira los bloques {{MARCADOR}} con contenido
+%  adaptado a cada vacante.
+% ============================================================
+\documentclass[11pt, a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage[margin=2cm, top=1.8cm, bottom=1.8cm]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{parskip}
+\usepackage{fontawesome5}
+
+\definecolor{accentcolor}{RGB}{30, 80, 160}
+
+\titleformat{\section}
+  {\large\bfseries\color{accentcolor}}
+  {}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{10pt}{4pt}
+
+\pagestyle{empty}
+
+\begin{document}
+
+{\LARGE\bfseries {{NOMBRE_COMPLETO}}}\\[2pt]
+{\large {{TITULO_PROFESIONAL_ADAPTADO}}}\\[4pt]
+\small
+\faEnvelope\ {{EMAIL}} \quad
+\faPhone\ {{TELEFONO}} \quad
+\faLinkedin\ {{LINKEDIN}} \quad
+\faGithub\ {{GITHUB}} \quad
+\faMapMarker*\ {{UBICACION}}
+
+\vspace{6pt}\hrule\vspace{6pt}
+
+\section{Perfil Profesional}
+{{RESUMEN_EJECUTIVO}}
+
+\section{Habilidades Tecnicas}
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item \textbf{{{CATEGORIA_SKILL_1}}:} {{LISTA_SKILLS_1}}
+    \item \textbf{{{CATEGORIA_SKILL_2}}:} {{LISTA_SKILLS_2}}
+    \item \textbf{{{CATEGORIA_SKILL_3}}:} {{LISTA_SKILLS_3}}
+    \item \textbf{Idiomas:} {{IDIOMAS}}
+\end{itemize}
+
+\section{Experiencia Profesional}
+\textbf{{{PUESTO_1}}} \hfill \textit{{{FECHA_INICIO_1}} -- {{FECHA_FIN_1}}}\\
+\textit{{{EMPRESA_1}}} \hfill {{UBICACION_1}}
+\begin{itemize}[leftmargin=*, itemsep=1pt]
+    \item {{LOGRO_1_1}}
+    \item {{LOGRO_1_2}}
+    \item {{LOGRO_1_3}}
+\end{itemize}
+
+\section{Proyectos Destacados}
+\begin{itemize}[leftmargin=*, itemsep=2pt]
+    \item \textbf{{{PROYECTO_1}}:} {{DESCRIPCION_PROYECTO_1}}
+    \item \textbf{{{PROYECTO_2}}:} {{DESCRIPCION_PROYECTO_2}}
+\end{itemize}
+
+\section{Educacion}
+\textbf{{{TITULO_ACADEMICO}}} \hfill \textit{{{ANIO_EGRESO}}}\\
+{{INSTITUCION}} \hfill {{CIUDAD_INSTITUCION}}
+
+\end{document}
