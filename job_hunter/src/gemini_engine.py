@@ -354,13 +354,28 @@ REGLAS:
 
 
 def compilar_pdf(tex_path: str) -> str | None:
-    """Compila .tex -> PDF con pdflatex. Retorna ruta al PDF o lanza error."""
+    """Compila .tex -> PDF con pdflatex. Retorna ruta al PDF o lanza error.
+
+    Si el PDF ya existe y es igual de reciente que el .tex (compilado externamente),
+    lo reutiliza sin relanzar pdflatex — esto permite que CVs compilados fuera de
+    Windows (sandbox, CI, etc.) sean reconocidos correctamente.
+    """
     if not os.path.exists(tex_path):
         _log.error("[pdflatex ERROR] No encontrado: %s", tex_path)
         raise RuntimeError(f"No existe el archivo .tex: {tex_path}")
 
     abs_tex     = os.path.abspath(tex_path)
     abs_out_dir = os.path.abspath(OUTPUTS_DIR)
+    pdf_path    = os.path.splitext(abs_tex)[0] + '.pdf'
+
+    # ── Reutilizar PDF ya compilado ────────────────────────────────────────────
+    if os.path.exists(pdf_path):
+        tex_mtime = os.path.getmtime(abs_tex)
+        pdf_mtime = os.path.getmtime(pdf_path)
+        if pdf_mtime >= tex_mtime - 2:          # margen de 2 s para escrituras simultáneas
+            _log.info("[pdf] Reutilizando PDF existente (no se relanza pdflatex): %s", pdf_path)
+            return pdf_path
+
     _log.info("[pdflatex] Compilando %s", os.path.basename(tex_path))
 
     try:
@@ -371,7 +386,6 @@ def compilar_pdf(tex_path: str) -> str | None:
         )
         _log.debug("[pdflatex stdout] %s", result.stdout or "(sin stdout)")
         _log.debug("[pdflatex stderr] %s", result.stderr or "(sin stderr)")
-        pdf_path = abs_tex.replace('.tex', '.pdf')
         if result.returncode == 0 and os.path.exists(pdf_path):
             _log.info("[pdf] Generado: %s", pdf_path)
             return pdf_path
@@ -386,8 +400,15 @@ def compilar_pdf(tex_path: str) -> str | None:
         _log.error("[pdflatex ERROR] Timeout.")
         raise RuntimeError("pdflatex excedio el tiempo limite de 60s.")
     except FileNotFoundError:
-        _log.error("[pdflatex ERROR] pdflatex no encontrado.")
-        raise RuntimeError("pdflatex no encontrado. Verifica que MiKTeX este instalado y en PATH.")
+        # pdflatex no está en PATH: si el PDF ya existe (compilado externamente), usarlo
+        if os.path.exists(pdf_path):
+            _log.warning("[pdflatex] No encontrado en PATH pero existe PDF previo — reutilizando.")
+            return pdf_path
+        _log.error("[pdflatex ERROR] pdflatex no encontrado y no hay PDF previo.")
+        raise RuntimeError(
+            "pdflatex no encontrado en PATH. Instala MiKTeX (https://miktex.org) "
+            "o TeX Live y asegúrate de que esté en la variable PATH del sistema."
+        )
 
 
 def generar_y_compilar(vacante_id: int) -> tuple[str | None, str | None]:

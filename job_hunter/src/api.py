@@ -184,6 +184,35 @@ def cambiar_status(vid: int, body: dict):
     return {"ok": True, "id": vid, "status": nuevo}
 
 
+@app.post("/vacantes/{vid}/sync")
+def sync_vacante(vid: int):
+    """Detecta si ya existe un PDF compilado para la vacante y actualiza el status
+    a Revisado_IA automáticamente. Útil cuando el .tex se compiló fuera del pipeline
+    (sandbox, editor externo, etc.) y el status quedó desactualizado.
+    """
+    pdf_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf"))
+    tex_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex"))
+    if os.path.exists(pdf_path):
+        _set_status(vid, "Revisado_IA")
+        return {
+            "ok": True,
+            "synced": True,
+            "status": "Revisado_IA",
+            "pdf": pdf_path,
+            "tex_exists": os.path.exists(tex_path),
+        }
+    if os.path.exists(tex_path):
+        # .tex existe pero sin PDF → intentar compilar
+        try:
+            result_pdf = compilar_pdf(tex_path)
+            _set_status(vid, "Revisado_IA")
+            return {"ok": True, "synced": True, "status": "Revisado_IA", "pdf": result_pdf}
+        except Exception as e:
+            _set_status(vid, "Requiere_Correccion")
+            return {"ok": False, "synced": False, "status": "Requiere_Correccion", "error": str(e)}
+    return {"ok": False, "synced": False, "detail": f"No existe .tex ni .pdf para vacante #{vid}."}
+
+
 @app.patch("/vacantes/{vid}/compatibilidad")
 def cambiar_compatibilidad(vid: int, body: dict):
     """Actualiza el nivel de compatibilidad de una vacante."""
@@ -230,6 +259,8 @@ async def save_latex(vid: int, request: Request):
     if pdf_path and os.path.exists(pdf_path):
         _set_status(vid, "Revisado_IA")
         return {"ok": True, "pdf": True, "tex_path": tex_path, "pdf_path": pdf_path}
+    # ── Compilación fallida: marcar Requiere_Correccion para visibilidad en Kanban ──
+    _set_status(vid, "Requiere_Correccion")
     return {"ok": True, "pdf": False, "error": error or "pdflatex no generó el archivo."}
 
 

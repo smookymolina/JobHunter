@@ -7,14 +7,14 @@
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[spanish]{babel}
+\usepackage{babel}           % sin opcion [spanish] — evita error en TeX Live sin babel-spanish
 \usepackage[margin=2cm, top=1.8cm, bottom=1.8cm]{geometry}
 \usepackage{enumitem}
 \usepackage{titlesec}
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{parskip}
-\usepackage{fontawesome5}
+% fontawesome5 ELIMINADO — no esta instalado en este TeX Live
 
 \definecolor{accentcolor}{RGB}{30, 80, 160}
 
@@ -30,11 +30,9 @@
 {\LARGE\bfseries {{NOMBRE_COMPLETO}}}\\[2pt]
 {\large {{TITULO_PROFESIONAL_ADAPTADO}}}\\[4pt]
 \small
-\faEnvelope\ {{EMAIL}} \quad
-\faPhone\ {{TELEFONO}} \quad
-\faLinkedin\ {{LINKEDIN}} \quad
-\faGithub\ {{GITHUB}} \quad
-\faMapMarker*\ {{UBICACION}}
+\textbf{Email:} {{EMAIL}} \quad
+\textbf{Tel:} {{TELEFONO}} \quad
+\textbf{Ubicaci\'on:} {{UBICACION}}
 
 \vspace{6pt}\hrule\vspace{6pt}
 

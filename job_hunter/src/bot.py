@@ -1,559 +1,832 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
-import sqlite3
+import io
+import json
 import os
-import subprocess
-import logging
+import re
 import asyncio
+import subprocess
+import urllib.error
+import urllib.request
+import logging
+from functools import wraps
+
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
-    Application, CommandHandler, ConversationHandler,
-    MessageHandler, CallbackQueryHandler, filters, ContextTypes
-)
-from gemini_engine import generar_y_compilar, TEMPLATES_DIR, OUTPUTS_DIR
-from inspector import evaluar_cv
-
-TOKEN = "8987674164:AAG0pnCvhXcII0ZncPHXOYIlKalw2eOdA7E"
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'db', 'vacantes.db')
-
-VALID_STATUSES = {"No_Creado", "En_Proceso", "Revisado_IA", "Listo_Manual", "Requiere_Correccion"}
-
-ASK_TITULO, ASK_EMPRESA, ASK_ENLACE, ASK_REQS = range(4)
-
-logging.basicConfig(
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    level=logging.INFO
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, filters, ContextTypes,
 )
 
-# ── Helpers DB ────────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 
-def db():
-    return sqlite3.connect(DB_PATH)
+TOKEN       = os.getenv("TELEGRAM_BOT_TOKEN", "8987674164:AAG0pnCvhXcII0ZncPHXOYIlKalw2eOdA7E")
+ADMIN_ID    = int(os.getenv("TELEGRAM_ADMIN_ID", "0"))
+API_BASE    = os.getenv("API_BASE_URL", "http://localhost:8000")
+OUTPUTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'outputs'))
+TEMPLATES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'latex_templates'))
+PAGE_SIZE   = 5
 
-def fmt_status(s):
-    icons = {
-        "No_Creado": "⬜", "En_Proceso": "🔵",
-        "Revisado_IA": "🟡", "Listo_Manual": "🟢", "Requiere_Correccion": "🔴"
-    }
-    return f"{icons.get(s, '❓')} {s}"
+logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
+log = logging.getLogger("bot")
 
-# ── /menu ─────────────────────────────────────────────────────────────────────
+# ── Security ──────────────────────────────────────────────────────────────────
 
-async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔍 Buscar Vacantes", callback_data="buscar_3")],
-        [InlineKeyboardButton("📋 Ver Pendientes",  callback_data="pendientes")],
-        [InlineKeyboardButton("⚙️ Resumen",         callback_data="resumen")],
-    ])
-    await update.message.reply_text(
-        "*Job Hunter — Menú Principal*",
-        parse_mode="Markdown",
-        reply_markup=kb,
-    )
+def admin_only(func):
+    @wraps(func)
+    async def wrapper(update: Update, ctx: ContextTypes.DEFAULT_TYPE, *a, **kw):
+        uid = update.effective_user.id if update.effective_user else 0
+        if ADMIN_ID and uid != ADMIN_ID:
+            if update.callback_query:
+                await update.callback_query.answer("⛔ Acceso no autorizado.", show_alert=True)
+            elif update.message:
+                await update.message.reply_text("⛔ Acceso no autorizado.")
+            return
+        return await func(update, ctx, *a, **kw)
+    return wrapper
 
-# ── /start ────────────────────────────────────────────────────────────────────
+# ── API helpers ───────────────────────────────────────────────────────────────
 
-async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = (
-        "*Job Hunter Bot* 🤖\n\n"
-        "/menu — menú interactivo con botones\n"
-        "/vacantes — últimas 10 vacantes\n"
-        "/detalles <ID> — ver requerimientos\n"
-        "/estado <ID> <ESTADO> — cambiar status\n"
-        "/agregar\\_manual — añadir vacante manual\n"
-        "/buscar <cantidad> — búsqueda autónoma (ej. /buscar 5)\n\n"
-        "Estados válidos: `No_Creado` `En_Proceso` `Revisado_IA` `Listo_Manual`"
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
-# ── /vacantes ─────────────────────────────────────────────────────────────────
-
-async def cmd_vacantes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    conn = db()
-    rows = conn.execute(
-        "SELECT id, titulo, empresa, compatibilidad, status "
-        "FROM vacantes ORDER BY id DESC LIMIT 10"
-    ).fetchall()
-    conn.close()
-
-    if not rows:
-        await update.message.reply_text("No hay vacantes registradas.")
-        return
-
-    lines = ["*Últimas 10 vacantes:*\n"]
-    for r in rows:
-        compat_icon = {"Alta": "🔥", "Media": "🟠", "Baja": "🔵", "Nula": "⚪"}.get(r[3], "❓")
-        lines.append(
-            f"`[{r[0]:>3}]` {compat_icon} *{r[1][:40]}*\n"
-            f"       _{r[2][:30]}_ — {fmt_status(r[4])}\n"
-        )
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-
-# ── /detalles <ID> ────────────────────────────────────────────────────────────
-
-async def cmd_detalles(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args:
-        await update.message.reply_text("Uso: /detalles <ID>")
-        return
-    try:
-        vid = int(ctx.args[0])
-    except ValueError:
-        await update.message.reply_text("ID debe ser un número.")
-        return
-
-    conn = db()
-    row = conn.execute(
-        "SELECT titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro "
-        "FROM vacantes WHERE id=?", (vid,)
-    ).fetchone()
-    conn.close()
-
-    if not row:
-        await update.message.reply_text(f"Vacante #{vid} no encontrada.")
-        return
-
-    titulo, empresa, enlace, reqs, compat, status, fecha = row
-    reqs_preview = (reqs[:800] + "…") if reqs and len(reqs) > 800 else (reqs or "Sin datos")
-    msg = (
-        f"*#{vid} — {titulo}*\n"
-        f"🏢 {empresa}\n"
-        f"📅 {fecha[:10]}\n"
-        f"🎯 Compat: *{compat}* | {fmt_status(status)}\n"
-        f"🔗 {enlace}\n\n"
-        f"📋 *Requerimientos:*\n{reqs_preview}"
-    )
-
-    kb = _vacante_keyboard(vid, status)
-    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=kb)
-
-def _vacante_keyboard(vid: int, status: str) -> InlineKeyboardMarkup:
-    buttons = []
-    if status in ("No_Creado", "Requiere_Correccion", "En_Proceso"):
-        buttons.append(InlineKeyboardButton("🚀 Generar con Groq", callback_data=f"gen_{vid}"))
-    if status == "Revisado_IA":
-        buttons.append(InlineKeyboardButton("📄 Descargar PDF", callback_data=f"pdf_{vid}"))
-    buttons.append(InlineKeyboardButton("✅ Marcar Listo", callback_data=f"listo_{vid}"))
-    return InlineKeyboardMarkup([buttons])
-
-# ── /estado <ID> <ESTADO> ────────────────────────────────────────────────────
-
-async def cmd_estado(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if len(ctx.args) < 2:
-        await update.message.reply_text("Uso: /estado <ID> <NUEVO_ESTADO>")
-        return
-    try:
-        vid = int(ctx.args[0])
-    except ValueError:
-        await update.message.reply_text("ID debe ser un número.")
-        return
-
-    nuevo = ctx.args[1].strip()
-    if nuevo not in VALID_STATUSES:
-        await update.message.reply_text(
-            f"Estado inválido. Usa:\n" + "\n".join(f"`{s}`" for s in VALID_STATUSES),
-            parse_mode="Markdown"
-        )
-        return
-
-    conn = db()
-    conn.execute("UPDATE vacantes SET status=? WHERE id=?", (nuevo, vid))
-    conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
-    conn.close()
-
-    if changes:
-        await update.message.reply_text(f"✅ Vacante #{vid} → {fmt_status(nuevo)}")
+def _api_sync(method: str, path: str, data=None, raw_body: bytes | None = None,
+              content_type: str = "application/json"):
+    url = f"{API_BASE}{path}"
+    if data is not None:
+        body = json.dumps(data).encode()
+        ct   = "application/json"
+    elif raw_body is not None:
+        body = raw_body
+        ct   = content_type
     else:
-        await update.message.reply_text(f"Vacante #{vid} no encontrada.")
-
-# ── ConversationHandler: /agregar_manual ─────────────────────────────────────
-
-async def manual_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data.clear()
-    await update.message.reply_text("📝 *Agregar vacante manual*\n\nTítulo del puesto:", parse_mode="Markdown")
-    return ASK_TITULO
-
-async def manual_titulo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data['titulo'] = update.message.text.strip()
-    await update.message.reply_text("Empresa:")
-    return ASK_EMPRESA
-
-async def manual_empresa(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data['empresa'] = update.message.text.strip() or "Desconocida"
-    await update.message.reply_text("Enlace (URL de la vacante):")
-    return ASK_ENLACE
-
-async def manual_enlace(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data['enlace'] = update.message.text.strip()
-    await update.message.reply_text("Requerimientos / descripción del puesto:")
-    return ASK_REQS
-
-async def manual_reqs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data['reqs'] = update.message.text.strip()
-    d = ctx.user_data
-
-    conn = db()
-    conn.execute(
-        "INSERT OR IGNORE INTO vacantes (titulo, empresa, enlace, requerimientos, compatibilidad, status) "
-        "VALUES (?,?,?,?,?,'No_Creado')",
-        (d['titulo'][:200], d['empresa'][:100], d['enlace'], d['reqs'][:2000], "Nula")
+        body = None
+        ct   = content_type
+    req = urllib.request.Request(
+        url, data=body,
+        headers={"Content-Type": ct} if body else {},
+        method=method.upper(),
     )
-    conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
-    row_id  = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.close()
-
-    if changes:
-        await update.message.reply_text(
-            f"✅ Vacante guardada con ID *#{row_id}*\n_{d['titulo'][:60]}_",
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text("⚠️ Enlace duplicado. La vacante ya existe.")
-
-    ctx.user_data.clear()
-    return ConversationHandler.END
-
-async def manual_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data.clear()
-    await update.message.reply_text("Operación cancelada.")
-    return ConversationHandler.END
-
-# ── /buscar <cantidad> ───────────────────────────────────────────────────────
-
-async def cmd_buscar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args:
-        await update.message.reply_text(
-            "Uso: /buscar <cantidad>\nEjemplo: `/buscar 5`",
-            parse_mode="Markdown"
-        )
-        return
     try:
-        cantidad = int(ctx.args[0])
-        if cantidad < 1 or cantidad > 200:
-            raise ValueError
-    except ValueError:
-        await update.message.reply_text("La cantidad debe ser un número entre 1 y 200.")
-        return
-
-    await update.message.reply_text(
-        f"🔍 Iniciando búsqueda autónoma de *{cantidad}* vacantes...\n"
-        f"Esto puede tardar varios minutos.",
-        parse_mode="Markdown"
-    )
-
-    agent_path = os.path.join(os.path.dirname(__file__), 'browser_agent.py')
-    loop = asyncio.get_event_loop()
-    try:
-        await loop.run_in_executor(
-            None,
-            lambda: subprocess.run(
-                [sys.executable, agent_path, '--limit', str(cantidad)],
-                timeout=600,
-            )
-        )
-        await update.message.reply_text(
-            f"✅ Búsqueda completada. Se solicitaron *{cantidad}* vacantes.\n"
-            f"Usa /vacantes para ver los nuevos registros.",
-            parse_mode="Markdown"
-        )
-    except subprocess.TimeoutExpired:
-        await update.message.reply_text("⏱ El scraping superó el tiempo límite (10 min).")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {e.code}: {detail[:300]}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Error en la búsqueda: {e}")
+        raise RuntimeError(f"Error de conexión con la API: {e}")
 
-# ── /generar_cv <ID> ─────────────────────────────────────────────────────────
+async def api(method: str, path: str, data=None,
+              raw_body: bytes | None = None, content_type: str = "application/json"):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None, lambda: _api_sync(method, path, data, raw_body, content_type)
+    )
 
-async def cmd_generar_cv(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not ctx.args:
-        await update.message.reply_text("Uso: /generar_cv <ID>")
-        return
-    try:
-        vid = int(ctx.args[0])
-    except ValueError:
-        await update.message.reply_text("ID debe ser un número.")
-        return
+# ── Formatters ────────────────────────────────────────────────────────────────
 
-    conn = db()
-    row = conn.execute("SELECT titulo, empresa FROM vacantes WHERE id=?", (vid,)).fetchone()
-    conn.close()
-    if not row:
-        await update.message.reply_text(f"Vacante #{vid} no encontrada.")
-        return
+STATUS_ICON = {
+    "No_Creado": "⬜", "En_Proceso": "🔵",
+    "Revisado_IA": "🟡", "Listo_Manual": "🟢", "Requiere_Correccion": "🔴",
+}
+COMPAT_ICON = {"Alta": "🔥", "Media": "🟠", "Baja": "🔵", "Nula": "⚪"}
 
-    titulo, empresa = row
+def fmt_st(s: str) -> str:
+    return f"{STATUS_ICON.get(s,'❓')} {s}"
+
+def fmt_co(c: str) -> str:
+    return f"{COMPAT_ICON.get(c,'❓')} {c}"
+
+def esc(t: str) -> str:
+    return (t or "").replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+
+# ── Keyboard builders ─────────────────────────────────────────────────────────
+
+def kb_main() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 Buscar Vacantes",  callback_data="buscar")],
+        [InlineKeyboardButton("📊 Dashboard",         callback_data="dashboard")],
+        [InlineKeyboardButton("📋 Mis Vacantes",      callback_data="vacantes:0")],
+        [InlineKeyboardButton("👤 Mi Perfil",         callback_data="perfil")],
+        [InlineKeyboardButton("🤖 Acciones IA",       callback_data="ia")],
+        [InlineKeyboardButton("⚙️ Configuración",     callback_data="conf")],
+    ])
+
+def kb_back(dest: str = "menu") -> InlineKeyboardMarkup:
+    label = "◀️ Menú Principal" if dest == "menu" else "◀️ Volver"
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=dest)]])
+
+def kb_buscar() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("3 vacantes",  callback_data="buscar:3"),
+         InlineKeyboardButton("5 vacantes",  callback_data="buscar:5")],
+        [InlineKeyboardButton("10 vacantes", callback_data="buscar:10"),
+         InlineKeyboardButton("20 vacantes", callback_data="buscar:20")],
+        [InlineKeyboardButton("◀️ Volver",   callback_data="menu")],
+    ])
+
+def kb_vacantes(rows: list, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    btns = []
+    for v in rows:
+        icon  = COMPAT_ICON.get(v.get("compatibilidad", "Nula"), "❓")
+        label = f"{icon} #{v['id']} {v['titulo'][:28]}"
+        btns.append([InlineKeyboardButton(label, callback_data=f"vac:{v['id']}")])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"vacantes:{page-1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"vacantes:{page+1}"))
+    if nav:
+        btns.append(nav)
+    btns.append([InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")])
+    return InlineKeyboardMarkup(btns)
+
+def kb_vacante_detalle(vid: int, status: str) -> InlineKeyboardMarkup:
+    row1, row2 = [], []
+    if status in ("No_Creado", "Requiere_Correccion", "En_Proceso"):
+        row1.append(InlineKeyboardButton("🚀 Generar CV",    callback_data=f"gen:{vid}"))
+    if status in ("Revisado_IA", "Listo_Manual"):
+        row1.append(InlineKeyboardButton("📄 Ver PDF",       callback_data=f"pdf:{vid}"))
+        row1.append(InlineKeyboardButton("📝 Editar LaTeX",  callback_data=f"tex:{vid}"))
+    row2.append(InlineKeyboardButton("✅ Marcar Listo",      callback_data=f"listo:{vid}"))
+    row2.append(InlineKeyboardButton("🗑️ Borrar",            callback_data=f"del:{vid}"))
+    rows = [r for r in [row1, row2] if r]
+    rows.append([InlineKeyboardButton("◀️ Mis Vacantes", callback_data="vacantes:0")])
+    return InlineKeyboardMarkup(rows)
+
+def kb_ia() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🧹 Limpiar DB",          callback_data="ia:clean")],
+        [InlineKeyboardButton("⚡ Generar pendientes",   callback_data="ia:genall")],
+        [InlineKeyboardButton("🔄 Dashboard",            callback_data="dashboard")],
+        [InlineKeyboardButton("◀️ Volver",               callback_data="menu")],
+    ])
+
+def kb_conf(auto: bool, debug: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            f"{'✅' if auto else '🔲'} Scraping automático",
+            callback_data="conf:autoscrape",
+        )],
+        [InlineKeyboardButton(
+            f"{'✅' if debug else '🔲'} Modo debug",
+            callback_data="conf:debug",
+        )],
+        [InlineKeyboardButton("◀️ Volver", callback_data="menu")],
+    ])
+
+# ── Command handlers ──────────────────────────────────────────────────────────
+
+@admin_only
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.bot_data.setdefault("auto_scrape", False)
+    ctx.bot_data.setdefault("debug_mode",  False)
     await update.message.reply_text(
-        f"⚙️ Generando CV para:\n*#{vid} — {titulo}*\n_{empresa}_\n\nEsto puede tomar ~30s...",
-        parse_mode="Markdown"
+        "🤖 *Job Hunter Bot*\n\nControl total de tu búsqueda de empleo.\nElige una opción del menú:",
+        parse_mode="Markdown",
+        reply_markup=kb_main(),
+    )
+
+@admin_only
+async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🏠 *Menú Principal*",
+        parse_mode="Markdown",
+        reply_markup=kb_main(),
+    )
+
+# ── Callback dispatcher ───────────────────────────────────────────────────────
+
+@admin_only
+async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q    = update.callback_query
+    data = q.data
+
+    # ── Menú principal ─────────────────────────────────────────────────────────
+    if data == "menu":
+        await q.answer()
+        await q.edit_message_text(
+            "🏠 *Menú Principal*",
+            parse_mode="Markdown",
+            reply_markup=kb_main(),
+        )
+
+    # ── Dashboard ──────────────────────────────────────────────────────────────
+    elif data == "dashboard":
+        await q.answer()
+        await _cb_dashboard(q)
+
+    # ── Mi Perfil ──────────────────────────────────────────────────────────────
+    elif data == "perfil":
+        await q.answer()
+        await _cb_perfil(q)
+
+    # ── Buscar (sub-menú + acción) ─────────────────────────────────────────────
+    elif data == "buscar":
+        await q.answer()
+        await q.edit_message_text(
+            "🔍 *Buscar Vacantes*\n\n¿Cuántas vacantes buscar?\nSe usarán los términos de tu perfil automáticamente.",
+            parse_mode="Markdown",
+            reply_markup=kb_buscar(),
+        )
+
+    elif data.startswith("buscar:"):
+        cantidad = int(data.split(":")[1])
+        await q.answer(f"Iniciando búsqueda de {cantidad} vacantes…")
+        await _cb_buscar(q, cantidad)
+
+    # ── Mis Vacantes ───────────────────────────────────────────────────────────
+    elif data.startswith("vacantes:"):
+        await q.answer()
+        page = int(data.split(":")[1])
+        await _cb_vacantes(q, page)
+
+    elif data.startswith("vac:"):
+        await q.answer()
+        vid = int(data.split(":")[1])
+        await _cb_vacante_detalle(q, vid)
+
+    # ── Acciones sobre vacante ─────────────────────────────────────────────────
+    elif data.startswith("gen:"):
+        vid = int(data.split(":")[1])
+        await q.answer(f"Generando CV #{vid}…")
+        await _cb_generar(q, ctx, vid)
+
+    elif data.startswith("pdf:"):
+        vid = int(data.split(":")[1])
+        await _cb_enviar_pdf(q, vid)
+
+    elif data.startswith("tex:"):
+        vid = int(data.split(":")[1])
+        await q.answer("Cargando LaTeX…")
+        await _cb_editar_latex(q, ctx, vid)
+
+    elif data.startswith("listo:"):
+        vid = int(data.split(":")[1])
+        await _cb_marcar_listo(q, vid)
+
+    elif data.startswith("del:"):
+        vid = int(data.split(":")[1])
+        await _cb_borrar(q, vid)
+
+    # ── Acciones IA ────────────────────────────────────────────────────────────
+    elif data == "ia":
+        await q.answer()
+        await q.edit_message_text(
+            "🤖 *Acciones IA*\n\nOperaciones sobre el pipeline completo:",
+            parse_mode="Markdown",
+            reply_markup=kb_ia(),
+        )
+
+    elif data == "ia:clean":
+        await q.answer()
+        await _cb_clean_confirm(q)
+
+    elif data == "ia:clean:ok":
+        await q.answer("Limpiando…")
+        await _cb_clean_exec(q)
+
+    elif data == "ia:genall":
+        await q.answer("Iniciando generación masiva…")
+        await _cb_genall(q, ctx)
+
+    # ── Configuración ──────────────────────────────────────────────────────────
+    elif data == "conf":
+        await q.answer()
+        await q.edit_message_text(
+            "⚙️ *Configuración*",
+            parse_mode="Markdown",
+            reply_markup=kb_conf(
+                ctx.bot_data.get("auto_scrape", False),
+                ctx.bot_data.get("debug_mode",  False),
+            ),
+        )
+
+    elif data == "conf:autoscrape":
+        ctx.bot_data["auto_scrape"] = not ctx.bot_data.get("auto_scrape", False)
+        val = ctx.bot_data["auto_scrape"]
+        await q.answer("Activado ✅" if val else "Desactivado 🔲")
+        await q.edit_message_text(
+            f"⚙️ *Configuración*\n\nScraping automático: {'✅ Activado' if val else '🔲 Desactivado'}",
+            parse_mode="Markdown",
+            reply_markup=kb_conf(val, ctx.bot_data.get("debug_mode", False)),
+        )
+
+    elif data == "conf:debug":
+        ctx.bot_data["debug_mode"] = not ctx.bot_data.get("debug_mode", False)
+        val = ctx.bot_data["debug_mode"]
+        await q.answer("Debug ON 🐛" if val else "Debug OFF")
+        await q.edit_message_text(
+            f"⚙️ *Configuración*\n\nModo debug: {'🐛 Activado' if val else '🔇 Desactivado'}",
+            parse_mode="Markdown",
+            reply_markup=kb_conf(ctx.bot_data.get("auto_scrape", False), val),
+        )
+
+    else:
+        await q.answer("Acción desconocida.", show_alert=True)
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+
+async def _cb_dashboard(q):
+    try:
+        vacantes = await api("GET", "/vacantes?limit=500")
+        scrape   = await api("GET", "/scrape/status")
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ *Error en servidor:* la API no responde.\n\n`{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back(),
+        )
+        return
+
+    total    = len(vacantes)
+    by_st    = {}
+    by_co    = {}
+    for v in vacantes:
+        s = v.get("status", "?");       by_st[s] = by_st.get(s, 0) + 1
+        c = v.get("compatibilidad", "?"); by_co[c] = by_co.get(c, 0) + 1
+
+    pendientes = by_st.get("No_Creado", 0) + by_st.get("Requiere_Correccion", 0)
+    en_proceso = by_st.get("En_Proceso", 0)
+    revisados  = by_st.get("Revisado_IA", 0)
+    listos     = by_st.get("Listo_Manual", 0)
+
+    scrape_txt = "🟢 Activo" if scrape.get("running") else "⚪ Inactivo"
+    last       = scrape.get("last") or "—"
+
+    lines_st = "\n".join(f"  {fmt_st(s)}: {c}" for s, c in sorted(by_st.items()))
+    lines_co = "\n".join(f"  {fmt_co(k)}: {n}" for k, n in sorted(by_co.items()))
+
+    text = (
+        f"📊 *Dashboard — Job Hunter*\n\n"
+        f"📁 Total vacantes: *{total}*\n"
+        f"⏳ Pendientes: *{pendientes}*\n"
+        f"🔵 En proceso: *{en_proceso}*\n"
+        f"🟡 Revisados IA: *{revisados}*\n"
+        f"🟢 Listos: *{listos}*\n\n"
+        f"🔍 Scraper: {scrape_txt}\n"
+        f"   Último: _{esc(last[:80])}_\n\n"
+        f"*Por status:*\n{lines_st}\n\n"
+        f"*Por compatibilidad:*\n{lines_co}"
+    )
+    await q.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Actualizar", callback_data="dashboard")],
+            [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+        ]),
+    )
+
+# ── Mi Perfil ─────────────────────────────────────────────────────────────────
+
+async def _cb_perfil(q):
+    try:
+        perfil = await api("GET", "/api/perfil")
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ *Perfil no disponible*\n\n`{esc(str(e))}`\n\n"
+            "Sube tu perfil desde el dashboard web o configura `data/perfil_maestro.json`.",
+            parse_mode="Markdown",
+            reply_markup=kb_back(),
+        )
+        return
+
+    nombre   = esc(f"{perfil.get('nombre','')} {perfil.get('apellidos','')}".strip())
+    titulo   = esc(perfil.get("titulo_profesional", "—"))
+    email    = esc(perfil.get("email", "—"))
+    telefono = esc(perfil.get("telefono", "—"))
+    ubicacion = esc(perfil.get("ubicacion", "—"))
+    habs     = perfil.get("habilidades", {})
+    n_skills = sum(len(v) for v in habs.values() if isinstance(v, list))
+    categorias = ", ".join(habs.keys()) or "—"
+
+    text = (
+        f"👤 *Mi Perfil*\n\n"
+        f"*{nombre}*\n"
+        f"_{titulo}_\n\n"
+        f"📧 {email}\n"
+        f"📱 {telefono}\n"
+        f"📍 {ubicacion}\n\n"
+        f"🛠 *{n_skills}* habilidades registradas\n"
+        f"📂 Categorías: _{categorias}_"
+    )
+    await q.edit_message_text(text, parse_mode="Markdown", reply_markup=kb_back())
+
+# ── Mis Vacantes ──────────────────────────────────────────────────────────────
+
+async def _cb_vacantes(q, page: int):
+    try:
+        all_v = await api("GET", "/vacantes?limit=500")
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ *Error cargando vacantes:*\n`{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back(),
+        )
+        return
+
+    total = len(all_v)
+    if total == 0:
+        await q.edit_message_text(
+            "📋 No hay vacantes registradas.\n\nUsa 🔍 Buscar Vacantes para empezar.",
+            reply_markup=kb_back(),
+        )
+        return
+
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    slc  = all_v[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+
+    await q.edit_message_text(
+        f"📋 *Mis Vacantes* — Página {page+1}/{total_pages}  ({total} total)",
+        parse_mode="Markdown",
+        reply_markup=kb_vacantes(slc, page, total_pages),
+    )
+
+async def _cb_vacante_detalle(q, vid: int):
+    try:
+        v = await api("GET", f"/vacantes/{vid}")
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ Vacante #{vid} no encontrada.\n`{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back("vacantes:0"),
+        )
+        return
+
+    reqs = v.get("requerimientos") or "Sin datos"
+    if len(reqs) > 600:
+        reqs = reqs[:600] + "…"
+
+    text = (
+        f"*\\#{v['id']} — {esc(v['titulo'][:50])}*\n"
+        f"🏢 _{esc(v.get('empresa','—'))}_\n"
+        f"📅 {(v.get('fecha_registro') or '')[:10]}\n"
+        f"🎯 {fmt_co(v.get('compatibilidad','Nula'))} | {fmt_st(v.get('status','?'))}\n"
+        f"🔗 {esc(v.get('enlace','—'))}\n\n"
+        f"📋 *Requerimientos:*\n{esc(reqs)}"
+    )
+    await q.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=kb_vacante_detalle(vid, v.get("status", "No_Creado")),
+    )
+
+# ── Buscar vacantes ───────────────────────────────────────────────────────────
+
+async def _cb_buscar(q, cantidad: int):
+    await q.edit_message_text(
+        f"🔍 Iniciando búsqueda de *{cantidad}* vacantes...\n"
+        f"Se usarán los términos derivados de tu perfil.",
+        parse_mode="Markdown",
+    )
+    try:
+        result = await api("POST", "/scrape", {"cantidad": cantidad})
+        msg  = esc(result.get("mensaje", "Scraping iniciado."))
+        terms = result.get("terminos", [])
+        terms_txt = "  • " + "\n  • ".join(esc(t) for t in terms[:6]) if terms else "—"
+        await q.edit_message_text(
+            f"✅ *{msg}*\n\n"
+            f"🔑 Términos usados:\n{terms_txt}\n\n"
+            f"El scraping corre en segundo plano. Vuelve en unos minutos.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Mis Vacantes",   callback_data="vacantes:0")],
+                [InlineKeyboardButton("📊 Dashboard",      callback_data="dashboard")],
+                [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+            ]),
+        )
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ *Error al iniciar búsqueda:*\n`{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back(),
+        )
+
+# ── Generar CV ────────────────────────────────────────────────────────────────
+
+async def _cb_generar(q, ctx, vid: int):
+    from gemini_engine import generar_y_compilar
+    from inspector    import evaluar_cv
+
+    await q.edit_message_text(
+        f"⚙️ Generando CV para vacante *\\#{vid}*...\n"
+        f"Esto puede tardar hasta 30 segundos.",
+        parse_mode="Markdown",
     )
 
     loop = asyncio.get_event_loop()
     try:
         tex_path, pdf_path = await loop.run_in_executor(None, generar_y_compilar, vid)
-    except ValueError as e:
-        await update.message.reply_text(f"❌ Config error: {e}")
-        return
     except Exception as e:
-        await update.message.reply_text(f"❌ Error inesperado: {e}")
+        await q.message.reply_text(
+            f"❌ *Error generando CV \\#{vid}:*\n`{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back("vacantes:0"),
+        )
         return
 
     if not tex_path:
-        await update.message.reply_text("❌ Falló la generación. Verifica la API key de IA y la vacante.")
+        await q.message.reply_text(
+            f"❌ Falló la generación del CV \\#{vid}.\n"
+            "Verifica la `GROQ_API_KEY` y los datos de la vacante.",
+            parse_mode="Markdown",
+            reply_markup=kb_back("vacantes:0"),
+        )
         return
 
-    await update.message.reply_text("🔍 Auditando CV con IA Inspector...")
-    auditoria = await loop.run_in_executor(None, evaluar_cv, vid, tex_path)
+    await q.message.reply_text("🔍 Auditando CV con Inspector IA...")
+    auditoria   = await loop.run_in_executor(None, evaluar_cv, vid, tex_path)
     aprobado    = auditoria["aprobado"]
-    comentarios = auditoria["comentarios"]
+    comentarios = esc(auditoria.get("comentarios", "—"))
 
-    conn = db()
     if aprobado and pdf_path and os.path.exists(pdf_path):
-        conn.execute("UPDATE vacantes SET status='Revisado_IA' WHERE id=?", (vid,))
-        conn.commit()
-        conn.close()
-        await update.message.reply_text(
-            f"✅ *CV aprobado por Inspector IA*\n\n"
-            f"💬 _{comentarios}_\n\n"
-            f"🟡 Status → *Revisado_IA*",
-            parse_mode="Markdown"
+        await q.message.reply_text(
+            f"✅ *CV aprobado por Inspector IA*\n\n💬 _{comentarios}_\n\n🟡 Status → *Revisado\\_IA*",
+            parse_mode="Markdown",
         )
-        with open(pdf_path, 'rb') as pdf_file:
-            await update.message.reply_document(
-                document=pdf_file,
+        with open(pdf_path, "rb") as f:
+            await q.message.reply_document(
+                document=f,
                 filename=os.path.basename(pdf_path),
-                caption=f"CV aprobado: {titulo[:50]}"
+                caption=f"📄 CV Vacante #{vid}",
             )
     elif not aprobado:
-        conn.execute("UPDATE vacantes SET status='Requiere_Correccion' WHERE id=?", (vid,))
-        conn.commit()
-        conn.close()
-        await update.message.reply_text(
-            f"⚠️ *Inspector IA: CV requiere correcciones*\n\n"
-            f"📋 *Comentarios:*\n{comentarios}\n\n"
-            f"🔴 Status → *Requiere_Correccion*\n"
-            f"Usa `/generar_cv {vid}` para regenerar.",
-            parse_mode="Markdown"
+        await q.message.reply_text(
+            f"⚠️ *Inspector IA: requiere correcciones*\n\n📋 {comentarios}\n\n🔴 Status → *Requiere\\_Correccion*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(f"🚀 Regenerar #{vid}", callback_data=f"gen:{vid}"),
+            ]]),
         )
     else:
-        conn.execute("UPDATE vacantes SET status='Revisado_IA' WHERE id=?", (vid,))
-        conn.commit()
-        conn.close()
-        await update.message.reply_text(
-            f"⚠️ *Inspector IA aprobó el CV* pero PDF no compiló.\n\n"
-            f"💬 _{comentarios}_\n\n"
-            f"Enviando .tex para revisión manual:",
-            parse_mode="Markdown"
+        await q.message.reply_text(
+            f"⚠️ Inspector IA aprobó pero el PDF no compiló.\n\n💬 _{comentarios}_",
+            parse_mode="Markdown",
         )
-        with open(tex_path, 'rb') as tex_file:
-            await update.message.reply_document(
-                document=tex_file,
-                filename=os.path.basename(tex_path),
-                caption="LaTeX aprobado — compila manualmente"
-            )
+        if tex_path and os.path.exists(tex_path):
+            with open(tex_path, "rb") as f:
+                await q.message.reply_document(
+                    document=f,
+                    filename=os.path.basename(tex_path),
+                    caption="LaTeX aprobado — compila manualmente",
+                )
 
-# ── Recepción de archivo .tex como plantilla ─────────────────────────────────
+# ── Ver / Enviar PDF ──────────────────────────────────────────────────────────
 
-async def handle_tex_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    if not doc or not doc.file_name.lower().endswith('.tex'):
-        return
-
-    dest = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
-    tg_file = await ctx.bot.get_file(doc.file_id)
-    await tg_file.download_to_drive(dest)
-
-    await update.message.reply_text(
-        "✅ *¡Plantilla visual actualizada con éxito!*\n"
-        f"Guardada en: `latex_templates/mi_estilo.tex`\n\n"
-        "El próximo `/generar_cv` usará tu diseño personalizado.",
-        parse_mode="Markdown"
-    )
-
-# ── Acciones inline (helpers) ─────────────────────────────────────────────────
-
-async def _send_pendientes(message):
-    conn = db()
-    rows = conn.execute(
-        "SELECT id, titulo, empresa, compatibilidad, status FROM vacantes "
-        "WHERE status IN ('No_Creado','Requiere_Correccion') "
-        "ORDER BY id DESC LIMIT 10"
-    ).fetchall()
-    conn.close()
-
-    if not rows:
-        await message.reply_text("No hay vacantes pendientes.")
-        return
-
-    await message.reply_text(
-        f"📋 *Vacantes pendientes ({len(rows)}):*",
-        parse_mode="Markdown"
-    )
-    for r in rows:
-        vid, titulo, empresa, compat, status = r
-        compat_icon = {"Alta": "🔥", "Media": "🟠", "Baja": "🔵", "Nula": "⚪"}.get(compat, "❓")
-        text = (
-            f"`#{vid}` {compat_icon} *{titulo[:40]}*\n"
-            f"_{empresa[:30]}_ — {fmt_status(status)}"
-        )
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🚀 Generar", callback_data=f"gen_{vid}"),
-            InlineKeyboardButton("✅ Marcar Listo", callback_data=f"listo_{vid}"),
-        ]])
-        await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
-
-
-async def _send_resumen(message):
-    conn = db()
-    total = conn.execute("SELECT COUNT(*) FROM vacantes").fetchone()[0]
-    por_status = conn.execute("SELECT status, COUNT(*) FROM vacantes GROUP BY status").fetchall()
-    por_compat = conn.execute(
-        "SELECT compatibilidad, COUNT(*) FROM vacantes GROUP BY compatibilidad"
-    ).fetchall()
-    conn.close()
-
-    status_lines = "\n".join(f"  {fmt_status(s)}: {c}" for s, c in por_status)
-    compat_lines = "\n".join(f"  {k}: {v}" for k, v in por_compat)
-
-    await message.reply_text(
-        f"⚙️ *Resumen de la DB*\n\n"
-        f"Total vacantes: *{total}*\n\n"
-        f"*Por status:*\n{status_lines}\n\n"
-        f"*Por compatibilidad:*\n{compat_lines}",
-        parse_mode="Markdown"
-    )
-
-
-async def _accion_generar(message, vid: int):
-    conn = db()
-    row = conn.execute("SELECT titulo, empresa FROM vacantes WHERE id=?", (vid,)).fetchone()
-    conn.close()
-    if not row:
-        await message.reply_text(f"Vacante #{vid} no encontrada.")
-        return
-
-    titulo, empresa = row
-    await message.reply_text(
-        f"⚙️ Generando CV para *#{vid} — {titulo}*...\nEsto puede tomar ~30 s.",
-        parse_mode="Markdown"
-    )
-
-    loop = asyncio.get_event_loop()
-    try:
-        tex_path, pdf_path = await loop.run_in_executor(None, generar_y_compilar, vid)
-    except Exception as e:
-        await message.reply_text(f"❌ Error generando CV: {e}")
-        return
-
-    if pdf_path and os.path.exists(pdf_path):
-        conn = db()
-        conn.execute("UPDATE vacantes SET status='Revisado_IA' WHERE id=?", (vid,))
-        conn.commit()
-        conn.close()
-        await message.reply_text(f"✅ CV generado para #{vid}. Status → Revisado_IA")
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("📄 Descargar PDF", callback_data=f"pdf_{vid}")
-        ]])
-        await message.reply_text("¿Descargar el PDF?", reply_markup=kb)
-    else:
-        await message.reply_text("⚠️ .tex guardado pero PDF no compiló. Revisa la sintaxis LaTeX.")
-
-
-async def _accion_pdf(message, vid: int):
+async def _cb_enviar_pdf(q, vid: int):
     pdf_path = os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf")
     if not os.path.exists(pdf_path):
-        await message.reply_text(f"PDF no encontrado para vacante #{vid}. ¿Ya fue compilado?")
+        await q.answer(f"❌ PDF no encontrado para #{vid}. ¿Ya fue compilado?", show_alert=True)
         return
-    with open(pdf_path, 'rb') as f:
-        await message.reply_document(document=f, filename=f"cv_vacante_{vid}.pdf",
-                                     caption=f"CV Vacante #{vid}")
+    await q.answer()
+    with open(pdf_path, "rb") as f:
+        await q.message.reply_document(
+            document=f,
+            filename=f"cv_vacante_{vid}.pdf",
+            caption=f"📄 CV Vacante #{vid}",
+        )
 
+# ── Editar LaTeX ──────────────────────────────────────────────────────────────
 
-async def _accion_listo(message, vid: int):
-    conn = db()
-    conn.execute("UPDATE vacantes SET status='Listo_Manual' WHERE id=?", (vid,))
-    conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
-    conn.close()
-    if changes:
-        await message.reply_text(f"✅ Vacante #{vid} → {fmt_status('Listo_Manual')}")
-    else:
-        await message.reply_text(f"Vacante #{vid} no encontrada.")
+async def _cb_editar_latex(q, ctx, vid: int):
+    url  = f"{API_BASE}/latex/{vid}"
+    loop = asyncio.get_event_loop()
+    try:
+        def _get():
+            with urllib.request.urlopen(url, timeout=15) as r:
+                return r.read().decode("utf-8")
+        tex = await loop.run_in_executor(None, _get)
+    except Exception as e:
+        await q.answer(f"❌ LaTeX no disponible: {e}", show_alert=True)
+        return
 
-# ── CallbackQueryHandler ──────────────────────────────────────────────────────
+    ctx.user_data["tex_edit_vid"] = vid
+    await q.message.reply_document(
+        document=io.BytesIO(tex.encode("utf-8")),
+        filename=f"cv_vacante_{vid}.tex",
+        caption=(
+            f"📝 *Editar LaTeX — Vacante \\#{vid}*\n\n"
+            f"1\\. Descarga este archivo\n"
+            f"2\\. Edítalo con tu editor de LaTeX\n"
+            f"3\\. Envíamelo de vuelta como documento `.tex`\n\n"
+            f"El bot detectará automáticamente el ID de la vacante por el nombre del archivo."
+        ),
+        parse_mode="Markdown",
+    )
 
-async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data  = query.data
-    msg   = query.message
+# ── Marcar listo / Borrar ─────────────────────────────────────────────────────
 
-    if data == "buscar_3":
-        await msg.reply_text("🔍 Iniciando búsqueda de 3 vacantes. Esto puede tardar varios minutos...")
-        agent_path = os.path.join(os.path.dirname(__file__), 'browser_agent.py')
-        loop = asyncio.get_event_loop()
+async def _cb_marcar_listo(q, vid: int):
+    try:
+        await api("PATCH", f"/vacantes/{vid}/status", {"status": "Listo_Manual"})
+        await q.answer("✅ Marcado como Listo_Manual")
+        await _cb_vacante_detalle(q, vid)
+    except RuntimeError as e:
+        await q.answer(f"❌ {str(e)[:100]}", show_alert=True)
+
+async def _cb_borrar(q, vid: int):
+    try:
+        await api("DELETE", f"/vacantes/{vid}")
+        await q.answer(f"🗑️ Vacante #{vid} eliminada")
+        await _cb_vacantes(q, 0)
+    except RuntimeError as e:
+        await q.answer(f"❌ {str(e)[:100]}", show_alert=True)
+
+# ── Acciones IA ───────────────────────────────────────────────────────────────
+
+async def _cb_clean_confirm(q):
+    try:
+        all_v = await api("GET", "/vacantes?limit=500")
+        n = len(all_v)
+    except RuntimeError:
+        n = "?"
+    await q.edit_message_text(
+        f"⚠️ *¿Limpiar DB?*\n\nSe eliminarán *{n} vacantes* de forma permanente.\n"
+        "Esta acción *no se puede deshacer*.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔴 Confirmar limpieza", callback_data="ia:clean:ok")],
+            [InlineKeyboardButton("◀️ Cancelar",            callback_data="ia")],
+        ]),
+    )
+
+async def _cb_clean_exec(q):
+    try:
+        all_v = await api("GET", "/vacantes?limit=500")
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ Error: `{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back(),
+        )
+        return
+
+    deleted = 0
+    for v in all_v:
         try:
-            await loop.run_in_executor(
-                None,
-                lambda: subprocess.run([sys.executable, agent_path, '--limit', '3'], timeout=600)
-            )
-            await msg.reply_text("✅ Búsqueda completada. Usa 📋 Ver Pendientes para ver las nuevas.")
-        except subprocess.TimeoutExpired:
-            await msg.reply_text("⏱ El scraping superó el tiempo límite (10 min).")
-        except Exception as e:
-            await msg.reply_text(f"❌ Error: {e}")
+            await api("DELETE", f"/vacantes/{v['id']}")
+            deleted += 1
+        except Exception:
+            pass
 
-    elif data == "pendientes":
-        await _send_pendientes(msg)
+    await q.edit_message_text(
+        f"🧹 *DB limpiada:* *{deleted}* vacantes eliminadas.",
+        parse_mode="Markdown",
+        reply_markup=kb_back(),
+    )
 
-    elif data == "resumen":
-        await _send_resumen(msg)
+async def _cb_genall(q, ctx):
+    from gemini_engine import generar_y_compilar
 
-    elif data.startswith("gen_"):
-        vid = int(data.split("_", 1)[1])
-        await _accion_generar(msg, vid)
+    try:
+        nc = await api("GET", "/vacantes?status=No_Creado&limit=50")
+        rc = await api("GET", "/vacantes?status=Requiere_Correccion&limit=50")
+        pendientes = nc + rc
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ Error obteniendo vacantes: `{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back("ia"),
+        )
+        return
 
-    elif data.startswith("pdf_"):
-        vid = int(data.split("_", 1)[1])
-        await _accion_pdf(msg, vid)
+    if not pendientes:
+        await q.edit_message_text(
+            "✅ No hay vacantes pendientes de generación.",
+            reply_markup=kb_back(),
+        )
+        return
 
-    elif data.startswith("listo_"):
-        vid = int(data.split("_", 1)[1])
-        await _accion_listo(msg, vid)
+    await q.edit_message_text(
+        f"⚡ Generando CVs para *{len(pendientes)}* vacantes pendientes...\n"
+        "Este proceso puede tardar varios minutos.",
+        parse_mode="Markdown",
+    )
+
+    ok, fail = 0, 0
+    loop = asyncio.get_event_loop()
+    for v in pendientes:
+        try:
+            tex, pdf = await loop.run_in_executor(None, generar_y_compilar, v["id"])
+            if tex:
+                ok += 1
+            else:
+                fail += 1
+        except Exception:
+            fail += 1
+
+    await q.message.reply_text(
+        f"⚡ *Generación masiva completada*\n\n"
+        f"✅ Exitosos: *{ok}*\n"
+        f"❌ Fallidos: *{fail}*",
+        parse_mode="Markdown",
+        reply_markup=kb_back(),
+    )
+
+# ── Recepción de archivos .tex ────────────────────────────────────────────────
+
+@admin_only
+async def handle_tex_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    if not doc or not doc.file_name.lower().endswith(".tex"):
+        return
+
+    fname = doc.file_name
+    m     = re.match(r"cv_vacante_(\d+)\.tex$", fname, re.IGNORECASE)
+    vid   = int(m.group(1)) if m else ctx.user_data.get("tex_edit_vid")
+
+    if not vid:
+        # Interpretar como plantilla de estilo
+        os.makedirs(TEMPLATES_DIR, exist_ok=True)
+        dest    = os.path.join(TEMPLATES_DIR, "mi_estilo.tex")
+        tg_file = await ctx.bot.get_file(doc.file_id)
+        await tg_file.download_to_drive(dest)
+        await update.message.reply_text(
+            "✅ *Plantilla de estilo actualizada.*\n"
+            "El próximo CV generado usará tu diseño personalizado.",
+            parse_mode="Markdown",
+        )
+        return
+
+    await update.message.reply_text(
+        f"📝 Guardando y compilando LaTeX para vacante *\\#{vid}*...",
+        parse_mode="Markdown",
+    )
+
+    buf     = bytearray()
+    tg_file = await ctx.bot.get_file(doc.file_id)
+    await tg_file.download_to_memory(buf)
+    tex_content = bytes(buf).decode("utf-8", errors="replace")
+
+    url  = f"{API_BASE}/latex/{vid}"
+    loop = asyncio.get_event_loop()
+
+    def _post():
+        body = tex_content.encode("utf-8")
+        req  = urllib.request.Request(
+            url, data=body,
+            headers={"Content-Type": "text/plain"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.loads(r.read().decode())
+
+    try:
+        result = await loop.run_in_executor(None, _post)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error al guardar LaTeX: {esc(str(e))}", parse_mode="Markdown")
+        ctx.user_data.pop("tex_edit_vid", None)
+        return
+
+    if result.get("pdf"):
+        await update.message.reply_text(
+            f"✅ *LaTeX guardado y PDF compilado correctamente.*",
+            parse_mode="Markdown",
+        )
+        pdf_path = os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf")
+        if os.path.exists(pdf_path):
+            with open(pdf_path, "rb") as f:
+                await update.message.reply_document(
+                    document=f,
+                    filename=f"cv_vacante_{vid}.pdf",
+                    caption=f"PDF actualizado — Vacante #{vid}",
+                )
+    else:
+        err = esc((result.get("error") or "Error desconocido.")[:300])
+        await update.message.reply_text(
+            f"⚠️ .tex guardado pero el PDF no compiló:\n`{err}`",
+            parse_mode="Markdown",
+        )
+
+    ctx.user_data.pop("tex_edit_vid", None)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    if TOKEN == "TU_TOKEN_AQUI":
-        print("ERROR: Reemplaza TU_TOKEN_AQUI con el token real de @BotFather")
+    if not TOKEN or TOKEN == "TU_TOKEN_AQUI":
+        print("ERROR: Configura TELEGRAM_BOT_TOKEN en job_hunter/.env")
         return
 
+    if not ADMIN_ID:
+        print("⚠️  ADVERTENCIA: TELEGRAM_ADMIN_ID no configurado — cualquiera puede usar el bot.")
+    else:
+        print(f"✓ Admin ID: {ADMIN_ID}")
+
+    print(f"✓ API target: {API_BASE}")
+
     app = Application.builder().token(TOKEN).build()
+    app.bot_data["auto_scrape"] = False
+    app.bot_data["debug_mode"]  = False
 
-    conv = ConversationHandler(
-        entry_points=[CommandHandler("agregar_manual", manual_start)],
-        states={
-            ASK_TITULO:  [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_titulo)],
-            ASK_EMPRESA: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_empresa)],
-            ASK_ENLACE:  [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_enlace)],
-            ASK_REQS:    [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_reqs)],
-        },
-        fallbacks=[CommandHandler("cancelar", manual_cancel)],
-    )
-
-    app.add_handler(CommandHandler("start",        cmd_start))
-    app.add_handler(CommandHandler("menu",         cmd_menu))
-    app.add_handler(CommandHandler("vacantes",     cmd_vacantes))
-    app.add_handler(CommandHandler("detalles",     cmd_detalles))
-    app.add_handler(CommandHandler("estado",       cmd_estado))
-    app.add_handler(CommandHandler("generar_cv",   cmd_generar_cv))
-    app.add_handler(CommandHandler("buscar",       cmd_buscar))
-    app.add_handler(conv)
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("menu",  cmd_menu))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_tex_upload))
 
-    print("✓ Bot iniciado. Ctrl+C para detener.")
+    print("✓ Job Hunter Bot en línea. Ctrl+C para detener.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
