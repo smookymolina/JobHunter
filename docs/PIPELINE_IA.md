@@ -1,7 +1,18 @@
-﻿# Pipeline IA â€” Human-in-the-Loop vÃ­a MCP
+﻿# Pipeline IA — Job Hunter
 
-La generaciÃ³n de CVs es un proceso **impulsado por el usuario** con Claude Desktop como motor de IA.
-La API solo sirve datos, PDFs estÃ¡ticos y acepta actualizaciones vÃ­a REST.
+## Actualizacion 2026-06-03 (rev 9 — Dedup estricta + Compatibilidad centralizada)
+
+- **Deduplicación estricta en `POST /vacantes`**: `SELECT enlace` antes del INSERT → HTTP 409 limpio si ya existe. Elimina la carrera entre `INSERT OR IGNORE` y `changes()`.
+- **Compatibilidad evaluada en la API**: `evaluar_compatibilidad_rapida(reqs)` se invoca en `POST /vacantes` si el payload no trae `Alta/Media/Baja` explícito. Lee `perfil_maestro.json` (SSoT). Esto centraliza la lógica: ningún scraper necesita calcular compat por su cuenta.
+- **`browser_agent._post_vacante()`**: captura 409 y loguea `”Saltando duplicado: <titulo>”` sin abortar el proceso.
+- **`bot._api_sync()`**: captura 409 silenciosamente y retorna el body del response.
+
+---
+
+# Pipeline IA — Human-in-the-Loop vía MCP
+
+La generación de CVs es un proceso **impulsado por el usuario** con Claude Desktop como motor de IA.
+La API sirve datos, PDFs estáticos y acepta actualizaciones vía REST.
 
 ## Flujo completo
 

@@ -10,7 +10,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
 from gemini_engine import OUTPUTS_DIR, compilar_pdf
 
@@ -19,7 +19,7 @@ from gemini_engine import OUTPUTS_DIR, compilar_pdf
 API_BASE = "http://127.0.0.1:8000"
 
 # Debug logger — escribe en job_hunter/mcp_debug.log
-_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'mcp_debug.log')
+_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'mcp_debug.log')
 logging.basicConfig(
     filename=os.path.abspath(_LOG_PATH),
     level=logging.DEBUG,
@@ -37,7 +37,7 @@ _STOP_API_DOWN = (
     "🔴 STOP — La API de Job Hunter NO está corriendo en http://127.0.0.1:8000.\n"
     "PROHIBIDO usar bash/sqlite/archivos como alternativa.\n"
     "Solución: abre PowerShell y ejecuta:\n"
-    "  cd C:\\Users\\GIRTEC\\Desktop\\Trabajo\\job_hunter\n"
+    "  cd C:\\Users\\GIRTEC\\Desktop\\CODEMAGA\\JobHunter\\job_hunter\n"
     "  .\\start_api.ps1\n"
     "Luego vuelve a intentar el mismo paso."
 )

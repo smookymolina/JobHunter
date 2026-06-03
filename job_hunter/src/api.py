@@ -7,6 +7,7 @@ import sqlite3
 import os
 import shutil
 import subprocess
+import time
 from contextlib import asynccontextmanager
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO)
@@ -32,6 +33,7 @@ PERFIL_MAESTRO_PATH = os.path.abspath(
 
 # ── Estado en memoria ─────────────────────────────────────────────────────────
 _scrape_status: dict = {"running": False, "last": None}
+_bot_last_heartbeat: float = 0.0
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -57,12 +59,20 @@ app.add_middleware(
 )
 
 
+@app.post("/bot/heartbeat")
+def bot_heartbeat():
+    global _bot_last_heartbeat
+    _bot_last_heartbeat = time.time()
+    return {"ok": True}
+
+
 @app.get("/")
 def root_health():
     return {
         "ok": True,
         "service": "job-hunter-api",
         "scrape": dict(_scrape_status),
+        "bot_active": (time.time() - _bot_last_heartbeat) < 45,
     }
 
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────
@@ -243,6 +253,7 @@ def debug_sync_health():
     else:
         watcher_snapshot = {"running": False, "interval_seconds": None, "last_error": "watcher no inicializado", "last_snapshot": {}}
     snapshot["watcher"] = watcher_snapshot
+    snapshot["bot_active"] = (time.time() - _bot_last_heartbeat) < 45
     return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
 
 
@@ -356,29 +367,34 @@ async def generar_cv_endpoint(vid: int):
 
 @app.post("/vacantes")
 def crear_vacante(body: VacanteCreate):
-    """Crea una vacante manual en SQLite con status No_Creado y evalúa compatibilidad."""
-    reqs = body.requerimientos.strip()[:5000]
-    compat = body.compatibilidad if body.compatibilidad in {"Alta", "Media", "Baja", "Nula"} else "Nula"
-    if compat == "Nula" and reqs:
-        compat = evaluar_compatibilidad_rapida(reqs)
+    """Crea una vacante en SQLite. Deduplicación explícita por enlace; compatibilidad evaluada con IA si no se provee."""
+    enlace = body.enlace.strip()
     conn = _db()
+    existing = conn.execute("SELECT id FROM vacantes WHERE enlace = ?", (enlace,)).fetchone()
+    if existing:
+        conn.close()
+        return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante duplicada", "id": existing[0]})
+
+    reqs   = body.requerimientos.strip()[:5000]
+    compat = body.compatibilidad if body.compatibilidad in {"Alta", "Media", "Baja"} else None
+    if compat is None and reqs:
+        compat = evaluar_compatibilidad_rapida(reqs)
+    compat = compat or "Nula"
+
     conn.execute(
-        "INSERT OR IGNORE INTO vacantes (titulo, empresa, enlace, requerimientos, compatibilidad, status) "
+        "INSERT INTO vacantes (titulo, empresa, enlace, requerimientos, compatibilidad, status) "
         "VALUES (?,?,?,?,?,'No_Creado')",
         (
             body.titulo.strip()[:200],
             body.empresa.strip()[:100] or "Desconocida",
-            body.enlace.strip(),
+            enlace,
             reqs,
             compat,
         )
     )
     conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
     row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
-    if not changes:
-        raise HTTPException(status_code=409, detail="Vacante duplicada o no insertada.")
     return {"ok": True, "id": row_id, "compatibilidad": compat}
 
 
