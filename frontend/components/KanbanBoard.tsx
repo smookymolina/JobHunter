@@ -1,6 +1,6 @@
 'use client'
 
-import type { Vacante, Status } from '@/lib/api'
+import { type Vacante, type Status } from '@/lib/api'
 import VacanteCard from './VacanteCard'
 
 interface Column {
@@ -60,8 +60,19 @@ interface Props {
   onRefresh: () => void
 }
 
+const COMPAT_ORDER: Record<string, number> = { Alta: 0, Media: 1, Baja: 2, Nula: 3 }
+
+function sortColumn(items: Vacante[]): Vacante[] {
+  return [...items].sort((a, b) => {
+    // Favoritos primero
+    if (b.favorito !== a.favorito) return b.favorito - a.favorito
+    // Luego por compatibilidad Alta→Nula
+    return (COMPAT_ORDER[a.compatibilidad] ?? 3) - (COMPAT_ORDER[b.compatibilidad] ?? 3)
+  })
+}
+
 export default function KanbanBoard({ vacantes, onRefresh }: Props) {
-  const byStatus = (status: Status) => vacantes.filter(v => v.status === status)
+  const byStatus = (status: Status) => sortColumn(vacantes.filter(v => v.status === status))
 
   return (
     <div className="flex h-full gap-3 overflow-x-auto pb-4">

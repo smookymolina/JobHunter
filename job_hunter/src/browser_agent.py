@@ -63,8 +63,7 @@ def _computrabajo_urls(term: str, filtros: dict) -> list[str]:
     pais      = filtros.get("pais", "Mexico")
 
     if pais == "Internacional":
-        bases = list(_CT_DOMINIOS.values())
-        bases = list(dict.fromkeys(bases))  # dedup preservando orden
+        bases = list(dict.fromkeys(_CT_DOMINIOS.values()))[:3]  # MX+ES+AR, cap para no saturar
     else:
         bases = [_CT_DOMINIOS.get(pais, _CT_DOMINIOS["Mexico"])]
 
@@ -94,9 +93,8 @@ def _occ_url(term: str, filtros: dict) -> str | None:
 
     if modalidad == "remoto":
         return f"https://www.occ.com.mx/empleos/de-{t}/en-home-office/"
-    if modalidad == "hibrido":
-        return f"https://www.occ.com.mx/empleos/de-{t}/en-hibrido/"
-    if ubicacion:
+    # OCC no tiene ruta /en-hibrido/ — usar búsqueda base con filtro de texto
+    if ubicacion and modalidad != "hibrido":
         return f"https://www.occ.com.mx/empleos/de-{t}/en-{_slug(ubicacion)}/"
     return f"https://www.occ.com.mx/empleos/de-{t}/"
 

@@ -176,8 +176,18 @@ def kb_back(dest: str = "menu") -> InlineKeyboardMarkup:
     label = "◀️ Menú Principal" if dest == "menu" else "◀️ Volver"
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, callback_data=dest)]])
 
-def kb_buscar() -> InlineKeyboardMarkup:
+def kb_buscar(modalidad: str = "any") -> InlineKeyboardMarkup:
+    icons = {"any": "🌐", "remoto": "🏠", "hibrido": "🔀", "presencial": "🏢"}
+    mods  = [("any", "Cualquiera"), ("remoto", "Remoto"), ("hibrido", "Híbrido"), ("presencial", "Presencial")]
+    mod_row = [
+        InlineKeyboardButton(
+            f"{'✅' if modalidad == m else icons[m]} {lbl}",
+            callback_data=f"buscar_mod:{m}",
+        )
+        for m, lbl in mods
+    ]
     return InlineKeyboardMarkup([
+        mod_row[:2], mod_row[2:],
         [InlineKeyboardButton("3 vacantes",  callback_data="buscar:3"),
          InlineKeyboardButton("5 vacantes",  callback_data="buscar:5")],
         [InlineKeyboardButton("10 vacantes", callback_data="buscar:10"),
@@ -185,12 +195,21 @@ def kb_buscar() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("◀️ Volver",   callback_data="menu")],
     ])
 
+_COMPAT_ORDER = {"Alta": 0, "Media": 1, "Baja": 2, "Nula": 3}
+
+def _sort_vacantes(items: list) -> list:
+    return sorted(items, key=lambda v: (
+        -(v.get("favorito") or 0),
+        _COMPAT_ORDER.get(v.get("compatibilidad", "Nula"), 3),
+    ))
+
 def kb_vacantes(rows: list, page: int, total_pages: int) -> InlineKeyboardMarkup:
     btns = []
     for v in rows:
         icon  = COMPAT_ICON.get(v.get("compatibilidad", "Nula"), "❓")
         cv    = "📄" if has_pdf(v["id"]) else "  "
-        label = f"{icon}{cv} #{v['id']} {v['titulo'][:26]}"
+        fav   = "⭐" if v.get("favorito") else ""
+        label = f"{fav}{icon}{cv} #{v['id']} {v['titulo'][:24]}"
         btns.append([InlineKeyboardButton(label, callback_data=f"vac:{v['id']}")])
     nav = []
     if page > 0:
@@ -202,7 +221,7 @@ def kb_vacantes(rows: list, page: int, total_pages: int) -> InlineKeyboardMarkup
     btns.append([InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")])
     return InlineKeyboardMarkup(btns)
 
-def kb_vacante_detalle(vid: int, status: str, tiene_pdf: bool = False) -> InlineKeyboardMarkup:
+def kb_vacante_detalle(vid: int, status: str, tiene_pdf: bool = False, favorito: bool = False) -> InlineKeyboardMarkup:
     rows = []
 
     row1 = []
@@ -219,8 +238,9 @@ def kb_vacante_detalle(vid: int, status: str, tiene_pdf: bool = False) -> Inline
 
     row2 = []
     if status != "Listo_Manual":
-        row2.append(InlineKeyboardButton("✅ Marcar Listo",  callback_data=f"listo:{vid}"))
-    row2.append(InlineKeyboardButton("🗑️ Borrar",            callback_data=f"del:{vid}"))
+        row2.append(InlineKeyboardButton("✅ CV Enviado",   callback_data=f"listo:{vid}"))
+    row2.append(InlineKeyboardButton("⭐ Fav" if not favorito else "★ Quitar fav", callback_data=f"fav:{vid}"))
+    row2.append(InlineKeyboardButton("🗑️ Borrar",           callback_data=f"del:{vid}"))
     rows.append(row2)
 
     rows.append([InlineKeyboardButton("◀️ Mis Vacantes", callback_data="vacantes:0")])
@@ -252,17 +272,14 @@ def kb_ia() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("◀️ Volver",               callback_data="menu")],
     ])
 
-def kb_conf(auto: bool, debug: bool) -> InlineKeyboardMarkup:
+def kb_conf(debug: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            f"{'✅' if auto else '🔲'} Scraping automático",
-            callback_data="conf:autoscrape",
-        )],
         [InlineKeyboardButton(
             f"{'✅' if debug else '🔲'} Modo debug",
             callback_data="conf:debug",
         )],
-        [InlineKeyboardButton("◀️ Volver", callback_data="menu")],
+        [InlineKeyboardButton("🗑️ Limpiar DB", callback_data="ia:clean")],
+        [InlineKeyboardButton("◀️ Volver",     callback_data="menu")],
     ])
 
 # ── Command handlers ──────────────────────────────────────────────────────────
@@ -343,16 +360,23 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ── Buscar (sub-menú + acción) ─────────────────────────────────────────────
     elif data == "buscar":
         await q.answer()
+        mod = ctx.user_data.get("buscar_modalidad", "any")
         await q.edit_message_text(
-            "🔍 *Buscar Vacantes*\n\n¿Cuántas vacantes buscar?\nSe usarán los términos de tu perfil automáticamente.",
+            "🔍 *Buscar Vacantes*\n\n1\\. Elige la modalidad\n2\\. Elige cuántas vacantes buscar",
             parse_mode="Markdown",
-            reply_markup=kb_buscar(),
+            reply_markup=kb_buscar(mod),
         )
+
+    elif data.startswith("buscar_mod:"):
+        mod = data.split(":")[1]
+        ctx.user_data["buscar_modalidad"] = mod
+        await q.answer(f"Modalidad: {mod}")
+        await q.edit_message_reply_markup(reply_markup=kb_buscar(mod))
 
     elif data.startswith("buscar:"):
         cantidad = int(data.split(":")[1])
         await q.answer(f"Iniciando búsqueda de {cantidad} vacantes…")
-        await _cb_buscar(q, cantidad)
+        await _cb_buscar(q, cantidad, ctx)
 
     # ── Mis Vacantes ───────────────────────────────────────────────────────────
     elif data.startswith("vacantes:"):
@@ -394,6 +418,10 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         vid = int(data.split(":")[1])
         await _cb_borrar(q, vid)
 
+    elif data.startswith("fav:"):
+        vid = int(data.split(":")[1])
+        await _cb_toggle_fav(q, vid)
+
     # ── Acciones IA ────────────────────────────────────────────────────────────
     elif data == "ia":
         await q.answer()
@@ -425,32 +453,18 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             "⚙️ *Configuración*",
             parse_mode="Markdown",
-            reply_markup=kb_conf(
-                ctx.bot_data.get("auto_scrape", False),
-                ctx.bot_data.get("debug_mode",  False),
-            ),
-        )
-
-    elif data == "conf:autoscrape":
-        val = not ctx.bot_data.get("auto_scrape", False)
-        ctx.bot_data["auto_scrape"] = val
-        save_conf({"auto_scrape": val, "debug_mode": ctx.bot_data.get("debug_mode", False)})
-        await q.answer("Activado ✅" if val else "Desactivado 🔲")
-        await q.edit_message_text(
-            f"⚙️ *Configuración*\n\nScraping automático: {'✅ Activado' if val else '🔲 Desactivado'}",
-            parse_mode="Markdown",
-            reply_markup=kb_conf(val, ctx.bot_data.get("debug_mode", False)),
+            reply_markup=kb_conf(ctx.bot_data.get("debug_mode", False)),
         )
 
     elif data == "conf:debug":
         val = not ctx.bot_data.get("debug_mode", False)
         ctx.bot_data["debug_mode"] = val
-        save_conf({"auto_scrape": ctx.bot_data.get("auto_scrape", False), "debug_mode": val})
+        save_conf({"debug_mode": val})
         await q.answer("Debug ON 🐛" if val else "Debug OFF")
         await q.edit_message_text(
             f"⚙️ *Configuración*\n\nModo debug: {'🐛 Activado' if val else '🔇 Desactivado'}",
             parse_mode="Markdown",
-            reply_markup=kb_conf(ctx.bot_data.get("auto_scrape", False), val),
+            reply_markup=kb_conf(val),
         )
 
     else:
@@ -497,7 +511,7 @@ async def _cb_dashboard(q):
         f"⏳ Pendientes: *{pendientes}*\n"
         f"🔵 En proceso: *{en_proceso}*\n"
         f"🟡 Revisados IA: *{revisados}*\n"
-        f"🟢 Listos: *{listos}*\n"
+        f"📤 CV Enviados: *{listos}*\n"
         f"📄 PDFs generados: *{n_pdfs}*\n\n"
         f"🔍 Scraper: {scrape_txt}\n"
         f"   Último: _{esc(last[:80])}_\n\n"
@@ -570,6 +584,7 @@ async def _cb_vacantes(q, page: int):
         )
         return
 
+    all_v = _sort_vacantes(all_v)
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(0, min(page, total_pages - 1))
     slc  = all_v[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
@@ -596,21 +611,29 @@ async def _cb_vacante_detalle(q, vid: int):
     if len(reqs) > 600:
         reqs = reqs[:600] + "…"
 
-    tiene = has_pdf(vid)
-    pdf_indicator = " 📄 PDF listo" if tiene else ""
+    tiene    = has_pdf(vid)
+    favorito = bool(v.get("favorito"))
+    status   = v.get("status", "No_Creado")
+    fav_line = "⭐ *Favorito*\n" if favorito else ""
+    postulado_line = ""
+    if status == "Listo_Manual" and v.get("fecha_postulacion"):
+        postulado_line = f"📤 Postulado: {(v['fecha_postulacion'])[:16]}\n"
 
     text = (
         f"*\\#{v['id']} — {esc(v['titulo'][:50])}*\n"
+        f"{fav_line}"
         f"🏢 _{esc(v.get('empresa','—'))}_\n"
-        f"📅 {(v.get('fecha_registro') or '')[:10]}{pdf_indicator}\n"
-        f"🎯 {fmt_co(v.get('compatibilidad','Nula'))} | {fmt_st(v.get('status','?'))}\n"
+        f"📅 {(v.get('fecha_registro') or '')[:10]}"
+        f"{' 📄 PDF listo' if tiene else ''}\n"
+        f"🎯 {fmt_co(v.get('compatibilidad','Nula'))} | {fmt_st(status)}\n"
+        f"{postulado_line}"
         f"🔗 {esc(v.get('enlace','—'))}\n\n"
         f"📋 *Requerimientos:*\n{esc(reqs)}"
     )
     await q.edit_message_text(
         text,
         parse_mode="Markdown",
-        reply_markup=kb_vacante_detalle(vid, v.get("status", "No_Creado"), tiene),
+        reply_markup=kb_vacante_detalle(vid, status, tiene, favorito),
     )
 
 # ── Mis CVs ───────────────────────────────────────────────────────────────────
@@ -654,21 +677,26 @@ async def _cb_cvs(q, page: int):
 
 # ── Buscar vacantes ───────────────────────────────────────────────────────────
 
-async def _cb_buscar(q, cantidad: int):
+async def _cb_buscar(q, cantidad: int, ctx=None):
+    modalidad = (ctx.user_data.get("buscar_modalidad", "any") if ctx else "any")
+    filtros   = {"modalidad": modalidad, "ubicacion": "", "pais": "Mexico"}
+    mod_txt   = {"any": "🌐 Cualquiera", "remoto": "🏠 Remoto",
+                 "hibrido": "🔀 Híbrido", "presencial": "🏢 Presencial"}.get(modalidad, modalidad)
     await q.edit_message_text(
         f"🔍 Iniciando búsqueda de *{cantidad}* vacantes...\n"
-        f"Se usarán los términos derivados de tu perfil.",
+        f"Modalidad: *{mod_txt}*",
         parse_mode="Markdown",
     )
     try:
-        result = await api("POST", "/scrape", {"cantidad": cantidad})
+        result = await api("POST", "/scrape", {"cantidad": cantidad, "filtros": filtros})
         msg    = esc(result.get("mensaje", "Scraping iniciado."))
         terms  = result.get("terminos", [])
         terms_txt = "  • " + "\n  • ".join(esc(t) for t in terms[:6]) if terms else "—"
         await q.edit_message_text(
             f"✅ *{msg}*\n\n"
-            f"🔑 Términos usados:\n{terms_txt}\n\n"
-            f"El scraping corre en segundo plano. Vuelve en unos minutos.",
+            f"🔎 Modalidad: {mod_txt}\n"
+            f"🔑 Términos:\n{terms_txt}\n\n"
+            f"_El scraping corre en segundo plano._",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📋 Mis Vacantes",    callback_data="vacantes:0"),
@@ -850,11 +878,11 @@ async def _cb_editar_latex(q, ctx, vid: int):
 async def _cb_marcar_listo(q, vid: int):
     try:
         await api("PATCH", f"/vacantes/{vid}/status", {"status": "Listo_Manual"})
-        await q.answer("✅ Marcado como Listo_Manual")
+        await q.answer("📤 CV marcado como Enviado")
         tiene = has_pdf(vid)
         await q.edit_message_text(
-            f"🟢 *Vacante \\#{vid} marcada como Listo\\_Manual*\n\n"
-            "El dashboard web se actualizará en menos de 2 segundos.",
+            f"📤 *CV enviado — Vacante \\#{vid}*\n\n"
+            "Esperando respuesta de la empresa\\. Dashboard actualizado en 2 s\\.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"🔍 Ver vacante #{vid}", callback_data=f"vac:{vid}")],
@@ -879,6 +907,18 @@ async def _cb_borrar(q, vid: int):
         )
     except RuntimeError as e:
         await q.answer(f"❌ {str(e)[:100]}", show_alert=True)
+
+# ── Toggle favorito ───────────────────────────────────────────────────────────
+
+async def _cb_toggle_fav(q, vid: int):
+    try:
+        result = await api("PATCH", f"/vacantes/{vid}/favorito")
+        es_fav = result.get("favorito", False)
+        await q.answer("⭐ Agregado a favoritos" if es_fav else "★ Quitado de favoritos")
+        await _cb_vacante_detalle(q, vid)
+    except RuntimeError as e:
+        await q.answer(f"❌ {str(e)[:80]}", show_alert=True)
+
 
 # ── Acciones IA ───────────────────────────────────────────────────────────────
 

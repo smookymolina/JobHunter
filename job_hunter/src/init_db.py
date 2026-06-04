@@ -15,7 +15,8 @@ CREATE TABLE vacantes (
     compatibilidad    TEXT CHECK(compatibilidad IN ('Alta','Media','Baja','Nula')) DEFAULT 'Nula',
     status            TEXT CHECK(status IN ('No_Creado','En_Proceso','Revisado_IA','Requiere_Correccion','Listo_Manual')) DEFAULT 'No_Creado',
     fecha_registro    TEXT DEFAULT (datetime('now', 'localtime')),
-    fecha_postulacion TEXT
+    fecha_postulacion TEXT,
+    favorito          INTEGER DEFAULT 0
 );
 CREATE TABLE vacantes_eliminadas (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,

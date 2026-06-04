@@ -55,6 +55,8 @@ async def lifespan(app: FastAPI):
         _cols = [r[1] for r in _mc.execute("PRAGMA table_info(vacantes)").fetchall()]
         if "fecha_postulacion" not in _cols:
             _mc.execute("ALTER TABLE vacantes ADD COLUMN fecha_postulacion TEXT")
+        if "favorito" not in _cols:
+            _mc.execute("ALTER TABLE vacantes ADD COLUMN favorito INTEGER DEFAULT 0")
         _mc.commit()
     app.state.health_watcher = DeepHealthWatcher(interval_seconds=20, dry_run=False)
     app.state.health_watcher.start()
@@ -214,21 +216,47 @@ def listar_vacantes(limit: int = 50, status: str | None = None):
     conn = _db()
     if status:
         rows = conn.execute(
-            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion "
+            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion, favorito "
             "FROM vacantes WHERE status=? ORDER BY id DESC LIMIT ?",
             (status, limit)
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion "
+            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion, favorito "
             "FROM vacantes ORDER BY id DESC LIMIT ?",
             (limit,)
         ).fetchall()
     conn.close()
-    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion"]
+    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion", "favorito"]
     result = [dict(zip(cols, r)) for r in rows]
     _log.info("GET /vacantes → %d filas (status=%s, limit=%d)", len(result), status or "all", limit)
     return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/vacantes/eliminadas")
+def listar_eliminadas(limit: int = 200):
+    """Lista las vacantes en la blacklist (eliminadas por el usuario)."""
+    conn = _db()
+    rows = conn.execute(
+        "SELECT id, enlace, titulo, fecha_eliminacion FROM vacantes_eliminadas ORDER BY id DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    cols = ["id", "enlace", "titulo", "fecha_eliminacion"]
+    return JSONResponse(content=[dict(zip(cols, r)) for r in rows], headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/vacantes/eliminadas/{eid}")
+def restaurar_eliminada(eid: int):
+    """Elimina una entrada de la blacklist, permitiendo que esa vacante pueda reinsertarse."""
+    conn = _db()
+    conn.execute("DELETE FROM vacantes_eliminadas WHERE id=?", (eid,))
+    conn.commit()
+    changes = conn.execute("SELECT changes()").fetchone()[0]
+    conn.close()
+    if not changes:
+        raise HTTPException(status_code=404, detail=f"Entrada #{eid} no encontrada en el archivo.")
+    return {"ok": True, "id": eid}
 
 
 @app.get("/vacantes/{vid}")
@@ -236,13 +264,13 @@ def detalle_vacante(vid: int):
     """Devuelve todos los campos de una vacante."""
     conn = _db()
     row = conn.execute(
-        "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion "
+        "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion, favorito "
         "FROM vacantes WHERE id=?", (vid,)
     ).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
-    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion"]
+    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion", "favorito"]
     return dict(zip(cols, row))
 
 
@@ -338,6 +366,19 @@ def cambiar_compatibilidad(vid: int, body: dict):
     if not changes:
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
     return {"ok": True, "id": vid, "compatibilidad": nuevo}
+
+
+@app.patch("/vacantes/{vid}/favorito")
+def toggle_favorito(vid: int):
+    """Alterna el flag favorito de una vacante (0↔1)."""
+    conn = _db()
+    conn.execute("UPDATE vacantes SET favorito = 1 - COALESCE(favorito,0) WHERE id=?", (vid,))
+    conn.commit()
+    nuevo = conn.execute("SELECT favorito FROM vacantes WHERE id=?", (vid,)).fetchone()
+    conn.close()
+    if not nuevo:
+        raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
+    return {"ok": True, "id": vid, "favorito": bool(nuevo[0])}
 
 
 @app.get("/latex/{vid}", response_class=PlainTextResponse)
@@ -508,30 +549,6 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
     }
 
 
-@app.get("/vacantes/eliminadas")
-def listar_eliminadas(limit: int = 200):
-    """Lista las vacantes en la blacklist (eliminadas por el usuario)."""
-    conn = _db()
-    rows = conn.execute(
-        "SELECT id, enlace, titulo, fecha_eliminacion FROM vacantes_eliminadas ORDER BY id DESC LIMIT ?",
-        (limit,)
-    ).fetchall()
-    conn.close()
-    cols = ["id", "enlace", "titulo", "fecha_eliminacion"]
-    return JSONResponse(content=[dict(zip(cols, r)) for r in rows], headers={"Cache-Control": "no-store"})
-
-
-@app.delete("/vacantes/eliminadas/{eid}")
-def restaurar_eliminada(eid: int):
-    """Elimina una entrada de la blacklist, permitiendo que esa vacante pueda reinsertarse."""
-    conn = _db()
-    conn.execute("DELETE FROM vacantes_eliminadas WHERE id=?", (eid,))
-    conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
-    conn.close()
-    if not changes:
-        raise HTTPException(status_code=404, detail=f"Entrada #{eid} no encontrada en el archivo.")
-    return {"ok": True, "id": eid}
 
 
 @app.get("/pdf/{vid}")

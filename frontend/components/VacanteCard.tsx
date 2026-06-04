@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  Star,
   Trash2,
   X,
 } from 'lucide-react'
@@ -36,29 +37,31 @@ function buildMcpPrompt(id: number): string {
 function PdfModal({ vacanteId, onClose }: { vacanteId: number; onClose: () => void }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex h-[92vh] w-full max-w-4xl flex-col rounded-xl border border-white/[0.08] bg-zinc-900"
+        className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-950 shadow-2xl shadow-black/50"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
-          <span className="text-[13px] font-medium text-zinc-300">
-            CV PDF — vacante #{vacanteId}
-          </span>
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
+        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <FileText size={13} className="text-indigo-400" />
+            <span className="text-[13px] font-medium text-zinc-200">CV PDF — vacante #{vacanteId}</span>
+          </div>
           <div className="flex items-center gap-2">
             <a
               href={`http://127.0.0.1:8000/pdf/${vacanteId}?download=true`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[11px] text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
             >
               <Download size={11} /> Descargar
             </a>
             <button
               onClick={onClose}
-              className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+              className="rounded-lg border border-white/[0.06] p-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
             >
-              <X size={15} />
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -67,7 +70,7 @@ function PdfModal({ vacanteId, onClose }: { vacanteId: number; onClose: () => vo
             src={`http://127.0.0.1:8000/pdf/${vacanteId}`}
             width="100%"
             height="100%"
-            className="block bg-zinc-800"
+            className="block bg-zinc-900"
             title={`CV vacante #${vacanteId}`}
           />
         </div>
@@ -115,54 +118,57 @@ function LatexModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex h-[92vh] w-full max-w-4xl flex-col rounded-xl border border-white/[0.08] bg-zinc-900"
+        className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-950 shadow-2xl shadow-black/50"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
-          <span className="text-[13px] font-medium text-zinc-300">
-            Editor LaTeX — vacante #{vacanteId}
-          </span>
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
+        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Code size={13} className="text-indigo-400" />
+            <span className="text-[13px] font-medium text-zinc-200">Editor LaTeX — vacante #{vacanteId}</span>
+          </div>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+            className="rounded-lg border border-white/[0.06] p-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
           >
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
 
         <div className="flex-1 overflow-hidden p-3">
           {loading ? (
-            <div className="flex h-full items-center justify-center">
-              <Loader2 size={20} className="animate-spin text-zinc-600" />
+            <div className="flex h-full items-center justify-center gap-2 text-zinc-600">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="text-[12px]">Cargando LaTeX...</span>
             </div>
           ) : (
             <textarea
               value={tex}
               onChange={e => setTex(e.target.value)}
-              className="h-full w-full resize-none rounded-lg border border-white/[0.06] bg-zinc-950/60 p-3 font-mono text-[12px] leading-relaxed text-zinc-300 outline-none focus:border-white/[0.14]"
+              className="h-full w-full resize-none rounded-xl border border-white/[0.06] bg-black/40 p-3 font-mono text-[12px] leading-relaxed text-zinc-300 outline-none transition-colors focus:border-indigo-500/40 [scrollbar-color:theme(colors.zinc.700)_transparent] [scrollbar-width:thin]"
               spellCheck={false}
             />
           )}
         </div>
 
         {result && (
-          <div className={`mx-3 mb-2 rounded-md px-3 py-2 text-[12px] ${
+          <div className={`mx-3 mb-2 rounded-xl border px-3 py-2 text-[12px] ${
             result.ok
-              ? 'border border-emerald-700/30 bg-emerald-950/30 text-emerald-300'
-              : 'border border-rose-700/30 bg-rose-950/30 text-rose-300'
+              ? 'border-emerald-700/30 bg-emerald-950/30 text-emerald-300'
+              : 'border-rose-700/30 bg-rose-950/30 text-rose-300'
           }`}>
             {result.msg}
           </div>
         )}
 
-        <div className="flex justify-end gap-2 border-t border-white/[0.06] px-4 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-white/[0.06] px-4 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg border border-white/[0.06] px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:bg-white/[0.04] hover:text-zinc-200"
+            className="rounded-lg border border-white/[0.06] px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
           >
             Cancelar
           </button>
@@ -200,11 +206,23 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
   const [expanded, setExpanded]       = useState(false)
   const [pdfOpen, setPdfOpen]         = useState(false)
   const [latexOpen, setLatexOpen]     = useState(false)
-  const [busyAction, setBusyAction]   = useState<'status' | 'delete' | null>(null)
+  const [busyAction, setBusyAction]   = useState<'status' | 'delete' | 'fav' | null>(null)
   const [statusDraft, setStatusDraft] = useState<Status>(vacante.status)
   const [errMsg, setErrMsg]           = useState('')
+  const [esFavorito, setEsFavorito]   = useState(!!vacante.favorito)
 
   useEffect(() => { setStatusDraft(vacante.status) }, [vacante.status])
+  useEffect(() => { setEsFavorito(!!vacante.favorito) }, [vacante.favorito])
+
+  const handleFavorito = async () => {
+    setBusyAction('fav')
+    try {
+      const r = await api.toggleFavorito(vacante.id)
+      setEsFavorito(r.favorito)
+      onStatusChange?.()
+    } catch { /* silent */ }
+    finally { setBusyAction(null) }
+  }
 
   const handleCopiarPrompt = async () => {
     try {
@@ -264,13 +282,26 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
               </span>
             </div>
           </div>
-          <button
-            onClick={() => setExpanded(v => !v)}
-            className="shrink-0 inline-flex items-center gap-1 rounded-md border border-white/[0.06] px-2 py-1 text-[11px] text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
-          >
-            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            <span className="hidden sm:inline">{expanded ? 'Cerrar' : 'Detalles'}</span>
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={handleFavorito}
+              disabled={busyAction === 'fav'}
+              title={esFavorito ? 'Quitar de favoritos' : 'Marcar como favorito'}
+              className="rounded-md p-1 transition-colors hover:bg-white/[0.05] disabled:opacity-40"
+            >
+              <Star
+                size={14}
+                className={esFavorito ? 'fill-amber-400 text-amber-400' : 'text-zinc-600 hover:text-amber-400'}
+              />
+            </button>
+            <button
+              onClick={() => setExpanded(v => !v)}
+              className="inline-flex items-center gap-1 rounded-md border border-white/[0.06] px-2 py-1 text-[11px] text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+            >
+              {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              <span className="hidden sm:inline">{expanded ? 'Cerrar' : 'Detalles'}</span>
+            </button>
+          </div>
         </div>
 
         {/* ── Vista expandida ──────────────────────────────────────────── */}

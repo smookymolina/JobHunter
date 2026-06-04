@@ -191,7 +191,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       onMouseDown={onClose}
     >
       <div
-        className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-950 shadow-2xl shadow-black/50"
+        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-950 shadow-2xl shadow-black/50"
         onMouseDown={e => e.stopPropagation()}
       >
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/80 to-transparent" />
@@ -200,8 +200,8 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
 
         <div className="relative flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
           <div>
-            <p className="text-[15px] font-semibold text-zinc-100">AÃ±adir vacante</p>
-            <p className="text-[12px] text-zinc-500">Alta rapida manual o importacion masiva en JSON</p>
+            <p className="text-[15px] font-semibold text-zinc-100">Añadir vacante</p>
+            <p className="text-[12px] text-zinc-500">Alta rápida manual, JSON masivo o búsqueda autónoma</p>
           </div>
           <button
             onClick={onClose}
@@ -233,7 +233,9 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
           </div>
         </div>
 
-        <div className="relative space-y-5 px-5 py-5">
+        <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="flex-1 overflow-y-auto px-5 py-5 [scrollbar-color:theme(colors.zinc.600)_transparent] [scrollbar-width:thin]">
+        <div className="space-y-4">
           {tab === 'manual' && (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1">
@@ -429,8 +431,11 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
             </div>
           )}
 
+        </div>{/* space-y-4 */}
+        </div>{/* overflow-y-auto */}
+
           {(state === 'error' || message) && (
-            <div className={`flex items-start gap-2 rounded-xl border px-4 py-3 text-[12px] ${
+            <div className={`mx-5 mb-2 flex items-start gap-2 rounded-xl border px-4 py-3 text-[12px] ${
               state === 'error'
                 ? 'border-rose-800/30 bg-rose-950/20 text-rose-300'
                 : 'border-emerald-800/30 bg-emerald-950/20 text-emerald-300'
@@ -443,7 +448,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-4">
             <button
               onClick={onClose}
               className="rounded-lg border border-white/[0.06] px-4 py-2 text-[12px] text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
@@ -468,7 +473,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                : 'Iniciar búsqueda'}
             </button>
           </div>
-        </div>
+        </div>{/* flex-col wrapper */}
       </div>
     </div>
   )

@@ -39,6 +39,7 @@ export interface Vacante {
   status: Status
   fecha_registro: string
   fecha_postulacion?: string | null
+  favorito: number
 }
 
 export interface FiltrosBusqueda {
@@ -214,6 +215,9 @@ export const api = {
       body: form,
     })
   },
+
+  toggleFavorito: (id: number) =>
+    req<{ ok: boolean; id: number; favorito: boolean }>(`/vacantes/${id}/favorito`, { method: 'PATCH' }),
 
   vacantesEliminadas: (limit = 200) =>
     req<VacanteEliminada[]>(`/vacantes/eliminadas?limit=${limit}`),
