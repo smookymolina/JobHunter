@@ -31,7 +31,7 @@ from gemini_engine import generar_terminos_busqueda
 API_BASE     = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 SEARCH_TERMS: list[str] = generar_terminos_busqueda()
 MAX_PER_TERM = 8
-HEADLESS     = False
+HEADLESS     = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
 
 # ── API helper ────────────────────────────────────────────────────────────────
 

@@ -16,7 +16,7 @@ from gemini_engine import OUTPUTS_DIR, compilar_pdf
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-API_BASE = "http://127.0.0.1:8000"
+API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 # Debug logger — escribe en job_hunter/mcp_debug.log
 _LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'mcp_debug.log')

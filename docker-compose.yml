@@ -8,6 +8,8 @@ services:
     restart: unless-stopped
     env_file:
       - ./job_hunter/.env
+    environment:
+      - PLAYWRIGHT_HEADLESS=true
     volumes:
       - ./job_hunter/db:/app/db
       - ./job_hunter/outputs:/app/outputs

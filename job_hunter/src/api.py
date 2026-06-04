@@ -616,9 +616,17 @@ def _scrape_task(cantidad: int, terminos: list[str] | None = None):
             encoding='utf-8',
             errors='replace',
         )
+        if result.stdout:
+            for line in result.stdout.strip().splitlines():
+                _log.info("[scraper] %s", line)
+        if result.stderr:
+            for line in result.stderr.strip().splitlines():
+                _log.warning("[scraper-err] %s", line)
         _scrape_status["last"] = (
             f"OK – exit={result.returncode} – {cantidad} vacantes solicitadas"
         )
+        if result.returncode != 0:
+            _scrape_status["last"] = f"ERROR – exit={result.returncode} – {result.stderr[:200]}"
     except subprocess.TimeoutExpired:
         _scrape_status["last"] = "TIMEOUT – el scraping superó 10 minutos."
     except Exception as e:
