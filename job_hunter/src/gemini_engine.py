@@ -387,8 +387,11 @@ def compilar_pdf(tex_path: str) -> str | None:
         )
         _log.debug("[pdflatex stdout] %s", result.stdout or "(sin stdout)")
         _log.debug("[pdflatex stderr] %s", result.stderr or "(sin stderr)")
-        if result.returncode == 0 and os.path.exists(pdf_path):
-            _log.info("[pdf] Generado: %s", pdf_path)
+        if os.path.exists(pdf_path):
+            if result.returncode == 0:
+                _log.info("[pdf] Generado: %s", pdf_path)
+            else:
+                _log.warning("[pdf] Generado con advertencias (rc=%s): %s", result.returncode, pdf_path)
             return pdf_path
         _log.error("[pdflatex ERROR] No se generó PDF. rc=%s", result.returncode)
         raise RuntimeError(
