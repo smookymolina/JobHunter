@@ -1,0 +1,26 @@
+services:
+  api:
+    build:
+      context: ./job_hunter
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+    env_file:
+      - ./job_hunter/.env
+    volumes:
+      - ./job_hunter/db:/app/db
+      - ./job_hunter/outputs:/app/outputs
+      - ./job_hunter/logs:/app/logs
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      - NODE_ENV=production

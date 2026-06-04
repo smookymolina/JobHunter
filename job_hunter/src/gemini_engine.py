@@ -4,6 +4,7 @@ import re
 import subprocess
 
 import logging as _logging
+from logging.handlers import RotatingFileHandler as _RotatingFileHandler
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -14,7 +15,7 @@ from openai import OpenAI
 _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'mcp_debug.log')
 _log = _logging.getLogger("gemini_engine")
 if not _log.handlers:
-    _fh = _logging.FileHandler(os.path.abspath(_LOG_PATH), encoding='utf-8')
+    _fh = _RotatingFileHandler(os.path.abspath(_LOG_PATH), maxBytes=5_000_000, backupCount=3, encoding='utf-8')
     _fh.setFormatter(_logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
     _log.addHandler(_fh)
     _log.setLevel(_logging.DEBUG)

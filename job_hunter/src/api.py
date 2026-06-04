@@ -120,7 +120,10 @@ def _regenerate_mi_perfil(data: dict) -> None:
 # ── Helpers DB ────────────────────────────────────────────────────────────────
 
 def _db():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
 
 def _set_status(vid: int, status: str):
     conn = _db()
@@ -612,4 +615,4 @@ def _scrape_task(cantidad: int, terminos: list[str] | None = None):
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=False)

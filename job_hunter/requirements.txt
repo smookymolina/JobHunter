@@ -1,8 +1,9 @@
-fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
-openai>=1.30.0
-python-dotenv>=1.0.0
-PyPDF2>=3.0.0
-pydantic>=2.0.0
-requests>=2.31.0
-python-telegram-bot>=20.0
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+openai==2.40.0
+python-dotenv==1.0.0
+PyPDF2==3.0.1
+pydantic==2.13.4
+requests==2.32.3
+python-telegram-bot==22.7
+python-multipart==0.0.20
