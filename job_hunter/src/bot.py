@@ -221,27 +221,34 @@ def kb_vacantes(rows: list, page: int, total_pages: int) -> InlineKeyboardMarkup
     btns.append([InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")])
     return InlineKeyboardMarkup(btns)
 
-def kb_vacante_detalle(vid: int, status: str, tiene_pdf: bool = False, favorito: bool = False) -> InlineKeyboardMarkup:
+def kb_vacante_detalle(vid: int, status: str, tiene_pdf: bool = False,
+                        favorito: bool = False, enlace: str = "") -> InlineKeyboardMarkup:
     rows = []
 
+    # Fila 1: acciones CV
     row1 = []
     if status in ("No_Creado", "Requiere_Correccion"):
         row1.append(InlineKeyboardButton("🚀 Generar CV",   callback_data=f"gen:{vid}"))
     elif status == "En_Proceso":
         row1.append(InlineKeyboardButton("⏳ Generando…",  callback_data=f"vac:{vid}"))
     if tiene_pdf:
-        row1.append(InlineKeyboardButton("📄 Ver PDF",      callback_data=f"pdf:{vid}"))
+        row1.append(InlineKeyboardButton("📄 Descargar PDF", callback_data=f"pdf:{vid}"))
     if status in ("Revisado_IA", "Listo_Manual"):
-        row1.append(InlineKeyboardButton("📝 Editar LaTeX", callback_data=f"tex:{vid}"))
+        row1.append(InlineKeyboardButton("📝 Editar LaTeX",  callback_data=f"tex:{vid}"))
     if row1:
         rows.append(row1)
 
-    row2 = []
+    # Fila 2: link de postulación (URL button — abre navegador directamente)
+    if enlace and enlace != "—":
+        rows.append([InlineKeyboardButton("🔗 Ir a la oferta / Postularse", url=enlace)])
+
+    # Fila 3: acciones de estado
+    row3 = []
     if status != "Listo_Manual":
-        row2.append(InlineKeyboardButton("✅ CV Enviado",   callback_data=f"listo:{vid}"))
-    row2.append(InlineKeyboardButton("⭐ Fav" if not favorito else "★ Quitar fav", callback_data=f"fav:{vid}"))
-    row2.append(InlineKeyboardButton("🗑️ Borrar",           callback_data=f"del:{vid}"))
-    rows.append(row2)
+        row3.append(InlineKeyboardButton("✅ CV Enviado", callback_data=f"listo:{vid}"))
+    row3.append(InlineKeyboardButton("⭐ Fav" if not favorito else "★ Quitar fav", callback_data=f"fav:{vid}"))
+    row3.append(InlineKeyboardButton("🗑️ Borrar", callback_data=f"del:{vid}"))
+    rows.append(row3)
 
     rows.append([InlineKeyboardButton("◀️ Mis Vacantes", callback_data="vacantes:0")])
     return InlineKeyboardMarkup(rows)
@@ -619,6 +626,8 @@ async def _cb_vacante_detalle(q, vid: int):
     if status == "Listo_Manual" and v.get("fecha_postulacion"):
         postulado_line = f"📤 Postulado: {(v['fecha_postulacion'])[:16]}\n"
 
+    enlace = (v.get("enlace") or "").strip()
+
     text = (
         f"*\\#{v['id']} — {esc(v['titulo'][:50])}*\n"
         f"{fav_line}"
@@ -627,13 +636,12 @@ async def _cb_vacante_detalle(q, vid: int):
         f"{' 📄 PDF listo' if tiene else ''}\n"
         f"🎯 {fmt_co(v.get('compatibilidad','Nula'))} | {fmt_st(status)}\n"
         f"{postulado_line}"
-        f"🔗 {esc(v.get('enlace','—'))}\n\n"
         f"📋 *Requerimientos:*\n{esc(reqs)}"
     )
     await q.edit_message_text(
         text,
         parse_mode="Markdown",
-        reply_markup=kb_vacante_detalle(vid, status, tiene, favorito),
+        reply_markup=kb_vacante_detalle(vid, status, tiene, favorito, enlace),
     )
 
 # ── Mis CVs ───────────────────────────────────────────────────────────────────
@@ -789,11 +797,30 @@ async def _cb_enviar_pdf(q, vid: int):
         await q.answer(f"❌ PDF no encontrado para #{vid}. ¿Ya fue compilado?", show_alert=True)
         return
     await q.answer()
+
+    # Obtener datos de la vacante para incluir el link en el caption
+    enlace = ""
+    titulo = f"Vacante #{vid}"
+    try:
+        v = await api("GET", f"/vacantes/{vid}")
+        titulo  = v.get("titulo", titulo)[:60]
+        enlace  = (v.get("enlace") or "").strip()
+    except Exception:
+        pass
+
+    caption = f"📄 *{titulo}*"
+    markup  = None
+    if enlace:
+        caption += f"\n\n🔗 Postularse:"
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Ir a la oferta", url=enlace)]])
+
     with open(p, "rb") as f:
         await q.message.reply_document(
             document=f,
             filename=f"cv_vacante_{vid}.pdf",
-            caption=f"📄 CV Vacante #{vid}",
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=markup,
         )
 
 # ── Descargar todos los PDFs ──────────────────────────────────────────────────

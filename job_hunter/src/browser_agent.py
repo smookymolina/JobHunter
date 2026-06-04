@@ -19,6 +19,9 @@ import time
 import random
 import urllib.request
 import urllib.error
+import urllib.parse
+import xml.etree.ElementTree as _ET
+from html.parser import HTMLParser as _HTMLParser
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -145,6 +148,27 @@ def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bo
         print(f"  [API] Error: {ex}")
         return False, ""
 
+
+# ── HTTP helper (sin Playwright) ─────────────────────────────────────────────
+
+_HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
+}
+
+def _http_get(url: str, as_json=False, timeout=15):
+    req = urllib.request.Request(url, headers=_HTTP_HEADERS)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read().decode("utf-8", errors="replace")
+    return json.loads(raw) if as_json else raw
+
+def _strip_html(html: str) -> str:
+    class _S(_HTMLParser):
+        def __init__(self): super().__init__(); self.parts = []
+        def handle_data(self, d): self.parts.append(d)
+    p = _S(); p.feed(html); return " ".join(p.parts)
 
 # ── Anti-bot helpers ──────────────────────────────────────────────────────────
 
@@ -305,6 +329,220 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
     return count
 
 
+# ── Indeed RSS ────────────────────────────────────────────────────────────────
+
+_INDEED_DOMAINS = {
+    "Mexico":        "mx.indeed.com",
+    "España":        "es.indeed.com",
+    "Argentina":     "ar.indeed.com",
+    "Colombia":      "co.indeed.com",
+    "Chile":         "cl.indeed.com",
+    "Internacional": "www.indeed.com",
+}
+
+def scrape_indeed_rss(term: str, counter: list, limite: int | None, filtros: dict) -> int:
+    """Scrape Indeed via RSS — sin Playwright, rápido y estable."""
+    if limite is not None and counter[0] >= limite:
+        return 0
+
+    pais      = filtros.get("pais", "Mexico")
+    modalidad = filtros.get("modalidad", "any")
+    ubicacion = filtros.get("ubicacion", "").strip()
+    domain    = _INDEED_DOMAINS.get(pais, "mx.indeed.com")
+
+    q = urllib.parse.quote_plus(term)
+    if modalidad == "remoto":
+        q = urllib.parse.quote_plus(f"{term} remoto")
+    l_param = ""
+    if ubicacion and modalidad != "remoto":
+        l_param = f"&l={urllib.parse.quote_plus(ubicacion)}"
+
+    url   = f"https://{domain}/rss?q={q}&sort=date{l_param}"
+    count = 0
+    try:
+        raw  = _http_get(url)
+        root = _ET.fromstring(raw)
+        ns   = {"": ""}
+        items = root.findall("./channel/item")[:MAX_PER_TERM]
+        for item in items:
+            if limite is not None and counter[0] >= limite:
+                break
+            titulo  = (item.findtext("title") or "").strip()
+            enlace  = (item.findtext("link")  or "").strip()
+            empresa = (item.findtext("source") or "Desconocida").strip()
+            desc_raw = item.findtext("description") or ""
+            reqs    = _strip_html(desc_raw)[:3000]
+
+            if not titulo or len(reqs.strip()) < 50:
+                continue
+            if not _passes_text_filter(titulo, reqs, filtros):
+                continue
+
+            insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+            if insertada:
+                counter[0] += 1; count += 1
+                print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [Indeed]")
+        _sleep(0.8, 1.5)
+    except Exception as ex:
+        print(f"  [Indeed RSS] {term}: {ex}")
+    return count
+
+
+# ── Bumeran ────────────────────────────────────────────────────────────────────
+
+def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
+    """Scrape Bumeran (MX/Latam) via Playwright."""
+    pais = filtros.get("pais", "Mexico")
+    if pais not in ("Mexico", "Internacional"):
+        return 0
+    if limite is not None and counter[0] >= limite:
+        return 0
+
+    modalidad = filtros.get("modalidad", "any")
+    ubicacion = filtros.get("ubicacion", "").strip()
+    t         = _slug(term)
+
+    if modalidad == "remoto":
+        url = f"https://www.bumeran.com.mx/empleos-trabajo-desde-casa-{t}.html"
+    elif ubicacion:
+        url = f"https://www.bumeran.com.mx/empleos-{t}-en-{_slug(ubicacion)}.html"
+    else:
+        url = f"https://www.bumeran.com.mx/empleos-{t}.html"
+
+    count = 0
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        _sleep(1.5, 2.5)
+        _scroll(page)
+
+        # Bumeran usa <a> con href que contiene /empleo/
+        links = page.query_selector_all("a[href*='/empleo/']")[:MAX_PER_TERM]
+        seen  = set()
+        for link in links:
+            if limite is not None and counter[0] >= limite:
+                break
+            try:
+                href   = link.get_attribute("href") or ""
+                enlace = ("https://www.bumeran.com.mx" + href) if href.startswith("/") else href
+                if enlace in seen:
+                    continue
+                seen.add(enlace)
+
+                titulo  = link.inner_text().strip()[:200]
+                if not titulo or len(titulo) < 5:
+                    continue
+
+                reqs = ""
+                try:
+                    detail = page.context.new_page()
+                    detail.goto(enlace, wait_until="domcontentloaded", timeout=15000)
+                    _sleep(0.8, 1.5)
+                    req_el = detail.query_selector(
+                        "div[class*='description'], section[class*='detail'], div[id*='description']"
+                    )
+                    if req_el:
+                        reqs = req_el.inner_text()[:3000]
+                    empresa_el = detail.query_selector("a[href*='/empresa/'], span[class*='company']")
+                    empresa = empresa_el.inner_text().strip() if empresa_el else "Desconocida"
+                    detail.close()
+                    _sleep(0.5, 1.0)
+                except Exception:
+                    empresa = "Desconocida"
+
+                if len(reqs.strip()) < 50:
+                    continue
+                if not _passes_text_filter(titulo, reqs, filtros):
+                    continue
+
+                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                if insertada:
+                    counter[0] += 1; count += 1
+                    print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [Bumeran]")
+            except Exception as ex:
+                print(f"  [bumeran-card] {ex}")
+        _sleep(2, 3)
+    except Exception as ex:
+        print(f"  [Bumeran] {term}: {ex}")
+    return count
+
+
+# ── Remotive (API JSON — solo remoto / tech global) ────────────────────────────
+
+def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict) -> int:
+    """Scrape Remotive API — trabajos remotos tech a nivel global."""
+    if filtros.get("modalidad", "any") not in ("remoto", "any"):
+        return 0
+    if limite is not None and counter[0] >= limite:
+        return 0
+
+    count = 0
+    try:
+        q   = urllib.parse.quote_plus(term)
+        url = f"https://remotive.com/api/remote-jobs?search={q}&limit=10"
+        data = _http_get(url, as_json=True)
+        jobs = data.get("jobs", [])[:MAX_PER_TERM]
+        for job in jobs:
+            if limite is not None and counter[0] >= limite:
+                break
+            titulo  = (job.get("title") or "").strip()
+            empresa = (job.get("company_name") or "Desconocida").strip()
+            enlace  = (job.get("url") or "").strip()
+            reqs    = _strip_html(job.get("description") or "")[:3000]
+
+            if not titulo or len(reqs.strip()) < 50:
+                continue
+
+            insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+            if insertada:
+                counter[0] += 1; count += 1
+                print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [Remotive]")
+        _sleep(1.0, 2.0)
+    except Exception as ex:
+        print(f"  [Remotive] {term}: {ex}")
+    return count
+
+
+# ── GetOnBrd (API JSON — tech Latam) ──────────────────────────────────────────
+
+def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict) -> int:
+    """Scrape GetOnBrd API — tech Latam (remoto + presencial)."""
+    if limite is not None and counter[0] >= limite:
+        return 0
+
+    count = 0
+    try:
+        q   = urllib.parse.quote_plus(term)
+        url = f"https://www.getonbrd.com/api/v0/search/jobs?query={q}&per_page=10"
+        data = _http_get(url, as_json=True)
+        jobs = (data.get("data") or [])[:MAX_PER_TERM]
+        for job in jobs:
+            if limite is not None and counter[0] >= limite:
+                break
+            try:
+                attr    = job.get("attributes", {})
+                titulo  = (attr.get("title") or "").strip()
+                empresa = (attr.get("company", {}) or {}).get("name", "Desconocida")
+                enlace  = (attr.get("application_link") or
+                           f"https://www.getonbrd.com/jobs/{job.get('id','')}").strip()
+                reqs    = _strip_html(attr.get("description") or "")[:3000]
+
+                if not titulo or len(reqs.strip()) < 50:
+                    continue
+                if not _passes_text_filter(titulo, reqs, filtros):
+                    continue
+
+                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                if insertada:
+                    counter[0] += 1; count += 1
+                    print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [GetOnBrd]")
+            except Exception as ex:
+                print(f"  [getonbrd-item] {ex}")
+        _sleep(1.0, 2.0)
+    except Exception as ex:
+        print(f"  [GetOnBrd] {term}: {ex}")
+    return count
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -367,12 +605,31 @@ def main():
                 print(f"\n[Computrabajo] '{term}'")
                 scrape_computrabajo(page, term, counter, limite, filtros)
 
-                if limite is not None and counter[0] >= limite:
-                    print(f"\n[límite] Alcanzado {limite}. Deteniendo.")
-                    break
+                if limite is not None and counter[0] >= limite: break
 
                 print(f"\n[OCC] '{term}'")
                 scrape_occ(page, term, counter, limite, filtros)
+
+                if limite is not None and counter[0] >= limite: break
+
+                print(f"\n[Indeed] '{term}'")
+                scrape_indeed_rss(term, counter, limite, filtros)
+
+                if limite is not None and counter[0] >= limite: break
+
+                print(f"\n[Bumeran] '{term}'")
+                scrape_bumeran(page, term, counter, limite, filtros)
+
+                if limite is not None and counter[0] >= limite: break
+
+                print(f"\n[GetOnBrd] '{term}'")
+                scrape_getonbrd(term, counter, limite, filtros)
+
+                if limite is not None and counter[0] >= limite: break
+
+                print(f"\n[Remotive] '{term}'")
+                scrape_remotive(term, counter, limite, filtros)
+
                 _sleep(2, 4)
 
             browser.close()
