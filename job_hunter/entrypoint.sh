@@ -6,26 +6,28 @@ cd /app/src
 uvicorn api:app --host 0.0.0.0 --port 8000 --workers 1 &
 API_PID=$!
 
+echo "[entrypoint] Esperando API..."
+for i in $(seq 1 20); do
+    if curl -sf http://localhost:8000/ > /dev/null 2>&1; then
+        echo "[entrypoint] API lista."
+        break
+    fi
+    sleep 1
+done
+
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ADMIN_ID" ]; then
-    echo "[entrypoint] Esperando API..."
-    for i in $(seq 1 20); do
-        if wget -q --spider http://localhost:8000/ 2>/dev/null; then
-            echo "[entrypoint] API lista. Iniciando bot..."
-            break
-        fi
-        sleep 1
-    done
+    echo "[entrypoint] Iniciando bot Telegram..."
     python bot.py &
     BOT_PID=$!
 else
-    echo "[entrypoint] TELEGRAM_BOT_TOKEN o TELEGRAM_ADMIN_ID no configurados — bot no iniciado"
+    echo "[entrypoint] Bot Telegram no configurado - omitido"
     BOT_PID=""
 fi
 
-trap 'kill $API_PID ${BOT_PID:-} 2>/dev/null; exit 0' TERM INT
+echo "[entrypoint] Iniciando MCP server HTTP en :8002..."
+python mcp_server_http.py &
+MCP_PID=$!
 
-if [ -n "$BOT_PID" ]; then
-    wait $API_PID $BOT_PID
-else
-    wait $API_PID
-fi
+trap 'kill $API_PID ${BOT_PID:-} $MCP_PID 2>/dev/null; exit 0' TERM INT
+
+wait $API_PID ${BOT_PID:-} $MCP_PID

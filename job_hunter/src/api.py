@@ -34,6 +34,7 @@ PERFIL_MAESTRO_PATH = os.path.abspath(
 # ── Estado en memoria ─────────────────────────────────────────────────────────
 _scrape_status: dict = {"running": False, "last": None}
 _bot_last_heartbeat: float = 0.0
+_mcp_last_heartbeat: float = 0.0
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,13 @@ def bot_heartbeat():
     return {"ok": True}
 
 
+@app.post("/mcp/heartbeat")
+def mcp_heartbeat():
+    global _mcp_last_heartbeat
+    _mcp_last_heartbeat = time.time()
+    return {"ok": True}
+
+
 @app.get("/")
 def root_health():
     return {
@@ -73,6 +81,7 @@ def root_health():
         "service": "job-hunter-api",
         "scrape": dict(_scrape_status),
         "bot_active": (time.time() - _bot_last_heartbeat) < 45,
+        "mcp_active": (time.time() - _mcp_last_heartbeat) < 45,
     }
 
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────
@@ -257,6 +266,7 @@ def debug_sync_health():
         watcher_snapshot = {"running": False, "interval_seconds": None, "last_error": "watcher no inicializado", "last_snapshot": {}}
     snapshot["watcher"] = watcher_snapshot
     snapshot["bot_active"] = (time.time() - _bot_last_heartbeat) < 45
+    snapshot["mcp_active"] = (time.time() - _mcp_last_heartbeat) < 45
     return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
 
 

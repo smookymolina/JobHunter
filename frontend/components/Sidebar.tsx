@@ -32,6 +32,7 @@ function StatusDot({ active }: { active: boolean | null }) {
 function SystemStatus() {
   const [apiOk, setApiOk]   = useState<boolean | null>(null)
   const [botOk, setBotOk]   = useState<boolean | null>(null)
+  const [mcpOk, setMcpOk]   = useState<boolean | null>(null)
 
   useEffect(() => {
     const check = async () => {
@@ -41,11 +42,12 @@ function SystemStatus() {
           const d = await r.json()
           setApiOk(true)
           setBotOk(!!d.bot_active)
+          setMcpOk(!!d.mcp_active)
         } else {
-          setApiOk(false); setBotOk(false)
+          setApiOk(false); setBotOk(false); setMcpOk(false)
         }
       } catch {
-        setApiOk(false); setBotOk(false)
+        setApiOk(false); setBotOk(false); setMcpOk(false)
       }
     }
     check()
@@ -62,6 +64,10 @@ function SystemStatus() {
       <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
         <StatusDot active={botOk} />
         {botOk === null ? 'Comprobando bot…' : botOk ? 'Bot conectado' : 'Bot desconectado'}
+      </div>
+      <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
+        <StatusDot active={mcpOk} />
+        {mcpOk === null ? 'Comprobando MCP…' : mcpOk ? 'MCP conectado' : 'MCP desconectado'}
       </div>
     </>
   )

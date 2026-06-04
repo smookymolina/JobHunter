@@ -43,12 +43,29 @@ _STOP_API_DOWN = (
 )
 
 def _api_health() -> bool:
-    """Devuelve True si la API responde en menos de 3 segundos."""
     try:
         with urllib.request.urlopen(f"{API_BASE}/scrape/status", timeout=3) as r:
             return r.status == 200
     except Exception:
         return False
+
+
+def _http_post(path: str) -> None:
+    req = urllib.request.Request(
+        f"{API_BASE}{path}", data=b"{}", method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except Exception as e:
+        _log.debug("POST %s falló: %s", path, e)
+
+
+async def _heartbeat_loop():
+    while True:
+        await asyncio.to_thread(_http_post, "/mcp/heartbeat")
+        await asyncio.sleep(30)
 
 
 def _http_get(path: str) -> dict | list:
@@ -285,8 +302,12 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
 
 async def main():
     _log.info("stdio_server iniciando — esperando mensajes JSON-RPC de Claude Desktop")
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    heartbeat_task = asyncio.create_task(_heartbeat_loop())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+    finally:
+        heartbeat_task.cancel()
     _log.info("stdio_server cerrado")
 
 if __name__ == "__main__":

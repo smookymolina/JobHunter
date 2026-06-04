@@ -1,0 +1,200 @@
+\documentclass[10pt, letterpaper]{article}
+
+% ── Paquetes ──────────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{lmodern}
+\usepackage[left=1.8cm, right=1.8cm, top=1.5cm, bottom=1.5cm]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{parskip}
+
+% ── Colores ───────────────────────────────────────────────────────────────────
+\definecolor{azul}{RGB}{20, 60, 120}
+\definecolor{gris}{RGB}{100, 100, 100}
+\definecolor{linea}{RGB}{180, 200, 230}
+
+% ── Hipervínculos ─────────────────────────────────────────────────────────────
+\hypersetup{colorlinks=true, urlcolor=azul, linkcolor=azul}
+
+% ── Secciones ─────────────────────────────────────────────────────────────────
+\titleformat{\section}
+  {\large\bfseries\color{azul}}
+  {}
+  {0em}
+  {}
+  [\color{linea}\hrule]
+
+\titlespacing{\section}{0pt}{8pt}{4pt}
+
+% ── Listas compactas ──────────────────────────────────────────────────────────
+\setlist[itemize]{noitemsep, topsep=2pt, partopsep=0pt,
+                  leftmargin=1.2em, label={\small\textcolor{azul}{$\bullet$}}}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+\pagestyle{empty}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+%  ENCABEZADO
+% ═══════════════════════════════════════════════════════════════════════════════
+\begin{center}
+  {\LARGE\bfseries\color{azul} Jair Molina Arce}\\[4pt]
+  {\large\color{gris} Ingeniero Mecánico}\\[6pt]
+  \small
+  \textcolor{gris}{Ciudad de México, México}~\textbf{·}~
+  \href{mailto:ingjairmolina@gmail.com}{ingjairmolina@gmail.com}~\textbf{·}~
+  5652646108\\[2pt]
+  CVU CONACYT: 1340773~\textbf{·}~ORCID: 0009-0009-6732-8100
+\end{center}
+
+\vspace{6pt}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+%  PERFIL PROFESIONAL
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Perfil Profesional}
+
+Ingeniero Mecánico egresado del Instituto Politécnico Nacional con sólida formación en
+materiales, procesos de manufactura, instrumentación y análisis de sistemas.
+Capacidad analítica para evaluar cotizaciones, comparar especificaciones técnicas de
+materiales e insumos, y coordinar con proveedores para garantizar la calidad y oportunidad
+de los suministros. Orientado al trabajo bajo presión, con disponibilidad de tiempo
+completo y apertura a cambio de residencia en territorio nacional.
+
+% ═══════════════════════════════════════════════════════════════════════════════
+%  EDUCACIÓN
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Educación}
+
+\noindent
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+  \textbf{Maestría en Tecnologías Avanzadas} \textcolor{gris}{(en curso)} &
+    \textcolor{gris}{2024 – Presente} \\
+  \textit{Instituto Politécnico Nacional (IPN)} & \\[4pt]
+
+  \textbf{Ingeniería Mecánica} &
+    \textcolor{gris}{2017 – 2023} \\
+  \textit{Instituto Politécnico Nacional (IPN)} & \\[4pt]
+
+  \textbf{Bachillerato Técnico en Informática} &
+    \textcolor{gris}{2014 – 2017} \\
+  \textit{Colegio de Bachilleres Plantel 1 ``El Rosario''} & \\
+\end{tabularx}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+%  EXPERIENCIA PROFESIONAL
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Experiencia Profesional}
+
+% --- Cargo 1 ---
+\noindent
+\textbf{Ingeniero de Sistemas e Instrumentación} \hfill
+\textcolor{gris}{2022 – 2024}\\
+\textit{Instituto Politécnico Nacional (IPN)} — Ciudad de México
+\begin{itemize}
+  \item Selección, adquisición y gestión técnica de sensores, actuadores e insumos
+        (presión, temperatura, flujo) para banco de pruebas de propulsión.
+  \item Evaluación de especificaciones técnicas de componentes electrónicos y mecánicos;
+        comparativa de proveedores nacionales para reducir costos y garantizar calidad.
+  \item Diseño e integración de sistemas de adquisición de datos (DAQ) con
+        microcontroladores ESP32 y STM32; coordinación de logística de entrega de equipo.
+  \item Análisis de datos operativos con Python, pandas y MATLAB/Simulink para validación
+        de desempeño de insumos adquiridos.
+\end{itemize}
+
+\vspace{4pt}
+% --- Cargo 2 ---
+\noindent
+\textbf{Desarrollador Full-Stack — Plataforma de Monitoreo Industrial} \hfill
+\textcolor{gris}{2023 – 2024}\\
+\textit{Proyecto Independiente / IPN} — Ciudad de México
+\begin{itemize}
+  \item Coordinación con fabricantes y distribuidores para la integración de dispositivos
+        IoT en plataforma de monitoreo; levantamiento de requerimientos técnicos.
+  \item Gestión de órdenes de compra de equipos de cómputo y electrónica; verificación de
+        cumplimiento de especificaciones antes de aceptar recepción.
+  \item Despliegue de infraestructura tecnológica (Docker, servidores, bases de datos)
+        incluyendo cotización y contratación de servicios en la nube.
+\end{itemize}
+
+\vspace{4pt}
+% --- Cargo 3 ---
+\noindent
+\textbf{Docente — Tecnologías Disruptivas (VR/AR)} \hfill
+\textcolor{gris}{2024}\\
+\textit{Escuela Nacional de Biblioteconomía y Archivonomía (ENBA – IPN)} — Ciudad de México
+\begin{itemize}
+  \item Planificación y adquisición de recursos materiales para sesiones prácticas;
+        coordinación con proveedores de equipo tecnológico.
+  \item Diseño de contenido académico sobre innovación tecnológica aplicada a procesos
+        organizacionales y gestión de información.
+\end{itemize}
+
+\vspace{4pt}
+% --- Cargo 4 ---
+\noindent
+\textbf{Desarrollador de Aplicaciones Móviles y VR/AR} \hfill
+\textcolor{gris}{2023 – 2024}\\
+\textit{Proyecto Académico / Profesional}
+\begin{itemize}
+  \item Evaluación y selección de herramientas y licencias de software; comparativa de
+        costos y funcionalidades entre proveedores (Unity, Unreal, servicios cloud).
+  \item Demostración tecnológica en TV Azteca México (2024): coordinación logística de
+        equipos, materiales y proveedores externos para la producción.
+\end{itemize}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+%  CONOCIMIENTOS TÉCNICOS
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Conocimientos Técnicos}
+
+\begin{tabularx}{\linewidth}{@{} >{\bfseries}p{5cm} X @{}}
+  Mecánica y Manufactura &
+    Lectura de planos, tolerancias, metrología dimensional, análisis estructural,
+    análisis térmico, FEA (ANSYS), SolidWorks, MATLAB/Simulink \\[4pt]
+
+  Gestión de Insumos y Materiales &
+    Especificaciones técnicas de componentes mecánicos/electrónicos, comparativa de
+    cotizaciones, control de calidad de recepción, cadena de suministro \\[4pt]
+
+  Instrumentación y Sensores &
+    Sensores de presión, temperatura y flujo; DAQ (LabVIEW/Python);
+    control PID; normativas de instrumentación industrial \\[4pt]
+
+  Análisis de Datos &
+    Python (pandas, numpy, matplotlib), MATLAB, Excel/hojas de cálculo \\[4pt]
+
+  Herramientas de Gestión &
+    Órdenes de compra, evaluación de proveedores, logística de entrega,
+    cumplimiento de políticas y código de ética empresarial \\[4pt]
+
+  Idiomas &
+    Español (nativo) · Inglés (intermedio — lectura técnica fluida) \\
+\end{tabularx}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+%  PROYECTOS Y LOGROS DESTACADOS
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Proyectos y Logros Destacados}
+
+\begin{itemize}
+  \item \textbf{Publicación IAC 2024 — Small Satellite Missions:}
+        Coautor en el 75th International Astronautical Congress, Milán, Italia
+        (DOI: 10.52202/078365-0120). Investigación en sistemas embebidos e instrumentación
+        para cohetes de combustible sólido.
+  \item \textbf{Banco de Pruebas para Cohetes de Combustible Sólido:}
+        Caracterización, diseño y simulación de banco de pruebas mecánicas para medición
+        de parámetros operativos. Publicado en \textit{Revista Hacia el Espacio} (2024).
+        Involucró adquisición y validación técnica de sensores y materiales especializados.
+  \item \textbf{Demostración VR en TV Azteca México (2024):}
+        Coordinación de recursos técnicos y logísticos para demostración nacional de
+        tecnología de Realidad Virtual aplicada a capacitación industrial.
+\end{itemize}
+
+\end{document}

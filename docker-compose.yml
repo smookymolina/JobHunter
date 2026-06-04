@@ -4,7 +4,8 @@ services:
       context: ./job_hunter
       dockerfile: Dockerfile
     ports:
-      - "8001:8000"
+      - "8000:8000"
+      - "8002:8002"
     restart: unless-stopped
     env_file:
       - ./job_hunter/.env
@@ -15,6 +16,12 @@ services:
       - ./job_hunter/db:/app/db
       - ./job_hunter/outputs:/app/outputs
       - ./job_hunter/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   frontend:
     build:
@@ -24,6 +31,7 @@ services:
       - "3000:3000"
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     environment:
       - NODE_ENV=production
