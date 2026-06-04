@@ -34,12 +34,12 @@ server = Server("job-hunter")
 # ── HTTP helpers (evitan sqlite3 bloqueado por sandbox) ──────────────────────
 
 _STOP_API_DOWN = (
-    "🔴 STOP — La API de Job Hunter NO está corriendo en http://127.0.0.1:8000.\n"
+    f"🔴 STOP — La API de Job Hunter NO está corriendo en {API_BASE}.\n"
     "PROHIBIDO usar bash/sqlite/archivos como alternativa.\n"
     "Solución: abre PowerShell y ejecuta:\n"
-    "  cd C:\\Users\\GIRTEC\\Desktop\\CODEMAGA\\JobHunter\\job_hunter\n"
-    "  .\\start_api.ps1\n"
-    "Luego vuelve a intentar el mismo paso."
+    "  cd C:\\Users\\GIRTEC\\Desktop\\CODEMAGA\\JobHunter\n"
+    "  docker compose up -d\n"
+    "Espera 5 segundos y vuelve a intentar el mismo paso."
 )
 
 def _api_health() -> bool:
