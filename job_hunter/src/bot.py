@@ -7,6 +7,8 @@ import os
 import re
 import asyncio
 import subprocess
+import threading
+import time
 import urllib.error
 import urllib.request
 import logging
@@ -71,6 +73,9 @@ def _api_sync(method: str, path: str, data=None, raw_body: bytes | None = None,
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
+        if e.code == 409:
+            log.debug("Saltando duplicado en %s %s", method, path)
+            return json.loads(e.read().decode("utf-8", errors="replace") or "{}")
         detail = e.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {e.code}: {detail[:300]}")
     except Exception as e:
@@ -82,6 +87,25 @@ async def api(method: str, path: str, data=None,
     return await loop.run_in_executor(
         None, lambda: _api_sync(method, path, data, raw_body, content_type)
     )
+
+def _heartbeat_loop() -> None:
+    """Daemon: envía POST /bot/heartbeat cada 30 s para indicar que el bot está vivo."""
+    while True:
+        try:
+            req = urllib.request.Request(
+                f"{API_BASE}/bot/heartbeat", data=b"", method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception:
+            pass
+        time.sleep(30)
+
+
+def start_heartbeat() -> None:
+    t = threading.Thread(target=_heartbeat_loop, daemon=True, name="bot-heartbeat")
+    t.start()
+
 
 def heartbeat_api() -> None:
     try:
@@ -840,6 +864,7 @@ def main():
 
     print(f"✓ API target: {API_BASE}")
     heartbeat_api()
+    start_heartbeat()
 
     app = Application.builder().token(TOKEN).build()
     app.bot_data["auto_scrape"] = False

@@ -58,7 +58,8 @@ def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bo
             result = json.loads(r.read().decode())
             return True, result.get("compatibilidad", "Nula")
     except urllib.error.HTTPError as e:
-        if e.code == 409:  # duplicada
+        if e.code == 409:
+            print(f"  [API] Saltando duplicado: {titulo[:60]}")
             return False, ""
         body = e.read().decode("utf-8", errors="replace")[:200]
         print(f"  [API] HTTP {e.code}: {body}")

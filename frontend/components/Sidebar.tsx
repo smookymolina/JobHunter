@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
   LayoutDashboard,
   Briefcase,
@@ -11,6 +12,60 @@ import {
   Settings,
   ChevronRight,
 } from 'lucide-react'
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
+
+function StatusDot({ active }: { active: boolean | null }) {
+  if (active === null)
+    return <div className="flex h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
+  return (
+    <div
+      className={`flex h-1.5 w-1.5 rounded-full ${
+        active
+          ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50'
+          : 'bg-zinc-500'
+      }`}
+    />
+  )
+}
+
+function SystemStatus() {
+  const [apiOk, setApiOk]   = useState<boolean | null>(null)
+  const [botOk, setBotOk]   = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const r = await fetch(`${API}/debug/sync-health`, { cache: 'no-store' })
+        if (r.ok) {
+          const d = await r.json()
+          setApiOk(true)
+          setBotOk(!!d.bot_active)
+        } else {
+          setApiOk(false); setBotOk(false)
+        }
+      } catch {
+        setApiOk(false); setBotOk(false)
+      }
+    }
+    check()
+    const id = setInterval(check, 5000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <>
+      <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
+        <StatusDot active={apiOk} />
+        {apiOk === null ? 'Comprobando API…' : apiOk ? 'API conectada' : 'API desconectada'}
+      </div>
+      <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
+        <StatusDot active={botOk} />
+        {botOk === null ? 'Comprobando bot…' : botOk ? 'Bot conectado' : 'Bot desconectado'}
+      </div>
+    </>
+  )
+}
 
 const nav = [
   { href: '/dashboard',  label: 'Dashboard',        icon: LayoutDashboard },
@@ -68,10 +123,7 @@ export default function Sidebar() {
         <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
           Sistema
         </p>
-        <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
-          <div className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
-          API conectada
-        </div>
+        <SystemStatus />
       </nav>
 
       {/* User mock */}

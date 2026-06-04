@@ -37,7 +37,7 @@ _STOP_API_DOWN = (
     "🔴 STOP — La API de Job Hunter NO está corriendo en http://127.0.0.1:8000.\n"
     "PROHIBIDO usar bash/sqlite/archivos como alternativa.\n"
     "Solución: abre PowerShell y ejecuta:\n"
-    "  cd C:\\Users\\GIRTEC\\Desktop\\Trabajo\\job_hunter\n"
+    "  cd C:\\Users\\GIRTEC\\Desktop\\CODEMAGA\\JobHunter\\job_hunter\n"
     "  .\\start_api.ps1\n"
     "Luego vuelve a intentar el mismo paso."
 )
