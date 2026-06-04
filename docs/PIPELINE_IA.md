@@ -78,6 +78,13 @@ Cuando `running === true`:
 | POST | `/perfil/upload` | Sube PDF/.md/.txt → extrae texto a mi_perfil.md |
 | GET | `/perfil` | Devuelve contenido de mi_perfil.md |
 
+## Actualizacion 2026-06-04 (rev 9)
+
+- `DELETE /vacantes/{id}` agrega el enlace a `vacantes_eliminadas` antes de borrar.
+- `PATCH /vacantes/{id}/status` con `Listo_Manual` guarda `fecha_postulacion=NOW`.
+- `GET /vacantes` y `GET /vacantes/{id}` devuelven `fecha_postulacion`.
+- `watcher._sync_one`: retorna early sin cambio si `status == "Listo_Manual"`.
+
 ## Actualizacion 2026-06-02 (rev 5 — Smart Search)
 
 - `generar_terminos_busqueda()`: 12 términos del perfil sin LLM (ESP32→"Embedded Systems", SmartCity→"SmartCity Developer", etc.).

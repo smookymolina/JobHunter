@@ -11,6 +11,7 @@ import {
   Zap,
   Settings,
   ChevronRight,
+  Archive,
 } from 'lucide-react'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
@@ -76,6 +77,7 @@ function SystemStatus() {
 const nav = [
   { href: '/dashboard',  label: 'Dashboard',        icon: LayoutDashboard },
   { href: '/vacantes',   label: 'Mis Vacantes',      icon: Briefcase },
+  { href: '/archivo',    label: 'Archivadas',        icon: Archive },
   { href: '/plantillas', label: 'Plantillas LaTeX',  icon: FileCode2 },
   { href: '/perfil',     label: 'Perfil & Settings', icon: UserCircle },
 ]

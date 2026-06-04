@@ -24,6 +24,10 @@ vacante -> SQLite -> API -> MCP/IA -> .tex -> pdflatex -> PDF -> Revisado_IA
 - Nuevo endpoint `POST /generar_cv/{id}`: bot genera CVs 100% vía API, sin imports locales.
 - Dashboard polling a **2 s** + `Cache-Control: no-store` en `/vacantes`.
 - Bot Telegram: todas las acciones muestran botón ◀️ Menú Principal al finalizar.
+- **Blacklist**: vacante eliminada → enlace en `vacantes_eliminadas` → nunca reaparece en scrapes.
+- **CV Enviado**: marcar `Listo_Manual` registra `fecha_postulacion`; tarjeta muestra "CV enviado — esperando respuesta".
+- **Watcher fix**: `_sync_one` ya no revierte `Listo_Manual` a `Revisado_IA` al encontrar PDF.
+- **Búsqueda balanceada**: `generar_terminos_busqueda()` genera 4 términos por área (web/SW, IoT, mecánica).
 
 ## Política de rutas absolutas (rev 2026-06-03)
 

@@ -11,7 +11,7 @@ const STAT_COLS: { id: Status; label: string; color: string }[] = [
   { id: 'En_Proceso', label: 'En proceso', color: 'text-blue-400' },
   { id: 'Revisado_IA', label: 'Revisado IA', color: 'text-amber-400' },
   { id: 'Requiere_Correccion', label: 'Con error', color: 'text-rose-400' },
-  { id: 'Listo_Manual', label: 'Listos', color: 'text-emerald-400' },
+  { id: 'Listo_Manual', label: 'CV Enviado', color: 'text-emerald-400' },
 ]
 
 export default function DashboardPage() {
@@ -146,7 +146,7 @@ export default function DashboardPage() {
           <div className="ml-auto flex items-center gap-1.5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-1.5">
             <TrendingUp size={13} className="text-indigo-400" />
             <span className="text-[12px] text-zinc-500">
-              {count('Listo_Manual')} / {vacantes.length} completados
+              {count('Listo_Manual')} / {vacantes.length} enviados
             </span>
           </div>
         </div>

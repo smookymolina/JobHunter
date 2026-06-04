@@ -140,6 +140,13 @@ El dashboard detecta `running: true` en `/scrape/status` y recarga las vacantes 
 
 Leer `docs/` antes de proponer cambios al sistema.
 
+## Actualizacion 2026-06-04 (rev 9 — Blacklist + Postulacion + Search fix)
+
+- **Blacklist de eliminadas**: vacante borrada → enlace guardado en `vacantes_eliminadas` → el scraper nunca la vuelve a insertar. Chequeo en `POST /vacantes` y `POST /vacantes/bulk`.
+- **Listo = CV Enviado**: `PATCH status=Listo_Manual` registra `fecha_postulacion` automáticamente. La tarjeta muestra "CV enviado — esperando respuesta de la empresa" con la fecha. Columna Kanban renombrada a "CV Enviado".
+- **Watcher bugfix**: `watcher._sync_one` omite vacantes en `Listo_Manual`; antes las revertía a `Revisado_IA` al detectar el PDF generado.
+- **`generar_terminos_busqueda()` por áreas**: 4 términos por área (SW/web, IoT/embebidos, mecánica). Cubre `Desarrollador React`, `Full Stack Developer`, `Desarrollador Firmware IoT`, etc. Los términos "Ingeniero Mecánico" ya no dominan la búsqueda.
+
 ## Actualizacion 2026-06-02 (rev 5 — Smart Search)
 
 - `generar_terminos_busqueda()` en `gemini_engine.py`: deriva 12 términos de búsqueda desde `perfil_maestro.json` (sin LLM). Ejemplos para Jair: "Ingeniero IoT", "Embedded Systems Engineer", "SmartCity Developer", "Automatización Industrial".

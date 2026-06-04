@@ -173,11 +173,13 @@ def _groq_client():
 
 
 def generar_terminos_busqueda() -> list[str]:
-    """Deriva términos de búsqueda desde perfil_maestro.json sin llamar al LLM."""
+    """Deriva términos de búsqueda desde perfil_maestro.json.
+    Genera hasta 4 términos por área de skill para diversificar resultados."""
     maestro_path = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
     _FALLBACK = [
-        "Ingeniero Mecánico", "IoT Developer", "Full Stack Developer",
-        "Embedded Systems Engineer", "Desarrollador Python",
+        "Desarrollador Full Stack", "Desarrollador Python",
+        "Desarrollador React", "Desarrollador IoT",
+        "Ingeniero Sistemas Embebidos", "Ingeniero Mecánico",
     ]
     if not os.path.exists(maestro_path):
         return _FALLBACK
@@ -192,42 +194,57 @@ def generar_terminos_busqueda() -> list[str]:
     sw     = ' '.join(habs.get('software_fullstack', []))
     mec    = ' '.join(habs.get('mecanica_manufactura', []))
 
-    terms: list[str] = []
+    # ── Área Software / Web (mayor volumen de vacantes) ──────────────
+    terms_sw: list[str] = []
+    if 'Full-Stack' in titulo or 'Full Stack' in titulo or 'Flask' in sw or 'FastAPI' in sw:
+        terms_sw.append('Desarrollador Full Stack')
+        terms_sw.append('Full Stack Developer')
+    if 'Python' in sw:
+        terms_sw.append('Desarrollador Python')
+    if 'React' in sw or 'Next.js' in sw:
+        terms_sw.append('Desarrollador React')
+    if 'Docker' in sw or 'CI/CD' in sw:
+        terms_sw.append('DevOps Engineer')
+    if 'FastAPI' in sw or 'Flask' in sw:
+        terms_sw.append('Backend Developer Python')
+    if 'HTML/CSS/JS' in sw or 'React' in sw:
+        terms_sw.append('Desarrollador Web')
 
-    # Derivados del perfil de Jair (reglas basadas en keywords del JSON)
-    if 'Mecán' in titulo or 'Mecanic' in titulo:
-        terms += ['Ingeniero Mecánico', 'Ingeniero Mecatrónico']
+    # ── Área IoT / Sistemas Embebidos ─────────────────────────────────
+    terms_iot: list[str] = []
     if 'IoT' in titulo or 'IoT' in iot:
-        terms += ['Ingeniero IoT', 'Desarrollador IoT']
+        terms_iot.append('Desarrollador IoT')
+    if 'ESP32' in iot or 'STM32' in iot or 'Arduino' in iot:
+        terms_iot.append('Ingeniero Sistemas Embebidos')
     if 'Domótica' in titulo or 'Domótica' in iot:
-        terms += ['Automatización Industrial', 'Domótica Automatización']
-    if 'Full-Stack' in titulo or 'Full Stack' in titulo:
-        terms += ['Desarrollador Full Stack', 'Full Stack Developer Python']
-    if 'ESP32' in iot or 'STM32' in iot:
-        terms += ['Ingeniero Sistemas Embebidos', 'Embedded Systems Engineer']
-    if 'SmartCity' in iot:
-        terms.append('SmartCity Developer')
-    if 'Flask' in sw or 'FastAPI' in sw:
-        terms.append('Desarrollador Python Flask')
-    if 'Docker' in sw:
-        terms.append('DevOps Engineer Python')
-    if 'MATLAB' in mec or 'LabVIEW' in mec:
-        terms.append('Ingeniero Control Automático')
+        terms_iot.append('Automatización Industrial')
+    if 'MQTT' in iot or 'WiFi' in iot:
+        terms_iot.append('Desarrollador Firmware IoT')
+
+    # ── Área Mecánica / Mecatrónica ───────────────────────────────────
+    terms_mec: list[str] = []
+    if 'Mecán' in titulo or 'Mecanic' in titulo:
+        terms_mec.append('Ingeniero Mecánico')
+        terms_mec.append('Ingeniero Mecatrónico')
     if 'SolidWorks' in mec or 'ANSYS' in mec:
-        terms.append('Ingeniero CAD CAE')
+        terms_mec.append('Ingeniero CAD CAE')
+    if 'MATLAB' in mec or 'Control PID' in mec or 'LabVIEW' in mec:
+        terms_mec.append('Ingeniero Control Automático')
 
-    # Garantía mínima
-    for t in ['Ingeniero Mecánico', 'Desarrollador Python']:
-        if t not in terms:
-            terms.append(t)
+    # Intercalar: hasta 4 por área (SW primero por mayor volumen de ofertas)
+    all_terms: list[str] = []
+    for bucket in (terms_sw, terms_iot, terms_mec):
+        all_terms.extend(bucket[:4])
 
-    # Deduplicar preservando orden, máximo 12
+    # Deduplicar preservando orden, cap 12
     seen: set[str] = set()
     unique: list[str] = []
-    for t in terms:
-        if t not in seen:
-            seen.add(t); unique.append(t)
-    return unique[:12]
+    for t in all_terms:
+        if t and t not in seen:
+            seen.add(t)
+            unique.append(t)
+
+    return unique[:12] if unique else _FALLBACK
 
 
 def evaluar_compatibilidad_rapida(requerimientos: str) -> str:

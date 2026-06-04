@@ -47,11 +47,11 @@ const COLUMNS: Column[] = [
   },
   {
     id: 'Listo_Manual',
-    label: 'Listo',
+    label: 'CV Enviado',
     accent: 'border-t-emerald-500',
     headerBg: 'bg-zinc-900',
     countBg: 'bg-emerald-950 text-emerald-400',
-    emptyText: 'CVs listos para postular.',
+    emptyText: 'CVs enviados, esperando respuesta de empresa.',
   },
 ]
 

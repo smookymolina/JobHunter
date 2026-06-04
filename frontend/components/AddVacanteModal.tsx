@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FileJson, Loader2, Plus, RefreshCw, Search, Upload, X } from 'lucide-react'
-import { api, type VacanteBulkInput } from '@/lib/api'
+import { api, type VacanteBulkInput, type FiltrosBusqueda } from '@/lib/api'
 
 type Tab = 'manual' | 'bulk' | 'scrape'
 type State = 'idle' | 'saving' | 'success' | 'error'
@@ -32,6 +32,11 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
   const [suggestedTerms, setSuggestedTerms] = useState<string[]>([])
   const [selectedTerms, setSelectedTerms]   = useState<Set<string>>(new Set())
   const [loadingTerms, setLoadingTerms]     = useState(false)
+  const [filtros, setFiltros] = useState<FiltrosBusqueda>({
+    ubicacion: '',
+    modalidad: 'any',
+    pais: 'Mexico',
+  })
   const inputRef = useRef<HTMLInputElement>(null)
 
   const loadTerms = async () => {
@@ -56,6 +61,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       setScrapeCount('5')
       setSuggestedTerms([])
       setSelectedTerms(new Set())
+      setFiltros({ ubicacion: '', modalidad: 'any', pais: 'Mexico' })
     }
   }, [open])
 
@@ -167,7 +173,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
     }
     setState('saving'); setMessage('')
     try {
-      const res = await api.scrape(n, Array.from(selectedTerms))
+      const res = await api.scrape(n, Array.from(selectedTerms), filtros)
       setState('success')
       setMessage(`${res.mensaje} · Tablero se actualiza automáticamente.`)
       onSuccess()
@@ -347,6 +353,66 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* Filtros de búsqueda */}
+              <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Filtros de búsqueda</p>
+
+                {/* Modalidad */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] text-zinc-500">Modalidad</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {([
+                      { val: 'any',        label: 'Cualquiera' },
+                      { val: 'remoto',     label: 'Remoto' },
+                      { val: 'hibrido',    label: 'Híbrido' },
+                      { val: 'presencial', label: 'Presencial' },
+                    ] as { val: FiltrosBusqueda['modalidad']; label: string }[]).map(({ val, label }) => (
+                      <button
+                        key={val}
+                        onClick={() => setFiltros(f => ({ ...f, modalidad: val, ubicacion: val === 'remoto' ? '' : f.ubicacion }))}
+                        className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${
+                          filtros.modalidad === val
+                            ? 'border-indigo-500/50 bg-indigo-950/50 text-indigo-200'
+                            : 'border-white/[0.06] text-zinc-500 hover:text-zinc-300'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Ubicación (oculta en modo remoto) */}
+                {filtros.modalidad !== 'remoto' && (
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] text-zinc-500">Ubicación</span>
+                    <input
+                      value={filtros.ubicacion}
+                      onChange={e => setFiltros(f => ({ ...f, ubicacion: e.target.value }))}
+                      placeholder="Ciudad de México, Monterrey… (vacío = cualquiera)"
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[12px] text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500/40"
+                    />
+                  </div>
+                )}
+
+                {/* País */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] text-zinc-500">País</span>
+                  <select
+                    value={filtros.pais}
+                    onChange={e => setFiltros(f => ({ ...f, pais: e.target.value }))}
+                    className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-[12px] text-zinc-200 outline-none focus:border-indigo-500/40"
+                  >
+                    <option value="Mexico">México</option>
+                    <option value="España">España</option>
+                    <option value="Argentina">Argentina</option>
+                    <option value="Colombia">Colombia</option>
+                    <option value="Chile">Chile</option>
+                    <option value="Internacional">Internacional (multi-país)</option>
+                  </select>
+                </div>
               </div>
 
               {/* Cantidad */}

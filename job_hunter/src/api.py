@@ -42,6 +42,20 @@ _mcp_last_heartbeat: float = 0.0
 async def lifespan(app: FastAPI):
     os.makedirs(OUTPUTS_DIR, exist_ok=True)
     os.makedirs(TEMPLATES_DIR, exist_ok=True)
+    # ── Auto-migrate DB ───────────────────────────────────────────────────────
+    with sqlite3.connect(DB_PATH) as _mc:
+        _mc.execute("""
+            CREATE TABLE IF NOT EXISTS vacantes_eliminadas (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                enlace            TEXT UNIQUE NOT NULL,
+                titulo            TEXT,
+                fecha_eliminacion TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        _cols = [r[1] for r in _mc.execute("PRAGMA table_info(vacantes)").fetchall()]
+        if "fecha_postulacion" not in _cols:
+            _mc.execute("ALTER TABLE vacantes ADD COLUMN fecha_postulacion TEXT")
+        _mc.commit()
     app.state.health_watcher = DeepHealthWatcher(interval_seconds=20, dry_run=False)
     app.state.health_watcher.start()
     yield
@@ -150,6 +164,22 @@ def _set_status(vid: int, status: str):
     conn.commit()
     conn.close()
 
+def _is_blacklisted(conn, enlace: str) -> bool:
+    if not enlace:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM vacantes_eliminadas WHERE enlace=?", (enlace,)
+    ).fetchone() is not None
+
+def _blacklist_add(conn, enlace: str, titulo: str):
+    if not enlace:
+        return
+    conn.execute(
+        "INSERT OR IGNORE INTO vacantes_eliminadas (enlace, titulo) VALUES (?,?)",
+        (enlace, titulo or "")
+    )
+    conn.commit()
+
 
 class VacanteCreate(BaseModel):
     titulo: str = Field(min_length=1, max_length=200)
@@ -166,9 +196,15 @@ class VacanteBulkItem(BaseModel):
     requerimientos: str = Field(default="", max_length=5000)
 
 
+class FiltrosBusqueda(BaseModel):
+    ubicacion: str  = Field(default="", description="Ciudad o estado — vacío = cualquiera")
+    modalidad: str  = Field(default="any", description="any | remoto | hibrido | presencial")
+    pais:      str  = Field(default="Mexico", description="Mexico | España | Argentina | Colombia | Internacional")
+
 class ScrapeRequest(BaseModel):
     cantidad: int = Field(ge=1, le=200, description="Vacantes a extraer (máximo global)")
     terminos: list[str] | None = Field(default=None, description="Términos de búsqueda (None = usar perfil_maestro.json)")
+    filtros:  FiltrosBusqueda  = Field(default_factory=FiltrosBusqueda)
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -178,18 +214,18 @@ def listar_vacantes(limit: int = 50, status: str | None = None):
     conn = _db()
     if status:
         rows = conn.execute(
-            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro "
+            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion "
             "FROM vacantes WHERE status=? ORDER BY id DESC LIMIT ?",
             (status, limit)
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro "
+            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion "
             "FROM vacantes ORDER BY id DESC LIMIT ?",
             (limit,)
         ).fetchall()
     conn.close()
-    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro"]
+    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion"]
     result = [dict(zip(cols, r)) for r in rows]
     _log.info("GET /vacantes → %d filas (status=%s, limit=%d)", len(result), status or "all", limit)
     return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
@@ -200,25 +236,32 @@ def detalle_vacante(vid: int):
     """Devuelve todos los campos de una vacante."""
     conn = _db()
     row = conn.execute(
-        "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro "
+        "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion "
         "FROM vacantes WHERE id=?", (vid,)
     ).fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
-    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro"]
+    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion"]
     return dict(zip(cols, row))
 
 
 @app.patch("/vacantes/{vid}/status")
 def cambiar_status(vid: int, body: dict):
-    """Actualiza el status de una vacante. Body: {"status": "Listo_Manual"}"""
+    """Actualiza el status de una vacante. Body: {"status": "Listo_Manual"}
+    Al marcar Listo_Manual registra fecha_postulacion automáticamente."""
     VALIDOS = {"No_Creado", "En_Proceso", "Revisado_IA", "Listo_Manual", "Requiere_Correccion"}
     nuevo = body.get("status", "")
     if nuevo not in VALIDOS:
         raise HTTPException(status_code=400, detail=f"Status inválido. Usa: {VALIDOS}")
     conn = _db()
-    conn.execute("UPDATE vacantes SET status=? WHERE id=?", (nuevo, vid))
+    if nuevo == "Listo_Manual":
+        conn.execute(
+            "UPDATE vacantes SET status=?, fecha_postulacion=datetime('now','localtime') WHERE id=?",
+            (nuevo, vid)
+        )
+    else:
+        conn.execute("UPDATE vacantes SET status=? WHERE id=?", (nuevo, vid))
     conn.commit()
     changes = conn.execute("SELECT changes()").fetchone()[0]
     conn.close()
@@ -383,6 +426,9 @@ def crear_vacante(body: VacanteCreate):
     """Crea una vacante en SQLite. Deduplicación explícita por enlace; compatibilidad evaluada con IA si no se provee."""
     enlace = body.enlace.strip()
     conn = _db()
+    if _is_blacklisted(conn, enlace):
+        conn.close()
+        return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante eliminada previamente", "blacklisted": True})
     existing = conn.execute("SELECT id FROM vacantes WHERE enlace = ?", (enlace,)).fetchone()
     if existing:
         conn.close()
@@ -420,9 +466,14 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
     conn = _db()
     insertados = 0
     duplicados = 0
+    omitidos = 0
     ids: list[int] = []
     try:
         for item in items:
+            enlace_b = item.enlace.strip()
+            if _is_blacklisted(conn, enlace_b):
+                omitidos += 1
+                continue
             reqs_b = item.requerimientos.strip()[:5000]
             compat_b = evaluar_compatibilidad_rapida(reqs_b) if reqs_b else "Nula"
             conn.execute(
@@ -431,7 +482,7 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
                 (
                     item.titulo.strip()[:200],
                     item.empresa.strip()[:100] or "Desconocida",
-                    item.enlace.strip(),
+                    enlace_b,
                     reqs_b,
                     compat_b,
                 )
@@ -451,9 +502,36 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
         "ok": True,
         "insertadas": insertados,
         "duplicadas": duplicados,
+        "omitidas_blacklist": omitidos,
         "ids": ids,
         "status": "No_Creado",
     }
+
+
+@app.get("/vacantes/eliminadas")
+def listar_eliminadas(limit: int = 200):
+    """Lista las vacantes en la blacklist (eliminadas por el usuario)."""
+    conn = _db()
+    rows = conn.execute(
+        "SELECT id, enlace, titulo, fecha_eliminacion FROM vacantes_eliminadas ORDER BY id DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    cols = ["id", "enlace", "titulo", "fecha_eliminacion"]
+    return JSONResponse(content=[dict(zip(cols, r)) for r in rows], headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/vacantes/eliminadas/{eid}")
+def restaurar_eliminada(eid: int):
+    """Elimina una entrada de la blacklist, permitiendo que esa vacante pueda reinsertarse."""
+    conn = _db()
+    conn.execute("DELETE FROM vacantes_eliminadas WHERE id=?", (eid,))
+    conn.commit()
+    changes = conn.execute("SELECT changes()").fetchone()[0]
+    conn.close()
+    if not changes:
+        raise HTTPException(status_code=404, detail=f"Entrada #{eid} no encontrada en el archivo.")
+    return {"ok": True, "id": eid}
 
 
 @app.get("/pdf/{vid}")
@@ -476,15 +554,22 @@ def descargar_pdf(vid: int, download: bool = False):
 
 @app.post("/scrape")
 async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks):
-    """Lanza el browser_agent en background con un límite de vacantes."""
+    """Lanza el browser_agent en background con límite, términos y filtros de ubicación/modalidad/país."""
     if _scrape_status["running"]:
         raise HTTPException(status_code=409, detail="Ya hay un scraping en curso. Espera a que termine.")
     terms = body.terminos or generar_terminos_busqueda()
+    filtros = body.filtros.model_dump()
     _scrape_status["running"] = True
     _scrape_status["last"] = None
     _scrape_status["terminos"] = terms
-    background_tasks.add_task(_scrape_task, body.cantidad, terms)
-    return {"ok": True, "mensaje": f"Scraping de {body.cantidad} vacantes iniciado con {len(terms)} términos.", "terminos": terms}
+    _scrape_status["filtros"] = filtros
+    background_tasks.add_task(_scrape_task, body.cantidad, terms, filtros)
+    return {
+        "ok": True,
+        "mensaje": f"Scraping de {body.cantidad} vacantes iniciado con {len(terms)} términos.",
+        "terminos": terms,
+        "filtros": filtros,
+    }
 
 
 @app.get("/scrape/status")
@@ -495,14 +580,17 @@ def scrape_status():
 
 @app.delete("/vacantes/{vid}")
 def borrar_vacante(vid: int):
-    """Elimina una vacante por ID."""
+    """Elimina una vacante por ID y la agrega a la lista negra para no re-importarla."""
     conn = _db()
+    row = conn.execute("SELECT enlace, titulo FROM vacantes WHERE id=?", (vid,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
+    enlace, titulo = row
+    _blacklist_add(conn, enlace, titulo)
     conn.execute("DELETE FROM vacantes WHERE id=?", (vid,))
     conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
     conn.close()
-    if not changes:
-        raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
     return {"ok": True, "id": vid}
 
 
@@ -611,12 +699,14 @@ def template_activa():
 
 # ── Tareas background ─────────────────────────────────────────────────────────
 
-def _scrape_task(cantidad: int, terminos: list[str] | None = None):
-    """Ejecuta browser_agent.py con límite y términos derivados del perfil."""
+def _scrape_task(cantidad: int, terminos: list[str] | None = None, filtros: dict | None = None):
+    """Ejecuta browser_agent.py con límite, términos y filtros de búsqueda."""
     agent_path = os.path.join(os.path.dirname(__file__), 'browser_agent.py')
     cmd = [sys.executable, agent_path, '--limit', str(cantidad)]
     if terminos:
         cmd += ['--terms'] + terminos
+    if filtros:
+        cmd += ['--filtros', json.dumps(filtros, ensure_ascii=False)]
     try:
         result = subprocess.run(
             cmd,

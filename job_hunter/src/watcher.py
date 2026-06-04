@@ -73,6 +73,10 @@ def _sync_one(vacante: dict[str, Any], dry_run: bool = True) -> dict[str, Any]:
     desired = None
     error = None
 
+    # Listo_Manual es un estado terminal confirmado por el usuario; no revertir
+    if state["status"] == "Listo_Manual":
+        return {**state, "desired_status": None, "changed": False, "error": None}
+
     if state["pdf_exists"]:
         desired = "Revisado_IA"
     elif state["tex_exists"]:

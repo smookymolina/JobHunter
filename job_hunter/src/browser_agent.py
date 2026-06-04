@@ -4,9 +4,10 @@ Cada vacante encontrada se envía vía POST al API REST (localhost:8000/vacantes
 El agente NO escribe directamente a SQLite.
 
 Uso:
-    python browser_agent.py                       # todos los términos del perfil
-    python browser_agent.py --limit 5             # máximo 5 vacantes globales
+    python browser_agent.py
+    python browser_agent.py --limit 5
     python browser_agent.py --limit 5 --terms "IoT Developer" "Backend Python"
+    python browser_agent.py --limit 10 --filtros '{"ubicacion":"Ciudad de México","modalidad":"remoto","pais":"Mexico"}'
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
@@ -14,7 +15,6 @@ sys.stdout.reconfigure(encoding='utf-8')
 import argparse
 import json
 import os
-import re
 import time
 import random
 import urllib.request
@@ -23,7 +23,7 @@ import urllib.error
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-from playwright.sync_api import sync_playwright, Page, TimeoutError as PWTimeout
+from playwright.sync_api import sync_playwright, Page
 from gemini_engine import generar_terminos_busqueda
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -33,14 +33,95 @@ SEARCH_TERMS: list[str] = generar_terminos_busqueda()
 MAX_PER_TERM = 8
 HEADLESS     = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
 
+# Dominios Computrabajo por país
+_CT_DOMINIOS: dict[str, str] = {
+    "Mexico":        "https://www.computrabajo.com.mx",
+    "España":        "https://www.computrabajo.es",
+    "Argentina":     "https://www.computrabajo.com.ar",
+    "Colombia":      "https://www.computrabajo.com.co",
+    "Chile":         "https://www.computrabajo.cl",
+    "Internacional": "https://www.computrabajo.com.mx",  # base; se itera multi-país
+}
+
+_FILTROS_DEFAULT: dict = {"ubicacion": "", "modalidad": "any", "pais": "Mexico"}
+
+# Palabras clave que indican trabajo remoto en texto de vacante
+_REMOTE_KEYWORDS = {"remoto", "home office", "teletrabajo", "remote", "trabajo remoto", "desde casa"}
+# Palabras clave que indican trabajo presencial
+_ONSITE_KEYWORDS = {"presencial", "en sitio", "on-site", "oficina"}
+
+# ── URL builders ──────────────────────────────────────────────────────────────
+
+def _slug(text: str) -> str:
+    return text.lower().strip().replace(' ', '-')
+
+
+def _computrabajo_urls(term: str, filtros: dict) -> list[str]:
+    """Genera lista de URLs de Computrabajo según filtros."""
+    modalidad = filtros.get("modalidad", "any")
+    ubicacion = filtros.get("ubicacion", "").strip()
+    pais      = filtros.get("pais", "Mexico")
+
+    if pais == "Internacional":
+        bases = list(_CT_DOMINIOS.values())
+        bases = list(dict.fromkeys(bases))  # dedup preservando orden
+    else:
+        bases = [_CT_DOMINIOS.get(pais, _CT_DOMINIOS["Mexico"])]
+
+    urls = []
+    for base in bases:
+        t = _slug(term)
+        if modalidad == "remoto":
+            urls.append(f"{base}/trabajo-de-{t}-trabajo-remoto")
+            urls.append(f"{base}/trabajo-de-{t}-home-office")
+        elif modalidad == "hibrido":
+            urls.append(f"{base}/trabajo-de-{t}-hibrido")
+        elif ubicacion:
+            urls.append(f"{base}/trabajo-de-{t}-en-{_slug(ubicacion)}")
+        else:
+            urls.append(f"{base}/trabajo-de-{t}")
+    return urls
+
+
+def _occ_url(term: str, filtros: dict) -> str | None:
+    """Genera URL de OCC según filtros. OCC es solo México."""
+    if filtros.get("pais", "Mexico") not in ("Mexico", "Internacional"):
+        return None
+
+    modalidad = filtros.get("modalidad", "any")
+    ubicacion = filtros.get("ubicacion", "").strip()
+    t = _slug(term)
+
+    if modalidad == "remoto":
+        return f"https://www.occ.com.mx/empleos/de-{t}/en-home-office/"
+    if modalidad == "hibrido":
+        return f"https://www.occ.com.mx/empleos/de-{t}/en-hibrido/"
+    if ubicacion:
+        return f"https://www.occ.com.mx/empleos/de-{t}/en-{_slug(ubicacion)}/"
+    return f"https://www.occ.com.mx/empleos/de-{t}/"
+
+
+# ── Text filter ───────────────────────────────────────────────────────────────
+
+def _passes_text_filter(titulo: str, reqs: str, filtros: dict) -> bool:
+    """Filtro secundario sobre el texto de la vacante para coherencia con modalidad."""
+    modalidad = filtros.get("modalidad", "any")
+    if modalidad == "any":
+        return True
+
+    text = f"{titulo} {reqs}".lower()
+    is_remote = any(kw in text for kw in _REMOTE_KEYWORDS)
+
+    if modalidad == "presencial" and is_remote:
+        return False   # quiere presencial pero es remoto
+    if modalidad == "remoto" and any(kw in text for kw in _ONSITE_KEYWORDS) and not is_remote:
+        return False   # quiere remoto pero dice presencial
+    return True
+
+
 # ── API helper ────────────────────────────────────────────────────────────────
 
 def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bool, str]:
-    """
-    Envia vacante al endpoint POST /vacantes.
-    Retorna (insertada: bool, compatibilidad: str).
-    La API evalúa compatibilidad y gestiona duplicados.
-    """
     payload = json.dumps({
         "titulo":         titulo[:200],
         "empresa":        (empresa or "Desconocida")[:100],
@@ -59,14 +140,13 @@ def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bo
             return True, result.get("compatibilidad", "Nula")
     except urllib.error.HTTPError as e:
         if e.code == 409:
-            print(f"  [API] Saltando duplicado: {titulo[:60]}")
             return False, ""
-        body = e.read().decode("utf-8", errors="replace")[:200]
-        print(f"  [API] HTTP {e.code}: {body}")
+        print(f"  [API] HTTP {e.code}: {e.read().decode('utf-8', errors='replace')[:200]}")
         return False, ""
     except Exception as ex:
-        print(f"  [API] Error al insertar vacante: {ex}")
+        print(f"  [API] Error: {ex}")
         return False, ""
+
 
 # ── Anti-bot helpers ──────────────────────────────────────────────────────────
 
@@ -78,91 +158,98 @@ def _scroll(page: Page, steps=4):
         page.evaluate("window.scrollBy(0, window.innerHeight * 0.7)")
         _sleep(0.4, 0.8)
 
-def _human_type(page: Page, selector: str, text: str):
-    page.click(selector)
-    for ch in text:
-        page.keyboard.type(ch)
-        time.sleep(random.uniform(0.04, 0.12))
 
-# ── Scrapers por sitio ────────────────────────────────────────────────────────
+# ── Scrapers ──────────────────────────────────────────────────────────────────
 
-def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None) -> int:
+def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
     count = 0
-    url = f"https://www.computrabajo.com.mx/trabajo-de-{term.lower().replace(' ', '-')}"
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=20000)
-        _sleep(1.5, 2.5)
-        _scroll(page)
+    urls = _computrabajo_urls(term, filtros)
 
-        cards = page.query_selector_all("article.box_offer")[:MAX_PER_TERM]
-        for card in cards:
-            if limite is not None and counter[0] >= limite:
-                break
-            try:
-                titulo_el = card.query_selector("h2 a, h3 a")
-                if not titulo_el:
-                    continue
-                titulo = titulo_el.inner_text().strip()
-                href   = titulo_el.get_attribute("href") or ""
-                enlace = ("https://www.computrabajo.com.mx" + href) if href.startswith("/") else href
+    for url in urls:
+        if limite is not None and counter[0] >= limite:
+            break
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            _sleep(1.5, 2.5)
+            _scroll(page)
 
-                emp_el  = card.query_selector("p.fs16, p.dcolor, a.dcolor")
-                empresa = emp_el.inner_text().strip() if emp_el else ""
+            cards = page.query_selector_all("article.box_offer")[:MAX_PER_TERM]
+            for card in cards:
+                if limite is not None and counter[0] >= limite:
+                    break
+                try:
+                    titulo_el = card.query_selector("h2 a, h3 a")
+                    if not titulo_el:
+                        continue
+                    titulo = titulo_el.inner_text().strip()
+                    href   = titulo_el.get_attribute("href") or ""
+                    enlace = ("https://www.computrabajo.com.mx" + href) if href.startswith("/") else href
 
-                reqs = ""
-                if enlace:
-                    try:
-                        detail = page.context.new_page()
-                        detail.goto(enlace, wait_until="domcontentloaded", timeout=15000)
-                        _sleep(0.8, 1.5)
+                    emp_el  = card.query_selector("p.fs16, p.dcolor, a.dcolor")
+                    empresa = emp_el.inner_text().strip() if emp_el else ""
 
-                        if not empresa:
-                            jld_raw = detail.evaluate("""
-                                () => {
-                                    const s = document.querySelector('script[type="application/ld+json"]');
-                                    return s ? s.textContent : '';
-                                }
-                            """)
-                            if jld_raw:
-                                try:
-                                    jld = json.loads(jld_raw)
-                                    items = jld if isinstance(jld, list) else [jld]
-                                    for item in items:
-                                        if item.get("@type") == "JobPosting":
-                                            h = item.get("hiringOrganization", {})
-                                            empresa = h.get("name") if isinstance(h, dict) else ""
-                                except Exception:
-                                    pass
+                    reqs = ""
+                    if enlace:
+                        try:
+                            detail = page.context.new_page()
+                            detail.goto(enlace, wait_until="domcontentloaded", timeout=15000)
+                            _sleep(0.8, 1.5)
 
-                        req_el = detail.query_selector(
-                            "div[div-link='oferta'], section.description, div.job-description"
-                        )
-                        if req_el:
-                            reqs = req_el.inner_text()[:3000]
-                        detail.close()
-                        _sleep(0.5, 1.0)
-                    except Exception as ex:
-                        print(f"    [detail] {ex}")
+                            if not empresa:
+                                jld_raw = detail.evaluate("""
+                                    () => {
+                                        const s = document.querySelector('script[type="application/ld+json"]');
+                                        return s ? s.textContent : '';
+                                    }
+                                """)
+                                if jld_raw:
+                                    try:
+                                        jld = json.loads(jld_raw)
+                                        items = jld if isinstance(jld, list) else [jld]
+                                        for item in items:
+                                            if item.get("@type") == "JobPosting":
+                                                h = item.get("hiringOrganization", {})
+                                                empresa = h.get("name") if isinstance(h, dict) else ""
+                                    except Exception:
+                                        pass
 
-                if len(reqs.strip()) < 50:
-                    print(f"  [Skipped] Sin requerimientos: {titulo[:45]}")
-                    continue
+                            req_el = detail.query_selector(
+                                "div[div-link='oferta'], section.description, div.job-description"
+                            )
+                            if req_el:
+                                reqs = req_el.inner_text()[:3000]
+                            detail.close()
+                            _sleep(0.5, 1.0)
+                        except Exception as ex:
+                            print(f"    [detail] {ex}")
 
-                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
-                if insertada:
-                    counter[0] += 1
-                    count += 1
-                    print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}")
-            except Exception as ex:
-                print(f"  [card] {ex}")
-    except Exception as ex:
-        print(f"  [computrabajo] {term}: {ex}")
+                    if len(reqs.strip()) < 50:
+                        print(f"  [Skip] Sin reqs: {titulo[:45]}")
+                        continue
+
+                    if not _passes_text_filter(titulo, reqs, filtros):
+                        print(f"  [Filtro] Excluido por modalidad: {titulo[:45]}")
+                        continue
+
+                    insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                    if insertada:
+                        counter[0] += 1
+                        count += 1
+                        print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}")
+                except Exception as ex:
+                    print(f"  [card] {ex}")
+            _sleep(2, 4)
+        except Exception as ex:
+            print(f"  [computrabajo] {term} @ {url[:60]}: {ex}")
     return count
 
 
-def scrape_occ(page: Page, term: str, counter: list, limite: int | None) -> int:
+def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
     count = 0
-    url = f"https://www.occ.com.mx/empleos/de-{term.lower().replace(' ', '-')}/"
+    url = _occ_url(term, filtros)
+    if url is None:
+        return 0
+
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=20000)
         _sleep(1.5, 2.5)
@@ -201,7 +288,11 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None) -> int:
                         pass
 
                 if len(reqs.strip()) < 50:
-                    print(f"  [Skipped] Sin requerimientos: {titulo[:45]}")
+                    print(f"  [Skip] Sin reqs: {titulo[:45]}")
+                    continue
+
+                if not _passes_text_filter(titulo, reqs, filtros):
+                    print(f"  [Filtro] Excluido por modalidad: {titulo[:45]}")
                     continue
 
                 insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
@@ -215,27 +306,33 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None) -> int:
         print(f"  [occ] {term}: {ex}")
     return count
 
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="Browser Agent — scraping de vacantes vía API")
-    parser.add_argument('--limit', type=int, default=None,
-                        help="Número máximo de vacantes a insertar (global)")
-    parser.add_argument('--terms', nargs='*', dest='named_terms',
-                        help="Términos de búsqueda (sobrescribe perfil_maestro)")
-    parser.add_argument('positional_terms', nargs='*',
-                        help="Términos de búsqueda posicionales (legado)")
+    parser.add_argument('--limit',   type=int,  default=None,   help="Máximo de vacantes a insertar (global)")
+    parser.add_argument('--terms',   nargs='*', dest='named_terms', help="Términos de búsqueda")
+    parser.add_argument('--filtros', type=str,  default='{}',   help='JSON de filtros: {"ubicacion":"...","modalidad":"...","pais":"..."}')
+    parser.add_argument('positional_terms', nargs='*', help="Términos posicionales (legado)")
     args = parser.parse_args()
 
     limite = args.limit
     terms  = args.named_terms or args.positional_terms or SEARCH_TERMS
 
-    print(f"[config] API target: {API_BASE}")
-    if limite is not None:
-        print(f"[config] Límite global: {limite} vacantes")
+    try:
+        filtros = {**_FILTROS_DEFAULT, **json.loads(args.filtros)}
+    except json.JSONDecodeError:
+        print(f"[WARN] --filtros JSON inválido, usando defaults: {args.filtros}")
+        filtros = dict(_FILTROS_DEFAULT)
+
+    print(f"[config] API: {API_BASE}")
+    print(f"[config] Términos: {terms}")
+    print(f"[config] Filtros: ubicacion={filtros['ubicacion']!r}  modalidad={filtros['modalidad']}  pais={filtros['pais']}")
+    if limite:
+        print(f"[config] Límite: {limite}")
 
     counter = [0]
-
     browser = None
     try:
         with sync_playwright() as p:
@@ -266,19 +363,18 @@ def main():
 
             for term in terms:
                 if limite is not None and counter[0] >= limite:
-                    print(f"\n[limite] Alcanzado {limite} vacantes. Deteniendo.")
+                    print(f"\n[límite] Alcanzado {limite}. Deteniendo.")
                     break
 
                 print(f"\n[Computrabajo] '{term}'")
-                scrape_computrabajo(page, term, counter, limite)
-                _sleep(2, 4)
+                scrape_computrabajo(page, term, counter, limite, filtros)
 
                 if limite is not None and counter[0] >= limite:
-                    print(f"\n[limite] Alcanzado {limite} vacantes. Deteniendo.")
+                    print(f"\n[límite] Alcanzado {limite}. Deteniendo.")
                     break
 
                 print(f"\n[OCC] '{term}'")
-                scrape_occ(page, term, counter, limite)
+                scrape_occ(page, term, counter, limite, filtros)
                 _sleep(2, 4)
 
             browser.close()
@@ -292,9 +388,8 @@ def main():
             except Exception:
                 pass
 
-    total = counter[0]
     print(f"\n{'='*50}")
-    print(f"Total enviadas a la API: {total} vacantes nuevas")
+    print(f"Total enviadas a la API: {counter[0]} vacantes nuevas")
 
 
 if __name__ == "__main__":

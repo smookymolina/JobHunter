@@ -38,6 +38,20 @@ export interface Vacante {
   compatibilidad: Compatibilidad
   status: Status
   fecha_registro: string
+  fecha_postulacion?: string | null
+}
+
+export interface FiltrosBusqueda {
+  ubicacion: string   // '' = cualquiera
+  modalidad: 'any' | 'remoto' | 'hibrido' | 'presencial'
+  pais: string        // 'Mexico' | 'España' | 'Argentina' | 'Colombia' | 'Internacional'
+}
+
+export interface VacanteEliminada {
+  id: number
+  enlace: string
+  titulo: string
+  fecha_eliminacion: string
 }
 
 export interface VacanteCreateInput {
@@ -169,11 +183,15 @@ export const api = {
 
   pdfUrl: (id: number) => `${API}/pdf/${id}`,
 
-  scrape: (cantidad: number, terminos?: string[]) =>
-    req<{ ok: boolean; mensaje: string; terminos?: string[] }>('/scrape', {
+  scrape: (cantidad: number, terminos?: string[], filtros?: Partial<FiltrosBusqueda>) =>
+    req<{ ok: boolean; mensaje: string; terminos?: string[]; filtros?: FiltrosBusqueda }>('/scrape', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cantidad, ...(terminos?.length ? { terminos } : {}) }),
+      body: JSON.stringify({
+        cantidad,
+        ...(terminos?.length ? { terminos } : {}),
+        ...(filtros ? { filtros } : {}),
+      }),
     }),
 
   searchTerms: () =>
@@ -196,6 +214,12 @@ export const api = {
       body: form,
     })
   },
+
+  vacantesEliminadas: (limit = 200) =>
+    req<VacanteEliminada[]>(`/vacantes/eliminadas?limit=${limit}`),
+
+  restaurarEliminada: (id: number) =>
+    req<{ ok: boolean; id: number }>(`/vacantes/eliminadas/${id}`, { method: 'DELETE' }),
 
   getPerfilMaestro: () =>
     req<PerfilMaestro>('/api/perfil'),

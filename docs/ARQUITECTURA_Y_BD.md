@@ -1,102 +1,87 @@
-﻿# Arquitectura y Base de Datos
+# Arquitectura y Base de Datos
 
-## Esquema SQLite â€” tabla `vacantes`
+## Esquema SQLite — tabla `vacantes`
 
-| Columna | Tipo | RestricciÃ³n / Default |
+| Columna | Tipo | Restricción / Default |
 |---|---|---|
 | `id` | INTEGER | PK AUTOINCREMENT |
 | `titulo` | TEXT | NOT NULL |
 | `empresa` | TEXT | nullable |
 | `enlace` | TEXT | UNIQUE |
 | `requerimientos` | TEXT | nullable |
-| `compatibilidad` | TEXT | CHECK('Alta','Media','Baja','Nula') Â· default 'Nula' |
-| `status` | TEXT | CHECK(ver estados) Â· default 'No_Creado' |
-| `fecha_registro` | TEXT | default datetime('now') |
+| `compatibilidad` | TEXT | CHECK('Alta','Media','Baja','Nula') · default 'Nula' |
+| `status` | TEXT | CHECK(ver estados) · default 'No_Creado' |
+| `fecha_registro` | TEXT | default datetime('now','localtime') |
+| `fecha_postulacion` | TEXT | nullable — se llena automáticamente al marcar `Listo_Manual` |
 
-## MÃ¡quina de estados
+## Tabla `vacantes_eliminadas` (blacklist)
+
+| Columna | Tipo | Restricción |
+|---|---|---|
+| `id` | INTEGER | PK AUTOINCREMENT |
+| `enlace` | TEXT | UNIQUE NOT NULL |
+| `titulo` | TEXT | nullable |
+| `fecha_eliminacion` | TEXT | default CURRENT_TIMESTAMP |
+
+Cualquier vacante eliminada vía `DELETE /vacantes/{id}` queda registrada aquí. El scraper y los endpoints de inserción consultan esta tabla antes de insertar; si el enlace está en la blacklist se rechaza con 409 y nunca reaparece.
+
+## Máquina de estados
 
 ```
-No_Creado â†’ En_Proceso â†’ Revisado_IA â†’ Listo_Manual
-                      â†˜ Requiere_Correccion â†’ (regenerar)
+No_Creado → En_Proceso → Revisado_IA → Listo_Manual (terminal)
+                      ↘ Requiere_Correccion → (regenerar)
 ```
 
-| Estado | Lo activa |
-|---|---|
-| `No_Creado` | Alta nueva, error de pipeline |
-| `En_Proceso` | Inicio de `generar_y_compilar()` |
-| `Requiere_Correccion` | Inspector rechaza el CV |
-| `Revisado_IA` | Inspector aprueba (con o sin PDF) |
-| `Listo_Manual` | PATCH manual / comando bot |
+| Estado | Lo activa | Notas |
+|---|---|---|
+| `No_Creado` | Alta nueva | Estado inicial |
+| `En_Proceso` | Inicio de `generar_y_compilar()` | Spinner en tarjeta |
+| `Requiere_Correccion` | Inspector rechaza / pdflatex falla | |
+| `Revisado_IA` | Inspector aprueba (con PDF) | Habilita Ver PDF / Editar LaTeX |
+| `Listo_Manual` | PATCH manual / comando bot | **Terminal** — el watcher no lo revierte; registra `fecha_postulacion` |
 
-## Endpoints â€” `src/api.py` (puerto 8000)
+> **Regla del watcher**: `_sync_one` en `watcher.py` nunca sobreescribe `Listo_Manual`. Solo corrige estados `No_Creado`/`En_Proceso`/`Requiere_Correccion` donde hay PDF generado.
 
-| MÃ©todo | Ruta | DescripciÃ³n |
+## Endpoints — `src/api.py` (puerto 8000)
+
+| Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/vacantes` | Lista; acepta `?limit=` y `?status=` |
-| GET | `/vacantes/{id}` | Detalle completo |
-| PATCH | `/vacantes/{id}/status` | Cambia status â€” body `{"status": "..."}` |
-| PATCH | `/vacantes/{id}/compatibilidad` | Cambia compatibilidad â€” body `{"compatibilidad": "..."}` |
-| POST | `/vacantes` | Crea vacante manual |
-| POST | `/vacantes/bulk` | Importa lista JSON |
-| DELETE | `/vacantes/{id}` | Borra vacante |
+| GET | `/vacantes/{id}` | Detalle completo (incluye `fecha_postulacion`) |
+| PATCH | `/vacantes/{id}/status` | Cambia status; si es `Listo_Manual` guarda `fecha_postulacion` |
+| PATCH | `/vacantes/{id}/compatibilidad` | Cambia compatibilidad |
+| POST | `/vacantes` | Crea vacante manual (chequea blacklist) |
+| POST | `/vacantes/bulk` | Importa lista JSON (omite entradas en blacklist) |
+| DELETE | `/vacantes/{id}` | Borra vacante y la agrega a blacklist |
 | GET | `/latex/{id}` | Devuelve `.tex` como texto plano |
-| POST | `/latex/{id}` | Body: LaTeX crudo â†’ sobrescribe y recompila |
-| POST | `/generar_cv/{id}` | Genera CV con Groq+LaTeX, audita con Inspector IA, retorna aprobado/rechazado |
-| POST | `/scrape` | Lanza browser_agent con `{"cantidad": N}` |
+| POST | `/latex/{id}` | Body: LaTeX crudo → sobrescribe y recompila |
+| POST | `/generar_cv/{id}` | Genera CV con Groq+LaTeX, audita con Inspector IA |
+| POST | `/scrape` | Lanza browser_agent con `{"cantidad": N, "terminos": [...]}` |
 | GET | `/scrape/status` | Estado del scraping activo |
 | GET | `/pdf/{id}` | PDF inline o `?download=true` |
 | POST | `/upload_template` | Sube `mi_estilo.tex` |
 | GET | `/template/activa` | Informa qué plantilla está activa |
-| POST | `/perfil/upload` | Sube uno o varios PDF/.md/.txt (`files[]`) → combina texto en mi_perfil.md |
-| GET | `/perfil` | Devuelve contenido de mi_perfil.md como JSON |
+| POST | `/perfil/upload` | Sube PDF/.md/.txt → combina texto en mi_perfil.md |
+| GET | `/perfil` | Devuelve contenido de mi_perfil.md |
+| GET | `/api/perfil` | Retorna perfil_maestro.json |
+| POST | `/api/perfil` | Valida, guarda perfil_maestro.json y regenera mi_perfil.md |
+| GET | `/api/search-terms` | Términos de búsqueda derivados del perfil |
 
 ## Notas operativas
 
-- GeneraciÃ³n de CVs: Human-in-the-loop via Claude Desktop + MCP (ver `PIPELINE_IA.md`).
+- Generación de CVs: Human-in-the-loop via Claude Desktop + MCP (ver `PIPELINE_IA.md`).
 - Archivos de salida en `job_hunter/outputs/` (`cv_vacante_{id}.tex` y `.pdf`).
-- MigraciÃ³n de schema: `python src/migrate_db.py` (ya aplicada).
+- Auto-migración al arrancar la API: `lifespan` en `api.py` crea la tabla blacklist y agrega `fecha_postulacion` si no existen.
 
+## Actualización 2026-06-04 (rev 9 — Blacklist + Postulación + Search fix)
 
-## Actualizacion 2026-06-03 (rev 8 — Rutas Absolutas + Hard Reset)
+- **Blacklist de eliminadas**: `DELETE /vacantes/{id}` guarda el enlace en `vacantes_eliminadas`. `POST /vacantes` y `POST /vacantes/bulk` rechazan entradas en blacklist. La vacante nunca reaparece en scrapes futuros.
+- **fecha_postulacion**: al marcar `Listo_Manual`, la API registra automáticamente la fecha/hora de postulación. El frontend muestra "CV enviado — esperando respuesta de la empresa · Postulado el YYYY-MM-DD HH:MM".
+- **Watcher bugfix**: `_sync_one` en `watcher.py` ahora salta vacantes con status `Listo_Manual` en lugar de revertirlas a `Revisado_IA` cuando existe un PDF.
+- **`generar_terminos_busqueda()` balanceado**: 4 términos por área (SW/web primero, luego IoT/embebidos, luego mecánica). Con el perfil actual: `Desarrollador Full Stack, Full Stack Developer, Desarrollador Python, Desarrollador React, Desarrollador IoT, Ingeniero Sistemas Embebidos, Automatización Industrial, Desarrollador Firmware IoT, Ingeniero Mecánico, Ingeniero Mecatrónico, Ingeniero CAD CAE, Ingeniero Control Automático`.
 
-- **Política de rutas absolutas**: todos los módulos (`gemini_engine.py`, `init_db.py`, `reset_db.py`, `api.py`) usan `os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ...))`. Garantiza rutas correctas sin importar el CWD al lanzar el proceso.
-- **Archivos de salida**: `.tex` y `.pdf` se escriben **siempre** en `job_hunter/outputs/`. Nunca en la raíz.
-- **Hard Reset validado**: `reset_db.py` borra `db/vacantes.db`, limpia `outputs/` y recrea el schema con `CREATE TABLE vacantes` fresco.
-- **Organización de scripts**: scripts de debug/test (`check_db.py`, `debug_*.py`, etc.) movidos a `job_hunter/src/`.
-- **Validación E2E** confirmada: `POST /vacantes` → `GET /vacantes` → `POST /generar_cv/1` → PDF en `job_hunter/outputs/cv_vacante_1.pdf`, raíz limpia.
+## Actualización 2026-06-03 (rev 8 — Rutas Absolutas)
 
-## Actualizacion 2026-06-03 (rev 7 — API-First Sync)
-
-- **`browser_agent.py` ya no toca SQLite**. Cada vacante encontrada se envía via `POST /vacantes` a la API (API_BASE_URL en `.env`). Elimina bloqueos WAL y garantiza que el frontend reciba los datos en tiempo real.
-- **`POST /generar_cv/{vid}`**: nuevo endpoint para que el bot genere CVs sin importar `gemini_engine` directamente. Flujo: `En_Proceso → generar_y_compilar → evaluar_cv → Revisado_IA / Requiere_Correccion`.
-- `GET /vacantes` y `GET /scrape/status` → header `Cache-Control: no-store`.
-- `GET /vacantes` registra en consola el número de filas retornadas (`_log.info`).
-- Dashboard polling reducido a **2 s**.
-- Bot: `_cb_generar` y `_cb_genall` usan `POST /generar_cv/{vid}` en lugar de imports directos.
-- Bot: todas las acciones (marcar listo, borrar, generar) incluyen botón **◀️ Menú Principal**.
-
-## Actualizacion 2026-06-02 (rev 5 — Smart Search)
-
-- `GET /api/search-terms`: términos derivados de `perfil_maestro.json` sin LLM.
-- `POST /scrape` acepta `{"cantidad": N, "terminos": [...]}` — los términos son opcionales (default: perfil).
-- `browser_agent.py`: `SEARCH_TERMS` dinámico al arrancar; acepta `--terms` para override desde CLI o API.
-- `generar_terminos_busqueda()`: genera 12 términos por keywords del perfil (IoT, mecánica, full-stack, etc.).
-
-## Actualizacion 2026-06-02 (rev 4 — SSoT)
-
-- **`data/perfil_maestro.json`**: fuente de verdad única para datos personales, habilidades, experiencia, educación y proyectos.
-- `GET /api/perfil` → retorna perfil_maestro.json; `POST /api/perfil` → valida, guarda y regenera mi_perfil.md automáticamente.
-- `evaluar_compatibilidad_rapida` lee perfil_maestro.json (SSoT) con fallback a mi_perfil.md.
-- Página Perfil reemplazada por formulario estructurado (sin upload de PDF); cada guardado regenera mi_perfil.md.
-- Prompt MCP apunta a `job_hunter/data/perfil_maestro.json` para datos exactos sin alucinaciones.
-- Dashboard polling: 3 s.
-
-## Actualizacion 2026-06-02 (rev 2)
-
-- `GET /vacantes` devuelve `requerimientos` para contrato consistente frontend ↔ backend.
-- Dashboard polling vacantes: 3 s (antes 5 s).
-- `GET /pdf/{id}` devuelve `X-Frame-Options: SAMEORIGIN` + CSP para iframe en modal.
-- Nuevos endpoints: `POST /perfil/upload` (PyPDF2 extrae texto → mi_perfil.md) y `GET /perfil`.
-- `save_latex_cv` en MCP reporta HTTP code + body en errores PATCH.
-- `browser_agent.py` evalúa compatibilidad con Groq tras cada vacante insertada.
-- Nuevos scripts: `src/reset_db.py` (hard reset con diagnóstico) y `src/test_mcp_patch.py` (valida HTTP PATCH).
+- Política de rutas absolutas: todos los módulos usan `os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ...))`.
+- Hard Reset validado: `reset_db.py` borra DB, limpia `outputs/` y recrea el schema.
+- Validación E2E: `POST /vacantes` → `POST /generar_cv/1` → PDF en `job_hunter/outputs/`.

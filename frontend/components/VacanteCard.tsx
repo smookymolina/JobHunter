@@ -192,7 +192,7 @@ const STATUS_OPTIONS: { value: Status; label: string }[] = [
   { value: 'En_Proceso',          label: 'En proceso' },
   { value: 'Revisado_IA',         label: 'Revisado IA' },
   { value: 'Requiere_Correccion', label: 'Requiere corrección' },
-  { value: 'Listo_Manual',        label: 'Listo' },
+  { value: 'Listo_Manual',        label: 'CV Enviado' },
 ]
 
 export default function VacanteCard({ vacante, onStatusChange }: Props) {
@@ -343,8 +343,15 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
             )}
 
             {vacante.status === 'Listo_Manual' && (
-              <div className="flex items-center gap-2 text-[12px] text-emerald-500">
-                <CheckCircle size={13} /> Listo para postular
+              <div className="flex flex-col gap-0.5 rounded-lg border border-emerald-700/25 bg-emerald-950/25 px-3 py-2">
+                <div className="flex items-center gap-2 text-[12px] font-medium text-emerald-400">
+                  <CheckCircle size={13} /> CV enviado — esperando respuesta de la empresa
+                </div>
+                {vacante.fecha_postulacion && (
+                  <p className="text-[11px] text-zinc-500 pl-[21px]">
+                    Postulado el {vacante.fecha_postulacion.slice(0, 16).replace('T', ' ')}
+                  </p>
+                )}
               </div>
             )}
 
