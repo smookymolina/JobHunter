@@ -10,6 +10,7 @@ services:
       - ./job_hunter/.env
     environment:
       - PLAYWRIGHT_HEADLESS=true
+    shm_size: '256m'
     volumes:
       - ./job_hunter/db:/app/db
       - ./job_hunter/outputs:/app/outputs

@@ -245,6 +245,9 @@ def main():
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
                     "--disable-web-security",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
                 ]
             )
             context = browser.new_context(
