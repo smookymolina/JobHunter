@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import ThemeToggle from '@/components/ui/ThemeToggle'
 import UserAvatar from '@/components/ui/UserAvatar'
+import { useAvatar } from '@/context/AvatarContext'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
 
@@ -86,6 +87,7 @@ const nav = [
 
 export default function Sidebar() {
   const path = usePathname()
+  const { initials } = useAvatar()
 
   return (
     <aside className="fixed inset-y-0 left-0 z-50 flex w-[220px] flex-col border-r border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950">
@@ -142,7 +144,7 @@ export default function Sidebar() {
           <ThemeToggle />
         </div>
         <button className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60">
-          <UserAvatar initials="JH" size={28} shape="full" />
+          <UserAvatar initials={initials} size={28} shape="full" />
           <div className="min-w-0 flex-1 text-left">
             <p className="truncate text-[12px] font-medium text-slate-700 dark:text-slate-300">Mi Cuenta</p>
             <p className="truncate text-[10px] text-slate-400 dark:text-slate-600">Personal Plan</p>

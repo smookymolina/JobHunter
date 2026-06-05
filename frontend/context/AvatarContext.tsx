@@ -5,16 +5,38 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from '
 interface AvatarCtx {
   avatarUrl: string | null
   setAvatarUrl: (url: string | null) => void
+  initials: string
+  setInitials: (i: string) => void
 }
 
-const Ctx = createContext<AvatarCtx>({ avatarUrl: null, setAvatarUrl: () => {} })
+const Ctx = createContext<AvatarCtx>({
+  avatarUrl: null, setAvatarUrl: () => {},
+  initials: 'JM', setInitials: () => {},
+})
 
 export function AvatarProvider({ children }: { children: ReactNode }) {
   const [avatarUrl, setUrl] = useState<string | null>(null)
+  const [initials, setInitialsState] = useState('JM')
 
   useEffect(() => {
-    const stored = localStorage.getItem('avatarUrl')
-    if (stored) setUrl(stored)
+    fetch('/api/profile/avatar')
+      .then(r => r.json())
+      .then((d: { avatarUrl: string | null }) => {
+        if (d.avatarUrl) {
+          setUrl(d.avatarUrl)
+          localStorage.setItem('avatarUrl', d.avatarUrl)
+        } else {
+          const stored = localStorage.getItem('avatarUrl')
+          if (stored) setUrl(stored)
+        }
+      })
+      .catch(() => {
+        const stored = localStorage.getItem('avatarUrl')
+        if (stored) setUrl(stored)
+      })
+
+    const stored = localStorage.getItem('avatarInitials')
+    if (stored) setInitialsState(stored)
   }, [])
 
   const setAvatarUrl = (url: string | null) => {
@@ -22,7 +44,16 @@ export function AvatarProvider({ children }: { children: ReactNode }) {
     url ? localStorage.setItem('avatarUrl', url) : localStorage.removeItem('avatarUrl')
   }
 
-  return <Ctx.Provider value={{ avatarUrl, setAvatarUrl }}>{children}</Ctx.Provider>
+  const setInitials = (i: string) => {
+    setInitialsState(i)
+    localStorage.setItem('avatarInitials', i)
+  }
+
+  return (
+    <Ctx.Provider value={{ avatarUrl, setAvatarUrl, initials, setInitials }}>
+      {children}
+    </Ctx.Provider>
+  )
 }
 
 export const useAvatar = () => useContext(Ctx)

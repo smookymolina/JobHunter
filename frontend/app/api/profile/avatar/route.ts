@@ -5,6 +5,18 @@ import { existsSync } from 'fs'
 
 const DIR = join(process.cwd(), 'public', 'uploads', 'avatars')
 
+export async function GET() {
+  try {
+    if (!existsSync(DIR)) return NextResponse.json({ avatarUrl: null })
+    const files = await readdir(DIR)
+    const avatar = files.find(f => f.startsWith('avatar.'))
+    if (!avatar) return NextResponse.json({ avatarUrl: null })
+    return NextResponse.json({ avatarUrl: `/uploads/avatars/${avatar}` })
+  } catch {
+    return NextResponse.json({ avatarUrl: null })
+  }
+}
+
 async function clearAvatar() {
   if (!existsSync(DIR)) return
   const files = await readdir(DIR)

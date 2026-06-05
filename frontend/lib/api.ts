@@ -81,6 +81,8 @@ export interface LatexSaveResult {
 export interface TemplateInfo {
   activa: string
   personalizada: boolean
+  size_kb?: number | null
+  modified?: number | null
 }
 
 export interface SyncHealthReport {
@@ -181,6 +183,8 @@ export const api = {
   },
 
   templateActiva: () => req<TemplateInfo>('/template/activa'),
+  deleteTemplate: () => req<{ ok: boolean; mensaje: string }>('/template/custom', { method: 'DELETE' }),
+  downloadTemplateUrl: () => `${API}/template/download`,
 
   pdfUrl: (id: number) => `${API}/pdf/${id}`,
 

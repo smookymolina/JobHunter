@@ -120,13 +120,18 @@ export default function PerfilPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
   const [msg, setMsg]         = useState<{ ok: boolean; text: string } | null>(null)
+  const { setInitials } = useAvatar()
 
   useEffect(() => {
     api.getPerfilMaestro()
-      .then(setPerfil)
+      .then(p => {
+        setPerfil(p)
+        const ini = [p.nombre[0], p.apellidos[0]].filter(Boolean).join('').toUpperCase() || 'JM'
+        setInitials(ini)
+      })
       .catch(() => setPerfil(EMPTY))
       .finally(() => setLoading(false))
-  }, [])
+  }, [setInitials])
 
   const set = (key: keyof PerfilMaestro, val: unknown) =>
     setPerfil(p => ({ ...p, [key]: val }))
@@ -157,6 +162,8 @@ export default function PerfilPage() {
     setSaving(true); setMsg(null)
     try {
       const r = await api.savePerfilMaestro(perfil)
+      const ini = [perfil.nombre[0], perfil.apellidos[0]].filter(Boolean).join('').toUpperCase() || 'JM'
+      setInitials(ini)
       setMsg({ ok: true, text: r.mensaje })
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : 'Error al guardar.' })

@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ExternalLink, RefreshCw, Loader2, WifiOff, Search } from 'lucide-react'
+import { ExternalLink, RefreshCw, WifiOff, Search } from 'lucide-react'
+import Loader from '@/components/ui/Loader'
 import { api, type Vacante } from '@/lib/api'
 import StatusBadge, { compatBadge } from '@/components/StatusBadge'
 
@@ -58,8 +59,8 @@ export default function VacantesPage() {
 
       <main className="flex-1 overflow-auto px-6 py-4">
         {loading && (
-          <div className="flex h-40 items-center justify-center">
-            <Loader2 size={22} className="animate-spin text-slate-300 dark:text-slate-600" />
+          <div className="flex h-full items-center justify-center">
+            <Loader size={36} label="Cargando vacantes..." />
           </div>
         )}
 

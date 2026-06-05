@@ -707,11 +707,38 @@ async def save_perfil_maestro(request: Request):
 
 @app.get("/template/activa")
 def template_activa():
-    """Informa qué plantilla está activa."""
+    """Informa qué plantilla está activa con metadata."""
     custom = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
+    default = os.path.join(TEMPLATES_DIR, 'default_template.tex')
     if os.path.exists(custom):
-        return {"activa": "mi_estilo.tex", "personalizada": True}
-    return {"activa": "default_template.tex", "personalizada": False}
+        stat = os.stat(custom)
+        return {"activa": "mi_estilo.tex", "personalizada": True,
+                "size_kb": round(stat.st_size / 1024, 1), "modified": stat.st_mtime}
+    stat = os.stat(default) if os.path.exists(default) else None
+    return {"activa": "default_template.tex", "personalizada": False,
+            "size_kb": round(stat.st_size / 1024, 1) if stat else None,
+            "modified": stat.st_mtime if stat else None}
+
+
+@app.delete("/template/custom")
+def delete_custom_template():
+    """Elimina la plantilla personalizada y revierte a la plantilla base."""
+    custom = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
+    if not os.path.exists(custom):
+        raise HTTPException(status_code=404, detail="No hay plantilla personalizada activa.")
+    os.remove(custom)
+    return {"ok": True, "mensaje": "Plantilla personalizada eliminada. Usando plantilla base."}
+
+
+@app.get("/template/download")
+def download_template():
+    """Descarga la plantilla activa (.tex)."""
+    custom = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
+    default = os.path.join(TEMPLATES_DIR, 'default_template.tex')
+    path = custom if os.path.exists(custom) else default
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada.")
+    return FileResponse(path, filename=os.path.basename(path), media_type='text/plain')
 
 
 # ── Tareas background ─────────────────────────────────────────────────────────

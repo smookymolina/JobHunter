@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Archive, ExternalLink, Loader2, RefreshCw, RotateCcw, Trash2, WifiOff } from 'lucide-react'
+import Loader from '@/components/ui/Loader'
 import { api, type VacanteEliminada } from '@/lib/api'
 
 export default function ArchivoPage() {
@@ -70,8 +71,8 @@ export default function ArchivoPage() {
 
       <main className="flex-1 overflow-y-auto px-6 py-4">
         {loading && (
-          <div className="flex h-40 items-center justify-center">
-            <Loader2 size={22} className="animate-spin text-slate-300 dark:text-slate-700" />
+          <div className="flex h-full items-center justify-center">
+            <Loader size={36} label="Cargando archivadas..." />
           </div>
         )}
 
