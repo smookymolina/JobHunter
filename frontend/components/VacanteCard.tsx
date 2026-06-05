@@ -37,29 +37,29 @@ function buildMcpPrompt(id: number): string {
 function PdfModal({ vacanteId, onClose }: { vacanteId: number; onClose: () => void }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-950 shadow-2xl shadow-black/50"
+        className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950"
         onClick={e => e.stopPropagation()}
       >
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
           <div className="flex items-center gap-2">
-            <FileText size={13} className="text-indigo-400" />
-            <span className="text-[13px] font-medium text-zinc-200">CV PDF — vacante #{vacanteId}</span>
+            <FileText size={13} className="text-indigo-500 dark:text-indigo-400" />
+            <span className="text-[13px] font-medium text-slate-700 dark:text-slate-200">CV PDF — vacante #{vacanteId}</span>
           </div>
           <div className="flex items-center gap-2">
             <a
               href={`http://127.0.0.1:8000/pdf/${vacanteId}?download=true`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[11px] text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
             >
               <Download size={11} /> Descargar
             </a>
             <button
               onClick={onClose}
-              className="rounded-lg border border-white/[0.06] p-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+              className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             >
               <X size={14} />
             </button>
@@ -70,7 +70,7 @@ function PdfModal({ vacanteId, onClose }: { vacanteId: number; onClose: () => vo
             src={`http://127.0.0.1:8000/pdf/${vacanteId}`}
             width="100%"
             height="100%"
-            className="block bg-zinc-900"
+            className="block bg-slate-50 dark:bg-slate-900"
             title={`CV vacante #${vacanteId}`}
           />
         </div>
@@ -88,7 +88,7 @@ function LatexModal({
   onClose: () => void
   onSaved: () => void
 }) {
-  const [tex, setTex]       = useState('')
+  const [tex, setTex]         = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
   const [result, setResult]   = useState<{ ok: boolean; msg: string } | null>(null)
@@ -118,22 +118,22 @@ function LatexModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-950 shadow-2xl shadow-black/50"
+        className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950"
         onClick={e => e.stopPropagation()}
       >
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
-        <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
           <div className="flex items-center gap-2">
-            <Code size={13} className="text-indigo-400" />
-            <span className="text-[13px] font-medium text-zinc-200">Editor LaTeX — vacante #{vacanteId}</span>
+            <Code size={13} className="text-indigo-500 dark:text-indigo-400" />
+            <span className="text-[13px] font-medium text-slate-700 dark:text-slate-200">Editor LaTeX — vacante #{vacanteId}</span>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg border border-white/[0.06] p-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+            className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           >
             <X size={14} />
           </button>
@@ -141,7 +141,7 @@ function LatexModal({
 
         <div className="flex-1 overflow-hidden p-3">
           {loading ? (
-            <div className="flex h-full items-center justify-center gap-2 text-zinc-600">
+            <div className="flex h-full items-center justify-center gap-2 text-slate-400 dark:text-slate-600">
               <Loader2 size={18} className="animate-spin" />
               <span className="text-[12px]">Cargando LaTeX...</span>
             </div>
@@ -149,7 +149,7 @@ function LatexModal({
             <textarea
               value={tex}
               onChange={e => setTex(e.target.value)}
-              className="h-full w-full resize-none rounded-xl border border-white/[0.06] bg-black/40 p-3 font-mono text-[12px] leading-relaxed text-zinc-300 outline-none transition-colors focus:border-indigo-500/40 [scrollbar-color:theme(colors.zinc.700)_transparent] [scrollbar-width:thin]"
+              className="h-full w-full resize-none rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-[12px] leading-relaxed text-slate-700 outline-none transition-colors focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300 dark:focus:border-indigo-500/40 [scrollbar-width:thin]"
               spellCheck={false}
             />
           )}
@@ -158,17 +158,17 @@ function LatexModal({
         {result && (
           <div className={`mx-3 mb-2 rounded-xl border px-3 py-2 text-[12px] ${
             result.ok
-              ? 'border-emerald-700/30 bg-emerald-950/30 text-emerald-300'
-              : 'border-rose-700/30 bg-rose-950/30 text-rose-300'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/30 dark:bg-emerald-950/30 dark:text-emerald-300'
+              : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-700/30 dark:bg-rose-950/30 dark:text-rose-300'
           }`}>
             {result.msg}
           </div>
         )}
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-white/[0.06] px-4 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
           <button
             onClick={onClose}
-            className="rounded-lg border border-white/[0.06] px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           >
             Cancelar
           </button>
@@ -255,19 +255,19 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
 
   return (
     <>
-      <article className="card-hover group relative flex flex-col rounded-xl border border-white/[0.06] bg-zinc-900/60 p-3">
+      <article className="card-hover group relative flex flex-col rounded-xl border border-slate-100 bg-white p-3 shadow-sm hover:shadow-md dark:border-slate-700/50 dark:bg-slate-800">
         {/* Barra de compatibilidad */}
-        <div className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full ${
-          vacante.compatibilidad === 'Alta'  ? 'bg-emerald-500' :
-          vacante.compatibilidad === 'Media' ? 'bg-amber-500'   :
-          vacante.compatibilidad === 'Baja'  ? 'bg-zinc-600'    : 'bg-zinc-800'
+        <div className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full ${
+          vacante.compatibilidad === 'Alta'  ? 'bg-emerald-400' :
+          vacante.compatibilidad === 'Media' ? 'bg-amber-400'   :
+          vacante.compatibilidad === 'Baja'  ? 'bg-slate-300 dark:bg-slate-600' : 'bg-slate-200 dark:bg-slate-700'
         }`} />
 
-        {/* ── Vista colapsada ──────────────────────────────────────────── */}
+        {/* ── Vista colapsada ──────────────────────────────────────── */}
         <div className="pl-3 flex items-center justify-between gap-2 min-w-0">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <p className="truncate text-[13px] font-semibold leading-tight text-zinc-100">
+              <p className="truncate text-[13px] font-semibold leading-tight text-slate-800 dark:text-slate-100">
                 {vacante.titulo}
               </p>
               {vacante.status === 'En_Proceso' && (
@@ -275,7 +275,7 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
               )}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
-              <p className="truncate text-[11px] text-zinc-500">{vacante.empresa}</p>
+              <p className="truncate text-[11px] text-slate-400 dark:text-slate-500">{vacante.empresa}</p>
               <StatusBadge status={vacante.status} />
               <span className={`inline-flex rounded-full border px-1.5 py-0 text-[10px] font-medium ${compatBadge(vacante.compatibilidad)}`}>
                 {vacante.compatibilidad}
@@ -287,16 +287,16 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
               onClick={handleFavorito}
               disabled={busyAction === 'fav'}
               title={esFavorito ? 'Quitar de favoritos' : 'Marcar como favorito'}
-              className="rounded-md p-1 transition-colors hover:bg-white/[0.05] disabled:opacity-40"
+              className="rounded-md p-1 transition-colors hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-700"
             >
               <Star
                 size={14}
-                className={esFavorito ? 'fill-amber-400 text-amber-400' : 'text-zinc-600 hover:text-amber-400'}
+                className={esFavorito ? 'fill-amber-400 text-amber-400' : 'text-slate-300 hover:text-amber-400 dark:text-slate-600'}
               />
             </button>
             <button
               onClick={() => setExpanded(v => !v)}
-              className="inline-flex items-center gap-1 rounded-md border border-white/[0.06] px-2 py-1 text-[11px] text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
             >
               {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               <span className="hidden sm:inline">{expanded ? 'Cerrar' : 'Detalles'}</span>
@@ -304,20 +304,20 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
           </div>
         </div>
 
-        {/* ── Vista expandida ──────────────────────────────────────────── */}
+        {/* ── Vista expandida ──────────────────────────────────────── */}
         <div className={`pl-3 overflow-hidden transition-all duration-200 ${
           expanded ? 'max-h-[600px] opacity-100 mt-3' : 'max-h-0 opacity-0'
         }`}>
           <div className="space-y-2">
             {/* Fecha + enlace */}
-            <div className="flex items-center gap-3 text-[11px] text-zinc-600">
+            <div className="flex items-center gap-3 text-[11px] text-slate-400 dark:text-slate-500">
               {vacante.fecha_registro && <span>{vacante.fecha_registro.slice(0, 10)}</span>}
               {vacante.enlace && (
                 <a
                   href={vacante.enlace}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-zinc-400 hover:text-zinc-200 transition-colors"
+                  className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700 transition-colors dark:text-slate-400 dark:hover:text-slate-200"
                 >
                   Abrir <ExternalLink size={10} />
                 </a>
@@ -325,7 +325,7 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
             </div>
 
             {/* Requerimientos */}
-            <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-white/[0.05] bg-zinc-950/40 p-2 text-[12px] leading-relaxed text-zinc-400">
+            <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-100 bg-slate-50 p-2 text-[12px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
               {(vacante.requerimientos ?? '').trim() || 'Sin requerimientos capturados.'}
             </div>
 
@@ -335,7 +335,7 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
                 onClick={handleCopiarPrompt}
                 className={`btn-shimmer inline-flex w-full items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-[12px] font-semibold shadow-lg transition-colors ${
                   copied
-                    ? 'border border-emerald-700/40 bg-emerald-950/40 text-emerald-300'
+                    ? 'border border-emerald-200 bg-emerald-50 !bg-none text-emerald-700 dark:border-emerald-700/40 dark:bg-emerald-950/40 dark:text-emerald-300'
                     : 'text-white'
                 }`}
               >
@@ -353,19 +353,19 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
               <div className="flex gap-1.5">
                 <button
                   onClick={() => setPdfOpen(true)}
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-amber-700/30 bg-amber-950/30 px-3 py-1.5 text-[12px] font-medium text-amber-300 transition-colors hover:bg-amber-900/40"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700/30 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40"
                 >
                   <FileText size={13} /> Ver PDF
                 </button>
                 <button
                   onClick={() => setLatexOpen(true)}
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-indigo-700/30 bg-indigo-950/30 px-3 py-1.5 text-[12px] font-medium text-indigo-300 transition-colors hover:bg-indigo-900/40"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[12px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:border-indigo-700/30 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-900/40"
                 >
                   <Code size={13} /> Editar LaTeX
                 </button>
                 <a
                   href={`http://127.0.0.1:8000/pdf/${vacante.id}?download=true`}
-                  className="inline-flex items-center justify-center rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                   title="Descargar PDF"
                 >
                   <Download size={13} />
@@ -374,19 +374,19 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
             )}
 
             {vacante.status === 'Listo_Manual' && (
-              <div className="flex flex-col gap-0.5 rounded-lg border border-emerald-700/25 bg-emerald-950/25 px-3 py-2">
-                <div className="flex items-center gap-2 text-[12px] font-medium text-emerald-400">
+              <div className="flex flex-col gap-0.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-700/25 dark:bg-emerald-950/25">
+                <div className="flex items-center gap-2 text-[12px] font-medium text-emerald-700 dark:text-emerald-400">
                   <CheckCircle size={13} /> CV enviado — esperando respuesta de la empresa
                 </div>
                 {vacante.fecha_postulacion && (
-                  <p className="text-[11px] text-zinc-500 pl-[21px]">
+                  <p className="text-[11px] text-slate-500 pl-[21px] dark:text-slate-500">
                     Postulado el {vacante.fecha_postulacion.slice(0, 16).replace('T', ' ')}
                   </p>
                 )}
               </div>
             )}
 
-            {errMsg && <p className="text-[11px] text-rose-400">{errMsg}</p>}
+            {errMsg && <p className="text-[11px] text-rose-500">{errMsg}</p>}
 
             {/* Status + delete */}
             <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -398,16 +398,16 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
                   setStatusDraft(next)
                   void handleStatusChange(next)
                 }}
-                className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[12px] text-zinc-300 outline-none transition-colors focus:border-white/[0.14] disabled:opacity-50"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] text-slate-700 outline-none transition-colors focus:border-indigo-400 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:focus:border-slate-600"
               >
                 {STATUS_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value} className="bg-zinc-900 text-zinc-200">{o.label}</option>
+                  <option key={o.value} value={o.value} className="bg-white text-slate-800 dark:bg-slate-800 dark:text-slate-200">{o.label}</option>
                 ))}
               </select>
               <button
                 onClick={handleDelete}
                 disabled={busyAction === 'delete'}
-                className="inline-flex items-center justify-center rounded-lg border border-rose-800/30 bg-rose-950/20 px-3 py-1.5 text-[12px] text-rose-300 transition-colors hover:bg-rose-950/40 disabled:opacity-50"
+                className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-[12px] text-rose-600 transition-colors hover:bg-rose-100 disabled:opacity-50 dark:border-rose-800/30 dark:bg-rose-950/20 dark:text-rose-300 dark:hover:bg-rose-950/40"
                 aria-label="Borrar vacante"
               >
                 {busyAction === 'delete'
@@ -419,7 +419,7 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
         </div>
       </article>
 
-      {/* Modales (fixed, fuera del overflow de la tarjeta) */}
+      {/* Modales */}
       {pdfOpen && (
         <PdfModal vacanteId={vacante.id} onClose={() => setPdfOpen(false)} />
       )}

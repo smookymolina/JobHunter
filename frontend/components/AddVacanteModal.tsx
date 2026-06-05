@@ -185,34 +185,38 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
 
   if (!open) return null
 
+  const inputClass = 'w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-800 outline-none transition-colors placeholder-slate-400 focus:border-indigo-400 focus:bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500/50 dark:focus:bg-slate-700/60'
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-md dark:bg-black/70"
       onMouseDown={onClose}
     >
       <div
-        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-zinc-950 shadow-2xl shadow-black/50"
+        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950"
         onMouseDown={e => e.stopPropagation()}
       >
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/80 to-transparent" />
-        <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-indigo-500/10 blur-3xl" />
-        <div className="absolute -left-20 bottom-0 h-56 w-56 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-indigo-500/5 blur-3xl dark:bg-indigo-500/10" />
+        <div className="absolute -left-20 bottom-0 h-56 w-56 rounded-full bg-emerald-500/5 blur-3xl dark:bg-emerald-500/10" />
 
-        <div className="relative flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+        {/* Header */}
+        <div className="relative flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
           <div>
-            <p className="text-[15px] font-semibold text-zinc-100">Añadir vacante</p>
-            <p className="text-[12px] text-zinc-500">Alta rápida manual, JSON masivo o búsqueda autónoma</p>
+            <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Añadir vacante</p>
+            <p className="text-[12px] text-slate-400 dark:text-slate-500">Alta rápida manual, JSON masivo o búsqueda autónoma</p>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg border border-white/[0.06] p-2 text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+            className="rounded-xl border border-slate-200 p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           >
             <X size={16} />
           </button>
         </div>
 
+        {/* Tabs */}
         <div className="relative px-5 pt-4">
-          <div className="inline-flex rounded-xl border border-white/[0.06] bg-white/[0.03] p-1">
+          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/50">
             {([
               { id: 'manual',  label: 'Manual' },
               { id: 'bulk',    label: 'JSON masivo' },
@@ -223,8 +227,8 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                 onClick={() => setTab(current)}
                 className={`rounded-lg px-4 py-2 text-[12px] font-medium transition-colors ${
                   tab === current
-                    ? 'bg-white/[0.08] text-zinc-100 shadow-sm shadow-black/20'
-                    : 'text-zinc-500 hover:text-zinc-300'
+                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100'
+                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
                 {label}
@@ -234,44 +238,44 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
         </div>
 
         <div className="relative flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto px-5 py-5 [scrollbar-color:theme(colors.zinc.600)_transparent] [scrollbar-width:thin]">
+        <div className="flex-1 overflow-y-auto px-5 py-5 [scrollbar-width:thin]">
         <div className="space-y-4">
           {tab === 'manual' && (
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1">
-                <span className="text-[12px] text-zinc-500">Titulo</span>
+                <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400">Titulo</span>
                 <input
                   value={manual.titulo}
                   onChange={e => setManual(prev => ({ ...prev, titulo: e.target.value }))}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] text-zinc-100 outline-none transition-colors focus:border-indigo-500/50 focus:bg-white/[0.04]"
+                  className={inputClass}
                   placeholder="Frontend Engineer"
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[12px] text-zinc-500">Empresa</span>
+                <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400">Empresa</span>
                 <input
                   value={manual.empresa}
                   onChange={e => setManual(prev => ({ ...prev, empresa: e.target.value }))}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] text-zinc-100 outline-none transition-colors focus:border-indigo-500/50 focus:bg-white/[0.04]"
+                  className={inputClass}
                   placeholder="Acme Inc."
                 />
               </label>
               <label className="space-y-1 md:col-span-2">
-                <span className="text-[12px] text-zinc-500">Enlace</span>
+                <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400">Enlace</span>
                 <input
                   value={manual.enlace}
                   onChange={e => setManual(prev => ({ ...prev, enlace: e.target.value }))}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] text-zinc-100 outline-none transition-colors focus:border-indigo-500/50 focus:bg-white/[0.04]"
+                  className={inputClass}
                   placeholder="https://..."
                 />
               </label>
               <label className="space-y-1 md:col-span-2">
-                <span className="text-[12px] text-zinc-500">Requerimientos</span>
+                <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400">Requerimientos</span>
                 <textarea
                   value={manual.requerimientos}
                   onChange={e => setManual(prev => ({ ...prev, requerimientos: e.target.value }))}
                   rows={6}
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] text-zinc-100 outline-none transition-colors focus:border-indigo-500/50 focus:bg-white/[0.04]"
+                  className={inputClass}
                   placeholder="Requisitos, stack, beneficios, etc."
                 />
               </label>
@@ -290,8 +294,8 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
               onClick={() => inputRef.current?.click()}
               className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-14 text-center transition-all ${
                 dragOver
-                  ? 'border-indigo-500 bg-indigo-950/20'
-                  : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14] hover:bg-white/[0.03]'
+                  ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-500 dark:bg-indigo-950/20'
+                  : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white dark:border-slate-700 dark:bg-slate-800/30 dark:hover:border-slate-600'
               }`}
             >
               <input
@@ -301,18 +305,18 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                 className="hidden"
                 onChange={e => onFileChange(e.target.files?.[0])}
               />
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-zinc-900">
-                <Upload size={22} className="text-zinc-400" />
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <Upload size={22} className="text-slate-400 dark:text-slate-400" />
               </div>
               <div>
-                <p className="text-[14px] font-medium text-zinc-200">
+                <p className="text-[14px] font-medium text-slate-700 dark:text-slate-200">
                   {bulkName || 'Arrastra un archivo JSON o haz clic para seleccionarlo'}
                 </p>
-                <p className="mt-1 text-[12px] text-zinc-600">
+                <p className="mt-1 text-[12px] text-slate-400 dark:text-slate-500">
                   Formato esperado: array con llaves titulo, empresa, enlace y requerimientos
                 </p>
               </div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1 text-[11px] text-zinc-500">
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                 <FileJson size={12} />
                 {bulkItems.length > 0 ? `${bulkItems.length} registros listos` : 'Solo archivos .json'}
               </span>
@@ -324,18 +328,18 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
               {/* Términos del perfil */}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                     Términos del perfil · {selectedTerms.size}/{suggestedTerms.length} seleccionados
                   </span>
                   <button onClick={loadTerms} disabled={loadingTerms}
-                    className="inline-flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors disabled:opacity-40">
+                    className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 dark:text-slate-500 dark:hover:text-slate-300">
                     <RefreshCw size={10} className={loadingTerms ? 'animate-spin' : ''} /> Recargar
                   </button>
                 </div>
 
                 {loadingTerms ? (
                   <div className="flex items-center justify-center py-6">
-                    <Loader2 size={18} className="animate-spin text-zinc-600" />
+                    <Loader2 size={18} className="animate-spin text-slate-300 dark:text-slate-600" />
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-1.5">
@@ -345,11 +349,11 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                         onClick={() => toggleTerm(term)}
                         className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-[11px] transition-colors ${
                           selectedTerms.has(term)
-                            ? 'border-indigo-500/40 bg-indigo-950/40 text-indigo-200'
-                            : 'border-white/[0.06] bg-white/[0.02] text-zinc-500 hover:text-zinc-300'
+                            ? 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-950/40 dark:text-indigo-200'
+                            : 'border-slate-200 bg-slate-50 text-slate-500 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-500 dark:hover:text-slate-300'
                         }`}
                       >
-                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${selectedTerms.has(term) ? 'bg-indigo-400' : 'bg-zinc-700'}`} />
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${selectedTerms.has(term) ? 'bg-indigo-400' : 'bg-slate-300 dark:bg-slate-600'}`} />
                         {term}
                       </button>
                     ))}
@@ -358,12 +362,11 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
               </div>
 
               {/* Filtros de búsqueda */}
-              <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Filtros de búsqueda</p>
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Filtros de búsqueda</p>
 
-                {/* Modalidad */}
                 <div className="space-y-1.5">
-                  <span className="text-[11px] text-zinc-500">Modalidad</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">Modalidad</span>
                   <div className="flex flex-wrap gap-1.5">
                     {([
                       { val: 'any',        label: 'Cualquiera' },
@@ -376,8 +379,8 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                         onClick={() => setFiltros(f => ({ ...f, modalidad: val, ubicacion: val === 'remoto' ? '' : f.ubicacion }))}
                         className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${
                           filtros.modalidad === val
-                            ? 'border-indigo-500/50 bg-indigo-950/50 text-indigo-200'
-                            : 'border-white/[0.06] text-zinc-500 hover:text-zinc-300'
+                            ? 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/50 dark:bg-indigo-950/50 dark:text-indigo-200'
+                            : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-300'
                         }`}
                       >
                         {label}
@@ -386,26 +389,24 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                   </div>
                 </div>
 
-                {/* Ubicación (oculta en modo remoto) */}
                 {filtros.modalidad !== 'remoto' && (
                   <div className="space-y-1.5">
-                    <span className="text-[11px] text-zinc-500">Ubicación</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">Ubicación</span>
                     <input
                       value={filtros.ubicacion}
                       onChange={e => setFiltros(f => ({ ...f, ubicacion: e.target.value }))}
                       placeholder="Ciudad de México, Monterrey… (vacío = cualquiera)"
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[12px] text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500/40"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500/40"
                     />
                   </div>
                 )}
 
-                {/* País */}
                 <div className="space-y-1.5">
-                  <span className="text-[11px] text-zinc-500">País</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">País</span>
                   <select
                     value={filtros.pais}
                     onChange={e => setFiltros(f => ({ ...f, pais: e.target.value }))}
-                    className="w-full rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-[12px] text-zinc-200 outline-none focus:border-indigo-500/40"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] text-slate-700 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:border-indigo-500/40"
                   >
                     <option value="Mexico">México</option>
                     <option value="España">España</option>
@@ -419,26 +420,26 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
 
               {/* Cantidad */}
               <div className="flex items-center gap-3">
-                <label className="text-[12px] text-zinc-500 shrink-0">Vacantes a extraer</label>
+                <label className="text-[12px] text-slate-500 dark:text-slate-400 shrink-0">Vacantes a extraer</label>
                 <input
                   type="number" min={1} max={200}
                   value={scrapeCount}
                   onChange={e => setScrapeCount(e.target.value)}
-                  className="w-24 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-center text-[16px] font-bold text-zinc-100 outline-none focus:border-indigo-500/50"
+                  className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-center text-[16px] font-bold text-slate-800 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-indigo-500/50"
                 />
-                <span className="text-[11px] text-zinc-600">máx. 200</span>
+                <span className="text-[11px] text-slate-400 dark:text-slate-600">máx. 200</span>
               </div>
             </div>
           )}
 
-        </div>{/* space-y-4 */}
-        </div>{/* overflow-y-auto */}
+        </div>
+        </div>
 
           {(state === 'error' || message) && (
             <div className={`mx-5 mb-2 flex items-start gap-2 rounded-xl border px-4 py-3 text-[12px] ${
               state === 'error'
-                ? 'border-rose-800/30 bg-rose-950/20 text-rose-300'
-                : 'border-emerald-800/30 bg-emerald-950/20 text-emerald-300'
+                ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800/30 dark:bg-rose-950/20 dark:text-rose-300'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/30 dark:bg-emerald-950/20 dark:text-emerald-300'
             }`}>
               {state === 'error'
                 ? <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -448,10 +449,10 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
             </div>
           )}
 
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-4">
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-800">
             <button
               onClick={onClose}
-              className="rounded-lg border border-white/[0.06] px-4 py-2 text-[12px] text-zinc-400 transition-colors hover:bg-white/[0.05] hover:text-zinc-200"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-[12px] font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             >
               Cancelar
             </button>
@@ -462,7 +463,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                 : tab === 'bulk'  ? submitBulk
                 : submitScrape
               }
-              className="inline-flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-[12px] font-semibold text-white shadow-lg shadow-indigo-500/20 transition-transform hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-[12px] font-semibold text-white shadow-md shadow-indigo-500/20 transition-transform hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
             >
               {state === 'saving'
                 ? <Loader2 size={14} className="animate-spin" />
@@ -473,7 +474,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                : 'Iniciar búsqueda'}
             </button>
           </div>
-        </div>{/* flex-col wrapper */}
+        </div>
       </div>
     </div>
   )

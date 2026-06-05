@@ -10,30 +10,31 @@ import {
   UserCircle,
   Zap,
   Settings,
-  ChevronRight,
   Archive,
 } from 'lucide-react'
+import ThemeToggle from '@/components/ui/ThemeToggle'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
 
 function StatusDot({ active }: { active: boolean | null }) {
   if (active === null)
-    return <div className="flex h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
+    return <span className="flex h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600 animate-pulse" />
   return (
-    <div
-      className={`flex h-1.5 w-1.5 rounded-full ${
-        active
-          ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50'
-          : 'bg-zinc-500'
-      }`}
-    />
+    <span className="relative flex h-1.5 w-1.5">
+      {active && (
+        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+      )}
+      <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${
+        active ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-slate-600'
+      }`} />
+    </span>
   )
 }
 
 function SystemStatus() {
-  const [apiOk, setApiOk]   = useState<boolean | null>(null)
-  const [botOk, setBotOk]   = useState<boolean | null>(null)
-  const [mcpOk, setMcpOk]   = useState<boolean | null>(null)
+  const [apiOk, setApiOk] = useState<boolean | null>(null)
+  const [botOk, setBotOk] = useState<boolean | null>(null)
+  const [mcpOk, setMcpOk] = useState<boolean | null>(null)
 
   useEffect(() => {
     const check = async () => {
@@ -56,20 +57,20 @@ function SystemStatus() {
     return () => clearInterval(id)
   }, [])
 
+  const rows = [
+    { active: apiOk, label: apiOk === null ? 'Comprobando API…' : apiOk ? 'API conectada' : 'API desconectada' },
+    { active: botOk, label: botOk === null ? 'Comprobando bot…' : botOk ? 'Bot conectado' : 'Bot desconectado' },
+    { active: mcpOk, label: mcpOk === null ? 'Comprobando MCP…' : mcpOk ? 'MCP conectado' : 'MCP desconectado' },
+  ]
+
   return (
     <>
-      <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
-        <StatusDot active={apiOk} />
-        {apiOk === null ? 'Comprobando API…' : apiOk ? 'API conectada' : 'API desconectada'}
-      </div>
-      <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
-        <StatusDot active={botOk} />
-        {botOk === null ? 'Comprobando bot…' : botOk ? 'Bot conectado' : 'Bot desconectado'}
-      </div>
-      <div className="flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] text-zinc-600">
-        <StatusDot active={mcpOk} />
-        {mcpOk === null ? 'Comprobando MCP…' : mcpOk ? 'MCP conectado' : 'MCP desconectado'}
-      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] text-slate-400 dark:text-slate-500">
+          <StatusDot active={r.active} />
+          {r.label}
+        </div>
+      ))}
     </>
   )
 }
@@ -86,21 +87,21 @@ export default function Sidebar() {
   const path = usePathname()
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-50 flex w-[220px] flex-col border-r border-white/[0.06] bg-zinc-950">
+    <aside className="fixed inset-y-0 left-0 z-50 flex w-[220px] flex-col border-r border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950">
       {/* Brand */}
-      <div className="flex items-center gap-2.5 border-b border-white/[0.06] px-4 py-[18px]">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/20">
+      <div className="flex items-center gap-2.5 border-b border-slate-100 px-4 py-[18px] dark:border-slate-800">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-rose-600 shadow-md shadow-rose-500/25">
           <Zap size={13} className="text-white" />
         </div>
         <div>
-          <p className="text-[13px] font-semibold leading-none text-zinc-100">Job Hunter</p>
-          <p className="mt-0.5 text-[10px] leading-none text-zinc-500">CV Automation</p>
+          <p className="text-[13px] font-semibold leading-none text-slate-900 dark:text-slate-100">Job Hunter</p>
+          <p className="mt-0.5 text-[10px] leading-none text-slate-400 dark:text-slate-500">CV Automation</p>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-3">
-        <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
+        <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600">
           Main
         </p>
         {nav.map(({ href, label, icon: Icon }) => {
@@ -109,42 +110,45 @@ export default function Sidebar() {
             <Link
               key={href}
               href={href}
-              className={`group flex items-center justify-between gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors duration-100 ${
+              className={`group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] transition-colors duration-150 ${
                 active
-                  ? 'bg-white/[0.07] text-white'
-                  : 'text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300'
+                  ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200'
               }`}
             >
-              <span className="flex items-center gap-2.5">
-                <Icon
-                  size={14}
-                  className={active ? 'text-indigo-400' : 'text-zinc-600 group-hover:text-zinc-500'}
-                />
-                {label}
-              </span>
-              {active && <ChevronRight size={11} className="text-zinc-600" />}
+              {active && (
+                <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-rose-500" />
+              )}
+              <Icon
+                size={14}
+                className={active ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500'}
+              />
+              {label}
             </Link>
           )
         })}
 
-        <div className="my-2 border-t border-white/[0.06]" />
-        <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
+        <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+        <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600">
           Sistema
         </p>
         <SystemStatus />
       </nav>
 
-      {/* User mock */}
-      <div className="border-t border-white/[0.06] p-2.5">
-        <button className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 transition-colors hover:bg-white/[0.04]">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-500 text-[11px] font-bold text-white">
+      {/* Theme toggle + User */}
+      <div className="border-t border-slate-100 p-2.5 dark:border-slate-800">
+        <div className="mb-2 flex justify-center">
+          <ThemeToggle />
+        </div>
+        <button className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-100 text-[11px] font-bold text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
             JH
           </div>
           <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-[12px] font-medium text-zinc-300">Mi Cuenta</p>
-            <p className="truncate text-[10px] text-zinc-600">Personal Plan</p>
+            <p className="truncate text-[12px] font-medium text-slate-700 dark:text-slate-300">Mi Cuenta</p>
+            <p className="truncate text-[10px] text-slate-400 dark:text-slate-600">Personal Plan</p>
           </div>
-          <Settings size={13} className="shrink-0 text-zinc-600" />
+          <Settings size={13} className="shrink-0 text-slate-400 dark:text-slate-600" />
         </button>
       </div>
     </aside>

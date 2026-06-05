@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
-import { Geist } from 'next/font/google'
+import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import Sidebar from '@/components/Sidebar'
 
-const geist = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
+const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
   title: 'Job Hunter — CV Automation',
@@ -12,8 +13,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className={`${geist.variable} h-full`}>
-      <body className="flex h-full bg-zinc-950 text-zinc-100 antialiased">
+    <html
+      lang="es"
+      className={`${geist.variable} ${geistMono.variable} h-full dark`}
+      suppressHydrationWarning
+    >
+      <body className="flex h-full font-sans antialiased">
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('theme');if(t==='light')document.documentElement.classList.remove('dark');}catch(e){}`,
+          }}
+        />
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden pl-[220px]">
           {children}

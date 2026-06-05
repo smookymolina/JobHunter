@@ -1,17 +1,64 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Radio, RefreshCw, TrendingUp, WifiOff } from 'lucide-react'
+import {
+  AlertCircle,
+  Bot,
+  Clock,
+  Loader2,
+  Plus,
+  Radio,
+  RefreshCw,
+  Send,
+  Sparkles,
+  WifiOff,
+} from 'lucide-react'
 import { api, type Status, type SyncHealthReport, type Vacante } from '@/lib/api'
 import AddVacanteModal from '@/components/AddVacanteModal'
 import KanbanBoard from '@/components/KanbanBoard'
 
-const STAT_COLS: { id: Status; label: string; color: string }[] = [
-  { id: 'No_Creado', label: 'Sin iniciar', color: 'text-zinc-400' },
-  { id: 'En_Proceso', label: 'En proceso', color: 'text-blue-400' },
-  { id: 'Revisado_IA', label: 'Revisado IA', color: 'text-amber-400' },
-  { id: 'Requiere_Correccion', label: 'Con error', color: 'text-rose-400' },
-  { id: 'Listo_Manual', label: 'CV Enviado', color: 'text-emerald-400' },
+const STAT_COLS: {
+  id: Status
+  label: string
+  numberColor: string
+  icon: React.ElementType
+  cardClass: string
+}[] = [
+  {
+    id: 'No_Creado',
+    label: 'Sin Iniciar',
+    numberColor: 'text-slate-600 dark:text-slate-300',
+    icon: Clock,
+    cardClass: '',
+  },
+  {
+    id: 'En_Proceso',
+    label: 'En Proceso',
+    numberColor: 'text-blue-500',
+    icon: Loader2,
+    cardClass: '',
+  },
+  {
+    id: 'Revisado_IA',
+    label: 'Revisado IA',
+    numberColor: 'text-amber-500',
+    icon: Bot,
+    cardClass: '',
+  },
+  {
+    id: 'Requiere_Correccion',
+    label: 'Con Error',
+    numberColor: 'text-rose-500',
+    icon: AlertCircle,
+    cardClass: '',
+  },
+  {
+    id: 'Listo_Manual',
+    label: 'CV Enviado',
+    numberColor: 'text-emerald-500',
+    icon: Send,
+    cardClass: 'border-emerald-100 bg-emerald-50/60 dark:border-emerald-800/50 dark:bg-emerald-900/10',
+  },
 ]
 
 export default function DashboardPage() {
@@ -83,51 +130,65 @@ export default function DashboardPage() {
 
   const count = (s: Status) => vacantes.filter(v => v.status === s).length
   const healthState = health?.state ?? 'idle'
-  const healthDot =
+
+  const healthBadge =
     healthState === 'healthy'
-      ? 'bg-emerald-400 shadow-emerald-400/40'
+      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
       : healthState === 'degraded'
-        ? 'bg-amber-400 shadow-amber-400/40'
-        : 'bg-zinc-500 shadow-zinc-500/30'
+        ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800'
+        : 'bg-slate-100 text-slate-500 border border-slate-200 dark:bg-slate-800/50 dark:text-slate-400 dark:border-slate-700'
+
+  const healthDotColor =
+    healthState === 'healthy'
+      ? 'bg-emerald-500'
+      : healthState === 'degraded'
+        ? 'bg-amber-400'
+        : 'bg-slate-400 dark:bg-slate-500'
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-radial-indigo">
-      <header className="flex shrink-0 flex-col gap-2 border-b border-white/[0.06] px-6 py-4">
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-40 flex shrink-0 flex-col gap-2 border-b border-slate-100 bg-white/90 px-6 py-4 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/90">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[18px] font-semibold tracking-tight text-zinc-50">Dashboard</h1>
-            <div className="mt-1 flex items-center gap-2 text-[12px] text-zinc-500">
-              <span className={`h-2.5 w-2.5 rounded-full ${healthDot}`} />
-              <span>
+            <h1 className="text-[18px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              Dashboard
+            </h1>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${healthBadge}`}>
+                <span className={`h-1.5 w-1.5 animate-pulse rounded-full ${healthDotColor}`} />
                 {healthState === 'healthy'
                   ? 'Salud del sistema: estable'
                   : healthState === 'degraded'
-                    ? `Salud del sistema: degradada (${health?.issues.length ?? 0} incidencias)`
-                    : `Salud del sistema: sin telemetría · ${vacantes.length} vacantes totales`}
+                    ? `Degradada · ${health?.issues.length ?? 0} incidencias`
+                    : `Sin telemetría · ${vacantes.length} vacantes`}
               </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setAddOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[12px] text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-zinc-100"
-            >
-              <Plus size={13} />
-              Añadir vacante
-            </button>
-            <button
               onClick={handleRefresh}
               disabled={spinning}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             >
-              <RefreshCw size={13} className={spinning ? 'animate-spin' : ''} />
+              <RefreshCw
+                size={13}
+                className={`transition-transform duration-500 ${spinning ? 'animate-spin' : 'hover:rotate-180'}`}
+              />
               Actualizar
+            </button>
+            <button
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition-all duration-200 hover:scale-105 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+            >
+              <Plus size={14} />
+              Añadir Vacante
             </button>
           </div>
         </div>
 
         {scrapeRunning && (
-          <div className="flex items-center gap-2 self-start rounded-lg border border-blue-800/40 bg-blue-950/30 px-3 py-1.5 text-[12px] text-blue-300">
+          <div className="flex items-center gap-2 self-start rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12px] text-blue-700 dark:border-blue-800/40 dark:bg-blue-950/30 dark:text-blue-300">
             <Radio size={13} className="animate-pulse" />
             Buscando vacantes de forma autónoma...
             <Loader2 size={12} className="animate-spin opacity-70" />
@@ -135,37 +196,45 @@ export default function DashboardPage() {
         )}
       </header>
 
+      {/* ── Stat Cards ─────────────────────────────────────────────── */}
       {!loading && !error && (
-        <div className="flex shrink-0 gap-4 border-b border-white/[0.06] px-6 py-3">
-          {STAT_COLS.map(({ id, label, color }) => (
-            <div key={id} className="flex flex-col">
-              <span className={`text-[22px] font-bold leading-none ${color}`}>{count(id)}</span>
-              <span className="mt-0.5 text-[11px] text-zinc-600">{label}</span>
-            </div>
-          ))}
-          <div className="ml-auto flex items-center gap-1.5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-1.5">
-            <TrendingUp size={13} className="text-indigo-400" />
-            <span className="text-[12px] text-zinc-500">
-              {count('Listo_Manual')} / {vacantes.length} enviados
-            </span>
+        <div className="shrink-0 border-b border-slate-100 px-6 py-4 dark:border-slate-800">
+          <div className="grid grid-cols-5 gap-3">
+            {STAT_COLS.map(({ id, label, numberColor, icon: Icon, cardClass }) => (
+              <div
+                key={id}
+                className={`rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${cardClass}`}
+              >
+                <div className="flex items-start justify-between">
+                  <span className={`text-3xl font-bold leading-none ${numberColor}`}>
+                    {count(id)}
+                  </span>
+                  <Icon size={16} className="mt-0.5 text-slate-300 dark:text-slate-600" />
+                </div>
+                <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  {label}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
+      {/* ── Main ───────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-hidden px-4 py-4">
         {loading && (
           <div className="flex h-full items-center justify-center">
-            <Loader2 size={24} className="animate-spin text-zinc-600" />
+            <Loader2 size={24} className="animate-spin text-slate-400 dark:text-slate-600" />
           </div>
         )}
 
         {error && (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <WifiOff size={32} className="text-zinc-700" />
-            <p className="max-w-sm text-[13px] text-zinc-500">{error}</p>
+            <WifiOff size={32} className="text-slate-300 dark:text-slate-700" />
+            <p className="max-w-sm text-[13px] text-slate-500">{error}</p>
             <button
               onClick={handleRefresh}
-              className="text-[12px] text-indigo-400 transition-colors hover:text-indigo-300"
+              className="text-[12px] text-rose-500 transition-colors hover:text-rose-400"
             >
               Reintentar
             </button>
@@ -175,11 +244,13 @@ export default function DashboardPage() {
         {!loading && !error && (
           <>
             <KanbanBoard vacantes={vacantes} onRefresh={handleRefresh} />
+
+            {/* FAB */}
             <button
               onClick={() => setAddOpen(true)}
-              className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-[13px] font-semibold text-zinc-950 shadow-lg shadow-black/40 transition-transform hover:scale-[1.02]"
+              className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-[13px] font-semibold text-white shadow-lg shadow-slate-900/20 transition-transform duration-200 hover:scale-105 active:scale-95 dark:bg-white dark:text-slate-900 dark:shadow-white/10"
             >
-              <Plus size={16} />
+              <Sparkles size={15} />
               Añadir Vacante
             </button>
           </>

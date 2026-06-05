@@ -1,19 +1,42 @@
 @import "tailwindcss";
 
-/* ── Design tokens ─────────────────────────────────────── */
+/* ── Dark mode: class-based (.dark on <html>) — Tailwind v4 ──── */
+@variant dark (&:where(.dark, .dark *));
+
+/* ── Design tokens ─────────────────────────────────────────────── */
 @theme inline {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-geist);
   --font-mono: var(--font-geist-mono);
 
-  --animate-float-up: float-up 0.25s ease-out both;
-  --animate-shimmer: shimmer 1.6s linear infinite;
-  --animate-spin-slow: spin 3s linear infinite;
+  --animate-float-up:    float-up 0.25s ease-out both;
+  --animate-shimmer:     shimmer 1.6s linear infinite;
+  --animate-spin-slow:   spin 3s linear infinite;
   --animate-pulse-badge: pulse-badge 2s ease-in-out infinite;
 }
 
-/* ── Keyframes ─────────────────────────────────────────── */
+/* ── CSS Variables: Light ──────────────────────────────────────── */
+:root {
+  --bg-page:        #f8fafc;
+  --bg-surface:     #ffffff;
+  --bg-muted:       #f1f5f9;
+  --border-default: #e2e8f0;
+  --text-primary:   #0f172a;
+  --text-muted:     #64748b;
+  --accent:         #e11d48;
+}
+
+/* ── CSS Variables: Dark ───────────────────────────────────────── */
+.dark {
+  --bg-page:        #020617;
+  --bg-surface:     #0f172a;
+  --bg-muted:       #1e293b;
+  --border-default: #1e293b;
+  --text-primary:   #f1f5f9;
+  --text-muted:     #94a3b8;
+  --accent:         #fb7185;
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────── */
 @keyframes float-up {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -29,34 +52,87 @@
   50%       { opacity: 0.65; }
 }
 
-/* ── Base ──────────────────────────────────────────────── */
+/* ── Base ──────────────────────────────────────────────────────── */
 *,
 *::before,
-*::after {
-  box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255 255 255 / 0.08) transparent;
-}
-
-::-webkit-scrollbar        { width: 5px; height: 5px; }
-::-webkit-scrollbar-track  { background: transparent; }
-::-webkit-scrollbar-thumb  { background: rgba(255 255 255 / 0.08); border-radius: 9999px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255 255 255 / 0.14); }
+*::after { box-sizing: border-box; }
 
 html, body { height: 100%; }
 
 body {
-  background: #09090b;
-  color: #fafafa;
-  font-family: var(--font-geist-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font-geist, 'DM Sans', ui-sans-serif, system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
-/* ── Utilities ─────────────────────────────────────────── */
+/* ── Scrollbar ─────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #94a3b8; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #64748b; }
+.dark ::-webkit-scrollbar-thumb      { background: #334155; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+}
+.dark * {
+  scrollbar-color: #334155 transparent;
+}
+
+/* ── Utilities ─────────────────────────────────────────────────── */
+/* ── ThemeToggle (uiverse.io / Madflows) ───────────────────────── */
+.toggle-switch {
+  position: relative;
+  width: 70px;
+  height: 34px;
+  --light: #d8dbe0;
+  --dark: #28292c;
+  cursor: pointer;
+}
+.switch-label {
+  position: absolute;
+  width: 100%;
+  height: 34px;
+  background-color: var(--dark);
+  border-radius: 25px;
+  cursor: pointer;
+  border: 3px solid var(--dark);
+}
+.checkbox { position: absolute; display: none; }
+.slider {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 25px;
+  transition: 0.3s;
+}
+.checkbox:checked ~ .slider { background-color: var(--light); }
+.slider::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 8px -3px 0px 0px var(--light);
+  background-color: var(--dark);
+  transition: 0.3s;
+}
+.checkbox:checked ~ .slider::before {
+  transform: translateX(34px);
+  background-color: var(--dark);
+  box-shadow: none;
+}
+
 @layer utilities {
   /* Radial gradient hero glow */
   .bg-radial-indigo {
-    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99 102 241 / 0.12), transparent);
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99 102 241 / 0.06), transparent);
   }
 
   /* Shimmer button */
@@ -85,13 +161,11 @@ body {
   }
   .card-hover:hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 40px rgba(0 0 0 / 0.55), 0 0 0 1px rgba(255 255 255 / 0.08);
-    border-color: rgba(255 255 255 / 0.1) !important;
+    box-shadow: 0 8px 30px rgba(0 0 0 / 0.10);
   }
 
   /* Subtle glass surface */
   .glass {
-    background: rgba(24 24 27 / 0.8);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
@@ -104,8 +178,8 @@ body {
     background-clip: text;
   }
 
-  /* Animate float-up */
-  .animate-float-up { animation: var(--animate-float-up); }
-  .animate-shimmer  { animation: var(--animate-shimmer); }
+  /* Animate helpers */
+  .animate-float-up    { animation: var(--animate-float-up); }
+  .animate-shimmer     { animation: var(--animate-shimmer); }
   .animate-pulse-badge { animation: var(--animate-pulse-badge); }
 }

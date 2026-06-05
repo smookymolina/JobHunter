@@ -1,7 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Loader2, Plus, Save, Trash2 } from 'lucide-react'
+import {
+  AlertCircle, Briefcase, CheckCircle, GraduationCap,
+  Loader2, Plus, Save, Trash2, User, Zap,
+} from 'lucide-react'
 import { api, type PerfilMaestro } from '@/lib/api'
 
 const EMPTY: PerfilMaestro = {
@@ -20,16 +23,45 @@ function toCSV(arr: string[]): string {
   return arr.join(', ')
 }
 
-function Field({ label, value, onChange, textarea = false }: {
-  label: string; value: string; onChange: (v: string) => void; textarea?: boolean
+const INPUT = [
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900',
+  'placeholder:text-slate-400 outline-none transition-colors duration-150',
+  'focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400',
+  'dark:bg-slate-800/60 dark:border-slate-700 dark:text-slate-100',
+  'dark:placeholder:text-slate-500 dark:focus:border-rose-500/50 dark:focus:ring-rose-500/10',
+].join(' ')
+
+function Field({ label, value, onChange, textarea = false, rows = 3 }: {
+  label: string; value: string; onChange: (v: string) => void; textarea?: boolean; rows?: number
 }) {
-  const cls = "w-full rounded-lg border border-white/[0.07] bg-zinc-950/60 px-3 py-1.5 text-[12px] text-zinc-200 outline-none placeholder-zinc-600 focus:border-indigo-500/50"
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</label>
+    <div className="flex flex-col gap-1.5">
+      <label className="block text-xs font-medium tracking-wide text-slate-500 dark:text-slate-400">
+        {label}
+      </label>
       {textarea
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={3} className={`${cls} resize-none`} />
-        : <input  value={value} onChange={e => onChange(e.target.value)} className={cls} />}
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={rows}
+            className={`${INPUT} resize-none`} />
+        : <input value={value} onChange={e => onChange(e.target.value)} className={INPUT} />}
+    </div>
+  )
+}
+
+function SectionCard({
+  icon: Icon, title, children,
+}: {
+  icon: React.ElementType; title: string; children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-5 flex items-center gap-2">
+        <span className="h-4 w-1 shrink-0 rounded-full bg-rose-500" />
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+          {title}
+        </h2>
+        <Icon size={13} className="ml-0.5 text-slate-300 dark:text-slate-600" />
+      </div>
+      {children}
     </div>
   )
 }
@@ -55,7 +87,6 @@ export default function PerfilPage() {
   const setHab = (cat: keyof PerfilMaestro['habilidades'], csv: string) =>
     setPerfil(p => ({ ...p, habilidades: { ...p.habilidades, [cat]: toArr(csv) } }))
 
-  // ── Experiencia helpers
   const addExp = () => set('experiencia', [...perfil.experiencia, { puesto: '', empresa: '', periodo: '', logros: [] }])
   const delExp = (i: number) => set('experiencia', perfil.experiencia.filter((_, j) => j !== i))
   const setExp = (i: number, field: string, val: string) =>
@@ -63,13 +94,11 @@ export default function PerfilPage() {
       j === i ? { ...e, [field]: field === 'logros' ? toArr(val) : val } : e
     ))
 
-  // ── Educación helpers
   const addEdu = () => set('educacion', [...perfil.educacion, { titulo: '', institucion: '', anio: '' }])
   const delEdu = (i: number) => set('educacion', perfil.educacion.filter((_, j) => j !== i))
   const setEdu = (i: number, field: string, val: string) =>
     set('educacion', perfil.educacion.map((e, j) => j === i ? { ...e, [field]: val } : e))
 
-  // ── Proyectos helpers
   const addProj = () => set('proyectos', [...perfil.proyectos, { nombre: '', descripcion: '', tecnologias: [] }])
   const delProj = (i: number) => set('proyectos', perfil.proyectos.filter((_, j) => j !== i))
   const setProj = (i: number, field: string, val: string) =>
@@ -91,39 +120,62 @@ export default function PerfilPage() {
 
   if (loading) return (
     <div className="flex h-full items-center justify-center">
-      <Loader2 size={22} className="animate-spin text-zinc-600" />
+      <Loader2 size={22} className="animate-spin text-slate-300 dark:text-slate-600" />
     </div>
   )
 
-  const sectionCls = "rounded-xl border border-white/[0.06] bg-zinc-900/50 p-4 space-y-3"
-  const sectionTitle = "text-[11px] font-semibold uppercase tracking-widest text-zinc-500 mb-3"
-  const addBtn = "inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-200 transition-colors"
-  const delBtn = "shrink-0 rounded p-0.5 text-zinc-600 hover:text-rose-400 transition-colors"
+  const addBtn = "inline-flex items-center gap-1.5 text-xs font-medium text-rose-500 transition-colors hover:text-rose-400"
+  const delBtn = "shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-900/20"
+  const subCard = "rounded-xl border border-slate-100 bg-slate-50/60 p-4 space-y-3 dark:border-slate-800 dark:bg-slate-800/30"
+
+  const initials = [perfil.nombre[0], perfil.apellidos[0]].filter(Boolean).join('').toUpperCase() || 'JM'
+  const fullName = [perfil.nombre, perfil.apellidos].filter(Boolean).join(' ') || 'Tu nombre completo'
 
   return (
     <div className="flex h-full flex-col">
-      <header className="shrink-0 border-b border-white/[0.06] px-6 py-4">
-        <h1 className="text-[18px] font-semibold tracking-tight text-zinc-50">Perfil Maestro</h1>
-        <p className="text-[12px] text-zinc-500">Fuente de verdad para CV · datos guardados en perfil_maestro.json</p>
+      <header className="sticky top-0 z-30 shrink-0 border-b border-slate-100 bg-white/90 px-6 py-4 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/90">
+        <h1 className="text-[18px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">Perfil Maestro</h1>
+        <p className="text-[12px] text-slate-400 dark:text-slate-500">
+          Fuente de verdad para CV · datos guardados en perfil_maestro.json
+        </p>
       </header>
 
-      <main className="flex-1 overflow-auto px-6 py-5 space-y-4">
+      <main className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
         {/* Feedback */}
         {msg && (
-          <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-[12px] ${
-            msg.ok ? 'border border-emerald-700/30 bg-emerald-950/30 text-emerald-300'
-                   : 'border border-rose-700/30 bg-rose-950/30 text-rose-300'
+          <div className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
+            msg.ok
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/30 dark:bg-emerald-950/30 dark:text-emerald-300'
+              : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-700/30 dark:bg-rose-950/30 dark:text-rose-300'
           }`}>
-            {msg.ok ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
+            {msg.ok ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
             {msg.text}
           </div>
         )}
 
+        {/* Header card de identidad */}
+        <div className="flex items-center gap-5 rounded-2xl border border-slate-100 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-900/20">
+            <span className="text-2xl font-bold text-rose-500">{initials}</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
+              {fullName}
+            </h2>
+            <p className="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">
+              {perfil.titulo_profesional || 'Título profesional'}
+            </p>
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span className="text-xs text-slate-400">perfil_maestro.json · guardado</span>
+            </div>
+          </div>
+        </div>
+
         {/* Datos personales */}
-        <div className={sectionCls}>
-          <p className={sectionTitle}>Datos personales</p>
-          <div className="grid grid-cols-2 gap-3">
+        <SectionCard icon={User} title="Datos Personales">
+          <div className="grid grid-cols-2 gap-4">
             <Field label="Nombre" value={perfil.nombre} onChange={v => set('nombre', v)} />
             <Field label="Apellidos" value={perfil.apellidos} onChange={v => set('apellidos', v)} />
             <Field label="Título profesional" value={perfil.titulo_profesional} onChange={v => set('titulo_profesional', v)} />
@@ -133,13 +185,15 @@ export default function PerfilPage() {
             <Field label="LinkedIn" value={perfil.linkedin} onChange={v => set('linkedin', v)} />
             <Field label="GitHub" value={perfil.github} onChange={v => set('github', v)} />
           </div>
-          <Field label="Resumen profesional" value={perfil.resumen} onChange={v => set('resumen', v)} textarea />
-        </div>
+          <div className="mt-4">
+            <Field label="Resumen profesional" value={perfil.resumen} onChange={v => set('resumen', v)} textarea rows={4} />
+          </div>
+        </SectionCard>
 
         {/* Habilidades */}
-        <div className={sectionCls}>
-          <p className={sectionTitle}>Habilidades (separadas por coma)</p>
-          <div className="space-y-2">
+        <SectionCard icon={Zap} title="Habilidades">
+          <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">Valores separados por coma</p>
+          <div className="space-y-3">
             {(Object.keys(perfil.habilidades) as (keyof PerfilMaestro['habilidades'])[]).map(cat => (
               <Field
                 key={cat}
@@ -149,61 +203,68 @@ export default function PerfilPage() {
               />
             ))}
           </div>
-        </div>
+        </SectionCard>
 
         {/* Experiencia */}
-        <div className={sectionCls}>
-          <p className={sectionTitle}>Experiencia laboral</p>
-          {perfil.experiencia.map((e, i) => (
-            <div key={i} className="rounded-lg border border-white/[0.05] bg-zinc-950/30 p-3 space-y-2">
-              <div className="grid grid-cols-3 gap-2">
-                <Field label="Puesto"   value={e.puesto}   onChange={v => setExp(i, 'puesto', v)} />
-                <Field label="Empresa"  value={e.empresa}  onChange={v => setExp(i, 'empresa', v)} />
-                <Field label="Período"  value={e.periodo}  onChange={v => setExp(i, 'periodo', v)} />
+        <SectionCard icon={Briefcase} title="Experiencia Laboral">
+          <div className="space-y-3">
+            {perfil.experiencia.map((e, i) => (
+              <div key={i} className={subCard}>
+                <div className="grid grid-cols-3 gap-3">
+                  <Field label="Puesto"  value={e.puesto}  onChange={v => setExp(i, 'puesto', v)} />
+                  <Field label="Empresa" value={e.empresa} onChange={v => setExp(i, 'empresa', v)} />
+                  <Field label="Período" value={e.periodo} onChange={v => setExp(i, 'periodo', v)} />
+                </div>
+                <Field label="Logros (separados por coma)" value={toCSV(e.logros)} onChange={v => setExp(i, 'logros', v)} textarea />
+                <button onClick={() => delExp(i)} className={delBtn}><Trash2 size={13} /></button>
               </div>
-              <Field label="Logros (separados por coma)" value={toCSV(e.logros)} onChange={v => setExp(i, 'logros', v)} textarea />
-              <button onClick={() => delExp(i)} className={delBtn}><Trash2 size={12} /></button>
-            </div>
-          ))}
-          <button onClick={addExp} className={addBtn}><Plus size={12} /> Agregar experiencia</button>
-        </div>
+            ))}
+          </div>
+          <button onClick={addExp} className={`${addBtn} mt-3`}><Plus size={13} /> Agregar experiencia</button>
+        </SectionCard>
 
         {/* Educación */}
-        <div className={sectionCls}>
-          <p className={sectionTitle}>Educación</p>
-          {perfil.educacion.map((e, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_80px_auto] gap-2 items-end">
-              <Field label="Título"       value={e.titulo}      onChange={v => setEdu(i, 'titulo', v)} />
-              <Field label="Institución"  value={e.institucion} onChange={v => setEdu(i, 'institucion', v)} />
-              <Field label="Año"          value={e.anio}        onChange={v => setEdu(i, 'anio', v)} />
-              <button onClick={() => delEdu(i)} className={`${delBtn} mb-0.5`}><Trash2 size={12} /></button>
-            </div>
-          ))}
-          <button onClick={addEdu} className={addBtn}><Plus size={12} /> Agregar educación</button>
-        </div>
+        <SectionCard icon={GraduationCap} title="Educación">
+          <div className="space-y-3">
+            {perfil.educacion.map((e, i) => (
+              <div key={i} className="grid grid-cols-[1fr_1fr_80px_auto] items-end gap-3">
+                <Field label="Título"      value={e.titulo}      onChange={v => setEdu(i, 'titulo', v)} />
+                <Field label="Institución" value={e.institucion} onChange={v => setEdu(i, 'institucion', v)} />
+                <Field label="Año"         value={e.anio}        onChange={v => setEdu(i, 'anio', v)} />
+                <button onClick={() => delEdu(i)} className={`${delBtn} mb-0.5`}><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={addEdu} className={`${addBtn} mt-3`}><Plus size={13} /> Agregar educación</button>
+        </SectionCard>
 
         {/* Proyectos */}
-        <div className={sectionCls}>
-          <p className={sectionTitle}>Proyectos destacados</p>
-          {perfil.proyectos.map((p, i) => (
-            <div key={i} className="rounded-lg border border-white/[0.05] bg-zinc-950/30 p-3 space-y-2">
-              <Field label="Nombre"          value={p.nombre}       onChange={v => setProj(i, 'nombre', v)} />
-              <Field label="Descripción"     value={p.descripcion}  onChange={v => setProj(i, 'descripcion', v)} textarea />
-              <Field label="Tecnologías (coma)" value={toCSV(p.tecnologias)} onChange={v => setProj(i, 'tecnologias', v)} />
-              <button onClick={() => delProj(i)} className={delBtn}><Trash2 size={12} /></button>
-            </div>
-          ))}
-          <button onClick={addProj} className={addBtn}><Plus size={12} /> Agregar proyecto</button>
-        </div>
+        <SectionCard icon={Zap} title="Proyectos Destacados">
+          <div className="space-y-3">
+            {perfil.proyectos.map((p, i) => (
+              <div key={i} className={subCard}>
+                <Field label="Nombre" value={p.nombre} onChange={v => setProj(i, 'nombre', v)} />
+                <Field label="Descripción" value={p.descripcion} onChange={v => setProj(i, 'descripcion', v)} textarea />
+                <Field label="Tecnologías (coma)" value={toCSV(p.tecnologias)} onChange={v => setProj(i, 'tecnologias', v)} />
+                <button onClick={() => delProj(i)} className={delBtn}><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={addProj} className={`${addBtn} mt-3`}><Plus size={13} /> Agregar proyecto</button>
+        </SectionCard>
 
         {/* Guardar */}
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
-        >
-          {saving ? <><Loader2 size={14} className="animate-spin" /> Guardando...</> : <><Save size={14} /> Guardar perfil maestro</>}
-        </button>
+        <div className="pb-6">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:scale-105 hover:bg-slate-700 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+          >
+            {saving
+              ? <><Loader2 size={14} className="animate-spin" /> Guardando...</>
+              : <><Save size={14} /> Guardar cambios</>}
+          </button>
+        </div>
 
       </main>
     </div>
