@@ -1,11 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  AlertCircle, Briefcase, CheckCircle, GraduationCap,
-  Loader2, Plus, Save, Trash2, User, Zap,
+  AlertCircle, Briefcase, Camera, CheckCircle, GraduationCap,
+  Plus, Save, Trash2, User, X, Zap,
 } from 'lucide-react'
+import Loader from '@/components/ui/Loader'
 import { api, type PerfilMaestro } from '@/lib/api'
+import { useAvatar } from '@/context/AvatarContext'
+import UserAvatar from '@/components/ui/UserAvatar'
 
 const EMPTY: PerfilMaestro = {
   nombre: '', apellidos: '', titulo_profesional: '', email: '',
@@ -66,6 +69,50 @@ function SectionCard({
   )
 }
 
+// ── Avatar uploader ───────────────────────────────────────────────────────────
+
+function AvatarUploader({ initials }: { initials: string }) {
+  const { avatarUrl, setAvatarUrl } = useAvatar()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const handleFile = async (file: File) => {
+    setUploading(true)
+    const fd = new FormData()
+    fd.append('avatar', file)
+    const res = await fetch('/api/profile/avatar', { method: 'POST', body: fd })
+    const data = await res.json() as { avatarUrl?: string }
+    if (data.avatarUrl) setAvatarUrl(data.avatarUrl)
+    setUploading(false)
+  }
+
+  const handleRemove = async () => {
+    await fetch('/api/profile/avatar', { method: 'DELETE' })
+    setAvatarUrl(null)
+  }
+
+  return (
+    <div className="group relative w-fit">
+      <UserAvatar initials={initials} size={64} shape="2xl" />
+      <button onClick={() => !uploading && inputRef.current?.click()}
+        className={`absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50 transition-opacity duration-200 ${uploading ? 'opacity-100 cursor-wait' : 'opacity-0 group-hover:opacity-100'}`}
+        aria-label="Cambiar foto">
+        {uploading ? <Loader size={24} color="white" /> : <Camera size={18} className="text-white" />}
+      </button>
+      {avatarUrl && (
+        <button onClick={handleRemove}
+          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white opacity-0 shadow-sm transition-opacity duration-200 group-hover:opacity-100"
+          aria-label="Quitar foto">
+          <X size={10} />
+        </button>
+      )}
+      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+    </div>
+  )
+}
+
 // ── Página ────────────────────────────────────────────────────────────────────
 
 export default function PerfilPage() {
@@ -120,7 +167,7 @@ export default function PerfilPage() {
 
   if (loading) return (
     <div className="flex h-full items-center justify-center">
-      <Loader2 size={22} className="animate-spin text-slate-300 dark:text-slate-600" />
+      <Loader size={40} label="Cargando perfil..." />
     </div>
   )
 
@@ -156,9 +203,7 @@ export default function PerfilPage() {
 
         {/* Header card de identidad */}
         <div className="flex items-center gap-5 rounded-2xl border border-slate-100 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-900/20">
-            <span className="text-2xl font-bold text-rose-500">{initials}</span>
-          </div>
+          <AvatarUploader initials={initials} />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
               {fullName}
@@ -261,7 +306,7 @@ export default function PerfilPage() {
             className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:scale-105 hover:bg-slate-700 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
           >
             {saving
-              ? <><Loader2 size={14} className="animate-spin" /> Guardando...</>
+              ? <><Loader size={14} color="currentColor" /> Guardando...</>
               : <><Save size={14} /> Guardar cambios</>}
           </button>
         </div>

@@ -13,6 +13,7 @@ import {
   Archive,
 } from 'lucide-react'
 import ThemeToggle from '@/components/ui/ThemeToggle'
+import UserAvatar from '@/components/ui/UserAvatar'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
 
@@ -141,9 +142,7 @@ export default function Sidebar() {
           <ThemeToggle />
         </div>
         <button className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-100 text-[11px] font-bold text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
-            JH
-          </div>
+          <UserAvatar initials="JH" size={28} shape="full" />
           <div className="min-w-0 flex-1 text-left">
             <p className="truncate text-[12px] font-medium text-slate-700 dark:text-slate-300">Mi Cuenta</p>
             <p className="truncate text-[10px] text-slate-400 dark:text-slate-600">Personal Plan</p>

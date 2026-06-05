@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import Sidebar from '@/components/Sidebar'
+import { AvatarProvider } from '@/context/AvatarContext'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
@@ -24,10 +25,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `try{var t=localStorage.getItem('theme');if(t==='light')document.documentElement.classList.remove('dark');}catch(e){}`,
           }}
         />
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden pl-[220px]">
-          {children}
-        </div>
+        <AvatarProvider>
+          <Sidebar />
+          <div className="flex flex-1 flex-col overflow-hidden pl-[220px]">
+            {children}
+          </div>
+        </AvatarProvider>
       </body>
     </html>
   )

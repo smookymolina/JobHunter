@@ -84,6 +84,36 @@ body {
 }
 
 /* ── Utilities ─────────────────────────────────────────────────── */
+/* ── Loader (uiverse.io / cosnametv) ──────────────────────────── */
+:root  { --loader-color: #e11d48; }
+.dark  { --loader-color: #fb7185; }
+
+.loader-jh {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: calc(var(--size) * 0.07);
+  width: var(--size);
+  height: var(--size);
+}
+.loader-jh span {
+  width: 100%;
+  height: 100%;
+  background-color: var(--color);
+  border-radius: 3px;
+  animation: jh-blink 0.6s alternate infinite linear;
+}
+.loader-jh span:nth-child(1){animation-delay:0ms}
+.loader-jh span:nth-child(2){animation-delay:200ms}
+.loader-jh span:nth-child(3){animation-delay:300ms}
+.loader-jh span:nth-child(4){animation-delay:400ms}
+.loader-jh span:nth-child(5){animation-delay:500ms}
+.loader-jh span:nth-child(6){animation-delay:600ms}
+
+@keyframes jh-blink {
+  0%  { opacity: 0.3; transform: scale(0.5) rotate(5deg); }
+  50% { opacity: 1;   transform: scale(1); }
+}
+
 /* ── ThemeToggle (uiverse.io / Madflows) ───────────────────────── */
 .toggle-switch {
   position: relative;

@@ -2,17 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
-  AlertCircle,
-  Bot,
-  Clock,
-  Loader2,
-  Plus,
-  Radio,
-  RefreshCw,
-  Send,
-  Sparkles,
-  WifiOff,
+  AlertCircle, Bot, Clock, Loader2,
+  Plus, Radio, RefreshCw, Send, Sparkles, WifiOff,
 } from 'lucide-react'
+import Loader from '@/components/ui/Loader'
 import { api, type Status, type SyncHealthReport, type Vacante } from '@/lib/api'
 import AddVacanteModal from '@/components/AddVacanteModal'
 import KanbanBoard from '@/components/KanbanBoard'
@@ -224,7 +217,7 @@ export default function DashboardPage() {
       <main className="flex-1 overflow-hidden px-4 py-4">
         {loading && (
           <div className="flex h-full items-center justify-center">
-            <Loader2 size={24} className="animate-spin text-slate-400 dark:text-slate-600" />
+            <Loader size={36} label="Cargando vacantes..." />
           </div>
         )}
 
