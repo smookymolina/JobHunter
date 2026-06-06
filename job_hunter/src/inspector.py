@@ -1,19 +1,29 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
-import sqlite3
 import os
 import json
 import re
+import pg8000.dbapi as _pg8000
+from urllib.parse import urlparse as _urlparse
 
-from gemini_engine import GROQ_API_KEY, GROQ_MODEL, DB_PATH, OUTPUTS_DIR, _groq_client
+from gemini_engine import GROQ_API_KEY, GROQ_MODEL, OUTPUTS_DIR, _groq_client
+
+
+def _db():
+    _u = _urlparse(os.getenv('DATABASE_URL'))
+    return _pg8000.connect(host=_u.hostname, port=_u.port or 5432, user=_u.username, password=_u.password, database=_u.path.lstrip('/'))
 
 
 def _get_vacante(vid):
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute(
-        "SELECT titulo, empresa, requerimientos FROM vacantes WHERE id=?", (vid,)
-    ).fetchone()
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT titulo, empresa, requerimientos FROM vacantes WHERE id=%s AND user_id='default_user'",
+        (vid,)
+    )
+    row = cur.fetchone()
+    cur.close()
     conn.close()
     return row
 

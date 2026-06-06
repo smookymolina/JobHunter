@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jobhunter
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: jobhunter_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobhunter -d jobhunter_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   api:
     build:
       context: ./job_hunter
@@ -11,11 +29,15 @@ services:
       - ./job_hunter/.env
     environment:
       - PLAYWRIGHT_HEADLESS=true
+      - DATABASE_URL=postgresql://jobhunter:devpass@postgres:5432/jobhunter_db
     shm_size: '256m'
     volumes:
       - ./job_hunter/db:/app/db
       - ./job_hunter/outputs:/app/outputs
       - ./job_hunter/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/"]
       interval: 10s
@@ -35,3 +57,6 @@ services:
         condition: service_healthy
     environment:
       - NODE_ENV=production
+
+volumes:
+  postgres_data:

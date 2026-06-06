@@ -1,0 +1,227 @@
+\documentclass[10pt, letterpaper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{babel}
+\usepackage[top=1.1cm, bottom=1.0cm, left=1.3cm, right=1.3cm]{geometry}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{multicol}
+\usepackage{setspace}
+
+% ── Colors ────────────────────────────────────────────────────────────────────
+\definecolor{azuloscuro}{RGB}{10, 40, 80}
+\definecolor{azulmedio}{RGB}{30, 80, 150}
+\definecolor{gristexto}{RGB}{55, 55, 55}
+\definecolor{grisclaro}{RGB}{235, 238, 242}
+\definecolor{lineagris}{RGB}{180, 190, 205}
+
+% ── Hyperlinks ────────────────────────────────────────────────────────────────
+\hypersetup{colorlinks=true, urlcolor=azulmedio, linkcolor=azulmedio}
+
+% ── Typography & spacing ──────────────────────────────────────────────────────
+\setlength{\parskip}{0pt}
+\setlength{\parindent}{0pt}
+\renewcommand{\baselinestretch}{1.0}
+
+% ── Section with rule ─────────────────────────────────────────────────────────
+\titleformat{\section}
+  {\color{azuloscuro}\normalfont\bfseries\normalsize}
+  {}{0em}{\MakeUppercase}[{\color{lineagris}\titlerule[0.5pt]}]
+\titlespacing{\section}{0pt}{5pt}{3pt}
+
+% ── Compact list ──────────────────────────────────────────────────────────────
+\setlist[itemize]{
+  leftmargin=1.2em,
+  itemsep=0.3pt,
+  topsep=1pt,
+  parsep=0pt,
+  label={\color{azulmedio}\textbullet}
+}
+
+% ── CV commands ───────────────────────────────────────────────────────────────
+\newcommand{\cventry}[4]{%
+  \vspace{2pt}%
+  {\color{azuloscuro}\textbf{#1}}\hfill{\small\color{gristexto}\textit{#2}}\\[-3pt]
+  {\small\color{azulmedio}\textit{#3}}\hfill{\small\color{gristexto}#4}%
+  \vspace{1pt}%
+}
+
+\newcommand{\cvedu}[4]{%
+  \vspace{1pt}%
+  {\color{azuloscuro}\textbf{#1}}\hfill{\small\color{gristexto}\textit{#2}}\\[-3pt]
+  {\small\color{gristexto}#3}\hfill{\small\color{azulmedio}\textit{#4}}%
+  \vspace{1pt}%
+}
+
+\newcommand{\skillcat}[2]{%
+  \textbf{\color{azuloscuro}#1:} {\small\color{gristexto}#2}\\[0.8pt]%
+}
+
+% =========================================================================
+\begin{document}
+\pagestyle{empty}
+
+% ── HEADER ────────────────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries\color{azuloscuro} JAIR MOLINA ARCE}\\[3pt]
+  {\small\color{azulmedio}\textbf{Automation Engineer $\cdot$ Embedded Systems Specialist $\cdot$ Aerospace Researcher}}\\[4pt]
+  {\footnotesize\color{gristexto}
+    \href{mailto:ingjairmolina@gmail.com}{ingjairmolina@gmail.com}\enspace$\cdot$\enspace
+    +52 56 52 64 61 08\enspace$\cdot$\enspace
+    Mexico City, Mexico\enspace$\cdot$\enspace
+    ORCID: \href{https://orcid.org/0009-0009-6732-8100}{0009-0009-6732-8100}\enspace$\cdot$\enspace
+    CONACYT CVU: 1340773
+  }\\[1pt]
+  {\footnotesize\color{azulmedio}
+    \href{https://codeaerospace.com}{codeaerospace.com}\enspace$\cdot$\enspace
+    \href{https://codeaerospace.space}{codeaerospace.space}\enspace$\cdot$\enspace
+    \href{https://codeaerospace.tech}{codeaerospace.tech}
+  }
+\end{center}
+
+\vspace{-2pt}
+{\color{lineagris}\rule{\linewidth}{0.5pt}}
+\vspace{2pt}
+
+% ── PROFESSIONAL SUMMARY ──────────────────────────────────────────────────────
+\section{Professional Summary}
+
+{\small\color{gristexto}
+Mechanical Engineer with an ongoing M.Sc. (IPN) in \textbf{Dynamic Systems Control \& Instrumentation}. Co-founder of \textbf{Co.De Aerospace}: an R\&D organization operating an SDR satellite ground tracking station (\textit{Orbit Eye}), a 6G AI-powered research platform, and providing technical advisory for Mexico's first analog habitat. Proven expertise in industrial \textbf{DAQ}, digital \textbf{PID} controllers, \textbf{MATLAB/Simulink}, and \textbf{IEC~61131-3} languages. University lecturer in thermal engineering and aerospace systems. International scientific publications. Advanced English. \textbf{Immediately available to relocate to the United States.}
+}
+
+% ── PROFESSIONAL EXPERIENCE ───────────────────────────────────────────────────
+\section{Professional Experience}
+
+% ── Co.De Aerospace
+\cventry{Co.De Aerospace --- Co-founder \& Lead Technology Engineer}{2023 -- Present}{\href{https://codeaerospace.com}{codeaerospace.com} $\cdot$ \href{https://codeaerospace.space}{codeaerospace.space} $\cdot$ \href{https://codeaerospace.tech}{codeaerospace.tech}}{Remote / Mexico}
+\begin{itemize}
+  \item Built \textbf{Co.De Orbit Eye}: SDR-based ground station for real-time LEO satellite tracking with web interface for orbital visualization and telemetry monitoring (\href{https://codeaerospace.space}{codeaerospace.space}).
+  \item Developed \textbf{ResearchAI}: AI-powered \textbf{6G} telecommunications research platform focused on next-generation satellite communications (\href{https://codeaerospace.tech}{codeaerospace.tech}).
+  \item Led technical collaborations in \textbf{satellite cybersecurity}: secure communication protocols and ground-control system hardening.
+  \item Provided technical advisory for the design and instrumentation of \textbf{Mexico's first analog habitat}, including environmental control and monitoring systems.
+  \item Coordinated technology demonstrations for national media (TV Azteca, 2024) and international scientific bodies.
+\end{itemize}
+
+\vspace{2pt}
+
+% ── Propulsion Test Bench
+\cventry{Embedded Systems \& Instrumentation --- Propulsion Test Bench}{2022 -- 2024}{Instituto Polit\'{e}cnico Nacional (IPN)}{Mexico City, MX}
+\begin{itemize}
+  \item Designed and deployed a multi-channel \textbf{DAQ} system with industrial pressure, temperature, and flow sensors for an aerospace propulsion test bench.
+  \item Programmed \textbf{ESP32} and \textbf{STM32} microcontrollers in \textbf{C/C++} for real-time signal acquisition and preprocessing.
+  \item Implemented digital \textbf{PID controllers} and dynamic system models in \textbf{MATLAB/Simulink}, achieving stable closed-loop performance.
+  \item Engineered \textbf{MQTT/WiFi} data pipeline for continuous remote monitoring; analyzed data with \textbf{Python} and \textbf{LabVIEW}.
+\end{itemize}
+
+\vspace{2pt}
+
+% ── JobHunter
+\cventry{AI Automation Platform: \textit{JobHunter}}{2024 -- 2025}{Independent Project}{Remote}
+\begin{itemize}
+  \item \textbf{FastAPI + Python} backend with Groq AI (LLM) integration; \textbf{Next.js/TypeScript} frontend with real-time dashboard.
+  \item Telegram bot for automated notifications and workflow control, reducing manual intervention by over 80\%.
+\end{itemize}
+
+\vspace{2pt}
+
+% ── IoT
+\cventry{Full-Stack Web Platform for IoT Monitoring}{2023 -- 2024}{Independent Project / IPN}{Mexico City, MX}
+\begin{itemize}
+  \item Remote IoT sensor monitoring platform using \textbf{Flask + SQLAlchemy}, RESTful APIs, \textbf{Docker}, Prometheus, MySQL, and Redis.
+\end{itemize}
+
+\vspace{2pt}
+
+% ── UNII
+\cventry{Lecturer --- Thermal Engineering \& Aerospace Systems Modeling}{2025 -- Present}{UNII --- Universidad de la Innovaci\'{o}n, Aguascalientes}{Remote}
+\begin{itemize}
+  \item Teaching applied thermal engineering and aerospace systems modeling/simulation at undergraduate level, fully remote.
+\end{itemize}
+
+\vspace{2pt}
+
+% ── Profuturo
+\cventry{Trainer --- Advanced Excel for Data Analysis}{March 2026}{Profuturo}{Mexico City, MX}
+\begin{itemize}
+  \item Designed and delivered intensive Excel workshop: PivotTables, Power Query, dashboards, and VBA macro automation.
+\end{itemize}
+
+\vspace{2pt}
+
+% ── ENBA
+\cventry{Lecturer --- Disruptive Technologies (Graduate Level)}{2024}{ENBA -- IPN}{Mexico City, MX}
+\begin{itemize}
+  \item Delivered graduate-level course on VR/AR applied to industrial technical training.
+\end{itemize}
+
+% ── EDUCATION ─────────────────────────────────────────────────────────────────
+\section{Education}
+
+\cvedu{M.Sc. in Advanced Technologies}{2024 -- Present}{IPN --- Track: Dynamic Systems Control \& Instrumentation}{In Progress}
+\vspace{2pt}
+\cvedu{B.Eng. in Mechanical Engineering}{2017 -- 2023}{IPN --- Thermodynamics, instrumentation, embedded systems, test benches}{Graduated}
+\vspace{2pt}
+\cvedu{Technical High School Diploma --- Computer Science}{2014 -- 2017}{Colegio de Bachilleres Campus 1 ``El Rosario''}{Completed}
+
+% ── TECHNICAL SKILLS ──────────────────────────────────────────────────────────
+\section{Technical Skills}
+
+{\small
+\skillcat{Automation / Control}{\textbf{Ladder Logic, Structured Text, Function Block Diagram} (IEC~61131-3), digital \textbf{PID}, dynamic systems modeling, \textbf{MATLAB/Simulink}}
+\skillcat{Embedded / IoT}{\textbf{ESP32}, \textbf{STM32}, Arduino, \textbf{C/C++}, MQTT, HTTP/REST, WiFi, UART, SPI, I2C}
+\skillcat{Instrumentation / DAQ}{Pressure/temperature/flow sensors, signal conditioning, \textbf{DAQ}, \textbf{LabVIEW}, SDR}
+\skillcat{Programming}{\textbf{Python} (pandas, numpy, matplotlib), C/C++, TypeScript, FastAPI, Next.js, Docker, VBA/Excel}
+\skillcat{Aerospace / Security}{LEO satellite tracking, satellite cybersecurity, 6G communications, analog habitat systems}
+\skillcat{CAD / CAE}{SolidWorks, ANSYS, FEA, thermal simulation, technical drawings, metrology}
+}
+
+% ── SCIENTIFIC PUBLICATIONS ───────────────────────────────────────────────────
+\section{Scientific Publications}
+
+{\small\color{gristexto}
+\textbf{International:}\\
+S\'{a}nchez Gonz\'{a}lez, A., Manr\'{i}quez Ch\'{a}vez, Y., Rosas Palacios, A., \textbf{Molina Arce, J.} (2024). \textit{31st IAA Symposium on Small Satellite Missions}. IAC 2024, Milan, Italy.
+\href{https://doi.org/10.52202/078365-0120}{DOI: 10.52202/078365-0120}
+
+\vspace{2pt}
+\textbf{National (Mexico):}\\
+\textbf{Molina Arce, J.} (2024). Characterization, design and simulation of a mechanical test bench for the measurement of operational parameters. \textit{Revista Hacia el Espacio}, Mexico.
+}
+
+% ── INTERNATIONAL PARTICIPATION ───────────────────────────────────────────────
+\section{International Participation \& Recognition}
+
+{\small\color{gristexto}
+\begin{itemize}
+  \item \textbf{Speaker / Co-author} --- IAC 2024 (Oct. 2024), Milan, Italy. Presented research in English to a global scientific audience.
+  \item \textbf{Staff Chief} --- ICASST 2023 $\cdot$ \textbf{Organizing Committee} --- ICASST 2022, Mexico City.
+  \item \textbf{Technology Demo} --- TV Azteca Mexico (2024): Co.De Aerospace technologies showcase.
+\end{itemize}
+}
+
+% ── LANGUAGES ─────────────────────────────────────────────────────────────────
+\section{Languages}
+
+{\small\color{gristexto}
+\textbf{Spanish:} Native \quad \textbf{English:} Advanced --- fluent for technical interviews, on-site meetings, and presentations in U.S. industrial environments.
+}
+
+% ── FOOTER ────────────────────────────────────────────────────────────────────
+\vspace{3pt}
+{\color{lineagris}\rule{\linewidth}{0.3pt}}
+{\footnotesize\centering\color{gristexto}
+Immediately available to relocate to the U.S. \textbf{$\cdot$} Open to visa sponsorship process \textbf{$\cdot$} Authorized to use personal data for recruitment purposes
+}
+
+\end{document}

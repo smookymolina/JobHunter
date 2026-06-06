@@ -1,7 +1,6 @@
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
-import sqlite3
 import feedparser
 import requests
 from bs4 import BeautifulSoup
@@ -9,8 +8,11 @@ import os
 import re
 import json
 import time
+import pg8000.dbapi as _pg8000
+from urllib.parse import urlparse as _urlparse
+from dotenv import load_dotenv
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'db', 'vacantes.db')
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env')))
 
 SEARCH_TERMS = ["Ingeniero Mecanico", "IoT Developer", "Full Stack"]
 
@@ -53,17 +55,19 @@ def extract_jsonld(html_text):
 
 def insert_vacante(conn, titulo, empresa, enlace, requerimientos):
     try:
-        # Normalización básica
         empresa = (empresa or "Desconocida").strip()
-        if empresa.lower() == "buscar empresas": # Cleanup de falsos positivos
+        if empresa.lower() == "buscar empresas":
             empresa = "Desconocida"
-            
-        conn.execute(
-            "INSERT OR IGNORE INTO vacantes (titulo, empresa, enlace, requerimientos) VALUES (?,?,?,?)",
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO vacantes (user_id, titulo, empresa, enlace, requerimientos) "
+            "VALUES ('default_user',%s,%s,%s,%s) ON CONFLICT (enlace) DO NOTHING",
             (titulo[:200], empresa[:100], enlace, (requerimientos or "")[:2000])
         )
         conn.commit()
-        return conn.execute("SELECT changes()").fetchone()[0] == 1
+        inserted = cur.rowcount == 1
+        cur.close()
+        return inserted
     except Exception as e:
         print(f"  [DB error] {e}")
         return False
@@ -147,12 +151,12 @@ def scrape_computrabajo(conn, term):
         print(f"  [Computrabajo error] {term}: {ex}")
     return count
 
-def main():
-    if not os.path.exists(DB_PATH):
-        print("DB no encontrada. Ejecuta primero: python src/init_db.py")
-        return
+def _db():
+    _u = _urlparse(os.getenv('DATABASE_URL'))
+    return _pg8000.connect(host=_u.hostname, port=_u.port or 5432, user=_u.username, password=_u.password, database=_u.path.lstrip('/'))
 
-    conn = sqlite3.connect(DB_PATH)
+def main():
+    conn = _db()
     total = 0
 
     print("\n[1/2] RSS feeds...")
@@ -166,10 +170,13 @@ def main():
     conn.close()
     print(f"\n✓ Insertadas: {total} vacantes nuevas")
 
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT id, titulo, empresa, status FROM vacantes ORDER BY id DESC LIMIT 10"
-    ).fetchall()
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, titulo, empresa, status FROM vacantes WHERE user_id='default_user' ORDER BY id DESC LIMIT 10"
+    )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     print(f"\n--- Últimas {len(rows)} vacantes en DB ---")
     for r in rows:

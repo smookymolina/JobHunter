@@ -3,7 +3,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 import json
 import logging
-import sqlite3
+import pg8000.dbapi as _pg8000
+from urllib.parse import urlparse as _urlparse
 import os
 import shutil
 import subprocess
@@ -31,39 +32,123 @@ PERFIL_MAESTRO_PATH = os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'perfil_maestro.json')
 )
 
-# ── Estado en memoria ─────────────────────────────────────────────────────────
 _scrape_status: dict = {"running": False, "last": None}
 _bot_last_heartbeat: float = 0.0
 _mcp_last_heartbeat: float = 0.0
 
-# ── App ───────────────────────────────────────────────────────────────────────
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
+
+def _db():
+    _u = _urlparse(os.getenv('DATABASE_URL'))
+    return _pg8000.connect(host=_u.hostname, port=_u.port or 5432, user=_u.username, password=_u.password, database=_u.path.lstrip('/'))
+
+
+def _ts(v):
+    """Convert datetime to ISO string; pass through other values unchanged."""
+    if v is None:
+        return None
+    return v.strftime('%Y-%m-%d %H:%M:%S') if hasattr(v, 'strftime') else v
+
+
+def _row_dict(cols, row):
+    return {k: _ts(v) for k, v in zip(cols, row)}
+
+
+def _set_status(vid: int, status: str):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE vacantes SET status=%s WHERE id=%s AND user_id='default_user'",
+        (status, vid)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def _is_blacklisted(conn, enlace: str) -> bool:
+    if not enlace:
+        return False
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM vacantes_eliminadas WHERE enlace=%s AND user_id='default_user'",
+        (enlace,)
+    )
+    result = cur.fetchone()
+    cur.close()
+    return result is not None
+
+
+def _blacklist_add(conn, enlace: str, titulo: str):
+    if not enlace:
+        return
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO vacantes_eliminadas (user_id, enlace, titulo) VALUES ('default_user',%s,%s) "
+        "ON CONFLICT (user_id, enlace) DO NOTHING",
+        (enlace, titulo or "")
+    )
+    conn.commit()
+    cur.close()
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(OUTPUTS_DIR, exist_ok=True)
     os.makedirs(TEMPLATES_DIR, exist_ok=True)
-    # ── Auto-migrate DB ───────────────────────────────────────────────────────
-    with sqlite3.connect(DB_PATH) as _mc:
-        _mc.execute("""
-            CREATE TABLE IF NOT EXISTS vacantes_eliminadas (
-                id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                enlace            TEXT UNIQUE NOT NULL,
-                titulo            TEXT,
-                fecha_eliminacion TEXT DEFAULT CURRENT_TIMESTAMP
+    _mc = _db()
+    try:
+        _cur = _mc.cursor()
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS vacantes (
+                id                SERIAL PRIMARY KEY,
+                user_id           VARCHAR(50) NOT NULL DEFAULT 'default_user',
+                titulo            TEXT NOT NULL,
+                empresa           TEXT,
+                enlace            TEXT UNIQUE,
+                requerimientos    TEXT,
+                compatibilidad    TEXT DEFAULT 'Nula',
+                status            TEXT DEFAULT 'No_Creado',
+                fecha_registro    TIMESTAMP DEFAULT NOW(),
+                fecha_postulacion TIMESTAMP,
+                favorito          INTEGER DEFAULT 0
             )
         """)
-        _cols = [r[1] for r in _mc.execute("PRAGMA table_info(vacantes)").fetchall()]
-        if "fecha_postulacion" not in _cols:
-            _mc.execute("ALTER TABLE vacantes ADD COLUMN fecha_postulacion TEXT")
-        if "favorito" not in _cols:
-            _mc.execute("ALTER TABLE vacantes ADD COLUMN favorito INTEGER DEFAULT 0")
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS vacantes_eliminadas (
+                id                SERIAL PRIMARY KEY,
+                user_id           VARCHAR(50) NOT NULL DEFAULT 'default_user',
+                enlace            TEXT NOT NULL,
+                titulo            TEXT,
+                fecha_eliminacion TIMESTAMP DEFAULT NOW(),
+                UNIQUE(user_id, enlace)
+            )
+        """)
+        _cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'vacantes'
+        """)
+        existing_cols = {r[0] for r in _cur.fetchall()}
+        if 'fecha_postulacion' not in existing_cols:
+            _cur.execute("ALTER TABLE vacantes ADD COLUMN fecha_postulacion TIMESTAMP")
+        if 'favorito' not in existing_cols:
+            _cur.execute("ALTER TABLE vacantes ADD COLUMN favorito INTEGER DEFAULT 0")
+        if 'user_id' not in existing_cols:
+            _cur.execute("ALTER TABLE vacantes ADD COLUMN user_id VARCHAR(50) NOT NULL DEFAULT 'default_user'")
         _mc.commit()
+        _cur.close()
+    finally:
+        _mc.close()
     app.state.health_watcher = DeepHealthWatcher(interval_seconds=20, dry_run=False)
     app.state.health_watcher.start()
     yield
     watcher = getattr(app.state, "health_watcher", None)
     if watcher:
         watcher.stop()
+
 
 app = FastAPI(title="Job Hunter API", version="1.0", lifespan=lifespan)
 
@@ -75,6 +160,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── Heartbeats ────────────────────────────────────────────────────────────────
 
 @app.post("/bot/heartbeat")
 def bot_heartbeat():
@@ -100,10 +187,10 @@ def root_health():
         "mcp_active": (time.time() - _mcp_last_heartbeat) < 45,
     }
 
+
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────
 
 def _regenerate_mi_perfil(data: dict) -> None:
-    """Escribe mi_perfil.md desde perfil_maestro.json para que gemini_engine lo lea."""
     os.makedirs(CONTEXT_DIR, exist_ok=True)
     habs = data.get("habilidades", {})
     skill_lines = [
@@ -152,36 +239,7 @@ def _regenerate_mi_perfil(data: dict) -> None:
         f.write(md)
 
 
-# ── Helpers DB ────────────────────────────────────────────────────────────────
-
-def _db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
-
-def _set_status(vid: int, status: str):
-    conn = _db()
-    conn.execute("UPDATE vacantes SET status=? WHERE id=?", (status, vid))
-    conn.commit()
-    conn.close()
-
-def _is_blacklisted(conn, enlace: str) -> bool:
-    if not enlace:
-        return False
-    return conn.execute(
-        "SELECT 1 FROM vacantes_eliminadas WHERE enlace=?", (enlace,)
-    ).fetchone() is not None
-
-def _blacklist_add(conn, enlace: str, titulo: str):
-    if not enlace:
-        return
-    conn.execute(
-        "INSERT OR IGNORE INTO vacantes_eliminadas (enlace, titulo) VALUES (?,?)",
-        (enlace, titulo or "")
-    )
-    conn.commit()
-
+# ── Models ────────────────────────────────────────────────────────────────────
 
 class VacanteCreate(BaseModel):
     titulo: str = Field(min_length=1, max_length=200)
@@ -203,56 +261,68 @@ class FiltrosBusqueda(BaseModel):
     modalidad: str  = Field(default="any", description="any | remoto | hibrido | presencial")
     pais:      str  = Field(default="Mexico", description="Mexico | España | Argentina | Colombia | Internacional")
 
+
 class ScrapeRequest(BaseModel):
     cantidad: int = Field(ge=1, le=200, description="Vacantes a extraer (máximo global)")
     terminos: list[str] | None = Field(default=None, description="Términos de búsqueda (None = usar perfil_maestro.json)")
     filtros:  FiltrosBusqueda  = Field(default_factory=FiltrosBusqueda)
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+# ── Endpoint constants ────────────────────────────────────────────────────────
+
+_VCOLS = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion", "favorito"]
+_VSEL  = ("SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, "
+           "fecha_registro, fecha_postulacion, favorito FROM vacantes")
+
+
+# ── Vacantes endpoints ────────────────────────────────────────────────────────
 
 @app.get("/vacantes")
 def listar_vacantes(limit: int = 50, status: str | None = None):
-    """Devuelve lista de vacantes. Filtra por status si se provee."""
     conn = _db()
+    cur = conn.cursor()
     if status:
-        rows = conn.execute(
-            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion, favorito "
-            "FROM vacantes WHERE status=? ORDER BY id DESC LIMIT ?",
+        cur.execute(
+            f"{_VSEL} WHERE user_id='default_user' AND status=%s ORDER BY id DESC LIMIT %s",
             (status, limit)
-        ).fetchall()
+        )
     else:
-        rows = conn.execute(
-            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion, favorito "
-            "FROM vacantes ORDER BY id DESC LIMIT ?",
+        cur.execute(
+            f"{_VSEL} WHERE user_id='default_user' ORDER BY id DESC LIMIT %s",
             (limit,)
-        ).fetchall()
+        )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
-    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion", "favorito"]
-    result = [dict(zip(cols, r)) for r in rows]
+    result = [_row_dict(_VCOLS, r) for r in rows]
     _log.info("GET /vacantes → %d filas (status=%s, limit=%d)", len(result), status or "all", limit)
     return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/vacantes/eliminadas")
 def listar_eliminadas(limit: int = 200):
-    """Lista las vacantes en la blacklist (eliminadas por el usuario)."""
     conn = _db()
-    rows = conn.execute(
-        "SELECT id, enlace, titulo, fecha_eliminacion FROM vacantes_eliminadas ORDER BY id DESC LIMIT ?",
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, enlace, titulo, fecha_eliminacion FROM vacantes_eliminadas "
+        "WHERE user_id='default_user' ORDER BY id DESC LIMIT %s",
         (limit,)
-    ).fetchall()
+    )
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     cols = ["id", "enlace", "titulo", "fecha_eliminacion"]
-    return JSONResponse(content=[dict(zip(cols, r)) for r in rows], headers={"Cache-Control": "no-store"})
+    return JSONResponse(content=[_row_dict(cols, r) for r in rows], headers={"Cache-Control": "no-store"})
 
 
 @app.delete("/vacantes/eliminadas/{eid}")
 def restaurar_eliminada(eid: int):
-    """Elimina una entrada de la blacklist, permitiendo que esa vacante pueda reinsertarse."""
     conn = _db()
-    conn.execute("DELETE FROM vacantes_eliminadas WHERE id=?", (eid,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM vacantes_eliminadas WHERE id=%s AND user_id='default_user'", (eid,))
     conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
+    changes = cur.rowcount
+    cur.close()
     conn.close()
     if not changes:
         raise HTTPException(status_code=404, detail=f"Entrada #{eid} no encontrada en el archivo.")
@@ -261,37 +331,38 @@ def restaurar_eliminada(eid: int):
 
 @app.get("/vacantes/{vid}")
 def detalle_vacante(vid: int):
-    """Devuelve todos los campos de una vacante."""
     conn = _db()
-    row = conn.execute(
-        "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro, fecha_postulacion, favorito "
-        "FROM vacantes WHERE id=?", (vid,)
-    ).fetchone()
+    cur = conn.cursor()
+    cur.execute(f"{_VSEL} WHERE id=%s AND user_id='default_user'", (vid,))
+    row = cur.fetchone()
+    cur.close()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
-    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro", "fecha_postulacion", "favorito"]
-    return dict(zip(cols, row))
+    return _row_dict(_VCOLS, row)
 
 
 @app.patch("/vacantes/{vid}/status")
 def cambiar_status(vid: int, body: dict):
-    """Actualiza el status de una vacante. Body: {"status": "Listo_Manual"}
-    Al marcar Listo_Manual registra fecha_postulacion automáticamente."""
     VALIDOS = {"No_Creado", "En_Proceso", "Revisado_IA", "Listo_Manual", "Requiere_Correccion"}
     nuevo = body.get("status", "")
     if nuevo not in VALIDOS:
         raise HTTPException(status_code=400, detail=f"Status inválido. Usa: {VALIDOS}")
     conn = _db()
+    cur = conn.cursor()
     if nuevo == "Listo_Manual":
-        conn.execute(
-            "UPDATE vacantes SET status=?, fecha_postulacion=datetime('now','localtime') WHERE id=?",
+        cur.execute(
+            "UPDATE vacantes SET status=%s, fecha_postulacion=NOW() WHERE id=%s AND user_id='default_user'",
             (nuevo, vid)
         )
     else:
-        conn.execute("UPDATE vacantes SET status=? WHERE id=?", (nuevo, vid))
+        cur.execute(
+            "UPDATE vacantes SET status=%s WHERE id=%s AND user_id='default_user'",
+            (nuevo, vid)
+        )
     conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
+    changes = cur.rowcount
+    cur.close()
     conn.close()
     if not changes:
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
@@ -300,10 +371,6 @@ def cambiar_status(vid: int, body: dict):
 
 @app.post("/vacantes/{vid}/sync")
 def sync_vacante(vid: int):
-    """Detecta si ya existe un PDF compilado para la vacante y actualiza el status
-    a Revisado_IA automáticamente. Útil cuando el .tex se compiló fuera del pipeline
-    (sandbox, editor externo, etc.) y el status quedó desactualizado.
-    """
     pdf_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf"))
     tex_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex"))
     if os.path.exists(pdf_path):
@@ -316,7 +383,6 @@ def sync_vacante(vid: int):
             "tex_exists": os.path.exists(tex_path),
         }
     if os.path.exists(tex_path):
-        # .tex existe pero sin PDF → intentar compilar
         try:
             result_pdf = compilar_pdf(tex_path)
             _set_status(vid, "Revisado_IA")
@@ -331,10 +397,10 @@ def sync_vacante(vid: int):
 def debug_sync_health():
     watcher = getattr(app.state, "health_watcher", None)
     snapshot = deep_health_check(dry_run=True)
-    if watcher:
-        watcher_snapshot = watcher.snapshot()
-    else:
-        watcher_snapshot = {"running": False, "interval_seconds": None, "last_error": "watcher no inicializado", "last_snapshot": {}}
+    watcher_snapshot = (
+        watcher.snapshot() if watcher
+        else {"running": False, "interval_seconds": None, "last_error": "watcher no inicializado", "last_snapshot": {}}
+    )
     snapshot["watcher"] = watcher_snapshot
     snapshot["bot_active"] = (time.time() - _bot_last_heartbeat) < 45
     snapshot["mcp_active"] = (time.time() - _mcp_last_heartbeat) < 45
@@ -347,21 +413,28 @@ def debug_sync_health_apply():
     watcher = getattr(app.state, "health_watcher", None)
     if watcher:
         watcher._last_snapshot = snapshot
-    snapshot["watcher"] = watcher.snapshot() if watcher else {"running": False, "interval_seconds": None, "last_error": None, "last_snapshot": snapshot}
+    snapshot["watcher"] = (
+        watcher.snapshot() if watcher
+        else {"running": False, "interval_seconds": None, "last_error": None, "last_snapshot": snapshot}
+    )
     return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
 
 
 @app.patch("/vacantes/{vid}/compatibilidad")
 def cambiar_compatibilidad(vid: int, body: dict):
-    """Actualiza el nivel de compatibilidad de una vacante."""
     VALIDOS = {"Alta", "Media", "Baja", "Nula"}
     nuevo = body.get("compatibilidad", "")
     if nuevo not in VALIDOS:
         raise HTTPException(status_code=400, detail=f"Compatibilidad inválida. Usa: {VALIDOS}")
     conn = _db()
-    conn.execute("UPDATE vacantes SET compatibilidad=? WHERE id=?", (nuevo, vid))
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE vacantes SET compatibilidad=%s WHERE id=%s AND user_id='default_user'",
+        (nuevo, vid)
+    )
     conn.commit()
-    changes = conn.execute("SELECT changes()").fetchone()[0]
+    changes = cur.rowcount
+    cur.close()
     conn.close()
     if not changes:
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
@@ -370,20 +443,26 @@ def cambiar_compatibilidad(vid: int, body: dict):
 
 @app.patch("/vacantes/{vid}/favorito")
 def toggle_favorito(vid: int):
-    """Alterna el flag favorito de una vacante (0↔1)."""
     conn = _db()
-    conn.execute("UPDATE vacantes SET favorito = 1 - COALESCE(favorito,0) WHERE id=?", (vid,))
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE vacantes SET favorito = 1 - COALESCE(favorito,0) WHERE id=%s AND user_id='default_user'",
+        (vid,)
+    )
     conn.commit()
-    nuevo = conn.execute("SELECT favorito FROM vacantes WHERE id=?", (vid,)).fetchone()
+    cur.execute("SELECT favorito FROM vacantes WHERE id=%s AND user_id='default_user'", (vid,))
+    nuevo = cur.fetchone()
+    cur.close()
     conn.close()
     if not nuevo:
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
     return {"ok": True, "id": vid, "favorito": bool(nuevo[0])}
 
 
+# ── LaTeX / PDF endpoints ─────────────────────────────────────────────────────
+
 @app.get("/latex/{vid}", response_class=PlainTextResponse)
 def get_latex(vid: int):
-    """Devuelve el contenido del .tex generado para una vacante."""
     tex_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex"))
     if not os.path.exists(tex_path):
         raise HTTPException(status_code=404, detail=f"LaTeX no encontrado para vacante #{vid}.")
@@ -393,7 +472,6 @@ def get_latex(vid: int):
 
 @app.post("/latex/{vid}")
 async def save_latex(vid: int, request: Request):
-    """Recibe texto LaTeX crudo, sobrescribe el .tex y recompila el PDF."""
     tex_content = (await request.body()).decode("utf-8")
     if not tex_content.strip():
         raise HTTPException(status_code=400, detail="El cuerpo LaTeX está vacío.")
@@ -410,14 +488,12 @@ async def save_latex(vid: int, request: Request):
     if pdf_path and os.path.exists(pdf_path):
         _set_status(vid, "Revisado_IA")
         return {"ok": True, "pdf": True, "tex_path": tex_path, "pdf_path": pdf_path}
-    # ── Compilación fallida: marcar Requiere_Correccion para visibilidad en Kanban ──
     _set_status(vid, "Requiere_Correccion")
     return {"ok": True, "pdf": False, "error": error or "pdflatex no generó el archivo."}
 
 
 @app.post("/upload_template")
 async def upload_template(file: UploadFile = File(...)):
-    """Recibe un .tex y lo guarda como latex_templates/mi_estilo.tex."""
     if not file.filename.lower().endswith('.tex'):
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos .tex")
     dest = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
@@ -428,16 +504,11 @@ async def upload_template(file: UploadFile = File(...)):
 
 @app.post("/generar_cv/{vid}")
 async def generar_cv_endpoint(vid: int):
-    """Genera CV con Groq+LaTeX y lo audita con Inspector IA. Actualiza status vía API.
-    Requiere GROQ_API_KEY configurada en .env.
-    Retorna: {ok, aprobado, comentarios, pdf, tex_path, pdf_path}
-    """
     import asyncio
     from gemini_engine import generar_y_compilar
     from inspector import evaluar_cv
 
     _set_status(vid, "En_Proceso")
-
     loop = asyncio.get_event_loop()
     try:
         tex_path, pdf_path = await loop.run_in_executor(None, generar_y_compilar, vid)
@@ -462,16 +533,20 @@ async def generar_cv_endpoint(vid: int):
     }
 
 
+# ── CRUD vacantes ─────────────────────────────────────────────────────────────
+
 @app.post("/vacantes")
 def crear_vacante(body: VacanteCreate):
-    """Crea una vacante en SQLite. Deduplicación explícita por enlace; compatibilidad evaluada con IA si no se provee."""
     enlace = body.enlace.strip()
     conn = _db()
     if _is_blacklisted(conn, enlace):
         conn.close()
         return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante eliminada previamente", "blacklisted": True})
-    existing = conn.execute("SELECT id FROM vacantes WHERE enlace = ?", (enlace,)).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM vacantes WHERE enlace=%s AND user_id='default_user'", (enlace,))
+    existing = cur.fetchone()
     if existing:
+        cur.close()
         conn.close()
         return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante duplicada", "id": existing[0]})
 
@@ -481,9 +556,9 @@ def crear_vacante(body: VacanteCreate):
         compat = evaluar_compatibilidad_rapida(reqs)
     compat = compat or "Nula"
 
-    conn.execute(
-        "INSERT INTO vacantes (titulo, empresa, enlace, requerimientos, compatibilidad, status) "
-        "VALUES (?,?,?,?,?,'No_Creado')",
+    cur.execute(
+        "INSERT INTO vacantes (user_id, titulo, empresa, enlace, requerimientos, compatibilidad, status) "
+        "VALUES ('default_user',%s,%s,%s,%s,%s,'No_Creado') RETURNING id",
         (
             body.titulo.strip()[:200],
             body.empresa.strip()[:100] or "Desconocida",
@@ -492,19 +567,20 @@ def crear_vacante(body: VacanteCreate):
             compat,
         )
     )
+    row_id = cur.fetchone()[0]
     conn.commit()
-    row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    cur.close()
     conn.close()
     return {"ok": True, "id": row_id, "compatibilidad": compat}
 
 
 @app.post("/vacantes/bulk")
 def crear_vacantes_bulk(items: list[VacanteBulkItem]):
-    """Inserta vacantes en lote desde un JSON parseado."""
     if not items:
         raise HTTPException(status_code=400, detail="El arreglo JSON esta vacio.")
 
     conn = _db()
+    cur = conn.cursor()
     insertados = 0
     duplicados = 0
     omitidos = 0
@@ -517,9 +593,9 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
                 continue
             reqs_b = item.requerimientos.strip()[:5000]
             compat_b = evaluar_compatibilidad_rapida(reqs_b) if reqs_b else "Nula"
-            conn.execute(
-                "INSERT OR IGNORE INTO vacantes (titulo, empresa, enlace, requerimientos, compatibilidad, status) "
-                "VALUES (?,?,?,?,?,'No_Creado')",
+            cur.execute(
+                "INSERT INTO vacantes (user_id, titulo, empresa, enlace, requerimientos, compatibilidad, status) "
+                "VALUES ('default_user',%s,%s,%s,%s,%s,'No_Creado') ON CONFLICT (enlace) DO NOTHING RETURNING id",
                 (
                     item.titulo.strip()[:200],
                     item.empresa.strip()[:100] or "Desconocida",
@@ -529,14 +605,14 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
                 )
             )
             conn.commit()
-            changes = conn.execute("SELECT changes()").fetchone()[0]
-            row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            if changes:
+            row = cur.fetchone()
+            if row:
                 insertados += 1
-                ids.append(row_id)
+                ids.append(row[0])
             else:
                 duplicados += 1
     finally:
+        cur.close()
         conn.close()
 
     return {
@@ -549,11 +625,8 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
     }
 
 
-
-
 @app.get("/pdf/{vid}")
 def descargar_pdf(vid: int, download: bool = False):
-    """Sirve el PDF inline para el visor del navegador. ?download=true fuerza descarga."""
     pdf_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf"))
     if not os.path.exists(pdf_path):
         raise HTTPException(status_code=404, detail="PDF no encontrado.")
@@ -571,7 +644,6 @@ def descargar_pdf(vid: int, download: bool = False):
 
 @app.post("/scrape")
 async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks):
-    """Lanza el browser_agent en background con límite, términos y filtros de ubicación/modalidad/país."""
     if _scrape_status["running"]:
         raise HTTPException(status_code=409, detail="Ya hay un scraping en curso. Espera a que termine.")
     terms = body.terminos or generar_terminos_busqueda()
@@ -591,29 +663,32 @@ async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks)
 
 @app.get("/scrape/status")
 def scrape_status():
-    """Informa si hay un scraping activo y el resultado del último."""
     return JSONResponse(content=_scrape_status, headers={"Cache-Control": "no-store"})
 
 
 @app.delete("/vacantes/{vid}")
 def borrar_vacante(vid: int):
-    """Elimina una vacante por ID y la agrega a la lista negra para no re-importarla."""
     conn = _db()
-    row = conn.execute("SELECT enlace, titulo FROM vacantes WHERE id=?", (vid,)).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT enlace, titulo FROM vacantes WHERE id=%s AND user_id='default_user'", (vid,))
+    row = cur.fetchone()
     if not row:
+        cur.close()
         conn.close()
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
     enlace, titulo = row
     _blacklist_add(conn, enlace, titulo)
-    conn.execute("DELETE FROM vacantes WHERE id=?", (vid,))
+    cur.execute("DELETE FROM vacantes WHERE id=%s AND user_id='default_user'", (vid,))
     conn.commit()
+    cur.close()
     conn.close()
     return {"ok": True, "id": vid}
 
 
+# ── Perfil endpoints ──────────────────────────────────────────────────────────
+
 @app.post("/perfil/upload")
 async def upload_perfil(files: list[UploadFile] = File(...)):
-    """Recibe uno o varios PDF/.md/.txt; combina todo el texto en mi_perfil.md."""
     import io as _io
     os.makedirs(CONTEXT_DIR, exist_ok=True)
     profile_md = os.path.join(CONTEXT_DIR, "mi_perfil.md")
@@ -623,9 +698,8 @@ async def upload_perfil(files: list[UploadFile] = File(...)):
     for file in files:
         fname = file.filename or "archivo"
         ext   = os.path.splitext(fname)[1].lower()
-        data  = await file.read()          # lee bytes UNA sola vez
+        data  = await file.read()
 
-        # guarda copia física
         dest = os.path.join(CONTEXT_DIR, fname)
         with open(dest, "wb") as out:
             out.write(data)
@@ -662,7 +736,6 @@ async def upload_perfil(files: list[UploadFile] = File(...)):
 
 @app.get("/perfil")
 def get_perfil():
-    """Devuelve el contenido de mi_perfil.md."""
     profile_md = os.path.join(CONTEXT_DIR, "mi_perfil.md")
     if not os.path.exists(profile_md):
         raise HTTPException(status_code=404, detail="Perfil no encontrado. Sube tu CV en POST /perfil/upload.")
@@ -673,14 +746,12 @@ def get_perfil():
 
 @app.get("/api/search-terms")
 def get_search_terms():
-    """Retorna los términos de búsqueda derivados de perfil_maestro.json."""
     terms = generar_terminos_busqueda()
     return {"terminos": terms, "fuente": "perfil_maestro.json" if os.path.exists(PERFIL_MAESTRO_PATH) else "fallback"}
 
 
 @app.get("/api/perfil")
 def get_perfil_maestro():
-    """Retorna perfil_maestro.json como fuente de verdad."""
     if not os.path.exists(PERFIL_MAESTRO_PATH):
         raise HTTPException(status_code=404, detail="perfil_maestro.json no encontrado.")
     with open(PERFIL_MAESTRO_PATH, encoding="utf-8") as f:
@@ -689,7 +760,6 @@ def get_perfil_maestro():
 
 @app.post("/api/perfil")
 async def save_perfil_maestro(request: Request):
-    """Valida y sobrescribe perfil_maestro.json; regenera mi_perfil.md."""
     try:
         data = await request.json()
     except Exception:
@@ -705,9 +775,10 @@ async def save_perfil_maestro(request: Request):
     return {"ok": True, "mensaje": "Perfil maestro guardado y mi_perfil.md actualizado."}
 
 
+# ── Template endpoints ────────────────────────────────────────────────────────
+
 @app.get("/template/activa")
 def template_activa():
-    """Informa qué plantilla está activa con metadata."""
     custom = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
     default = os.path.join(TEMPLATES_DIR, 'default_template.tex')
     if os.path.exists(custom):
@@ -722,7 +793,6 @@ def template_activa():
 
 @app.delete("/template/custom")
 def delete_custom_template():
-    """Elimina la plantilla personalizada y revierte a la plantilla base."""
     custom = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
     if not os.path.exists(custom):
         raise HTTPException(status_code=404, detail="No hay plantilla personalizada activa.")
@@ -732,7 +802,6 @@ def delete_custom_template():
 
 @app.get("/template/download")
 def download_template():
-    """Descarga la plantilla activa (.tex)."""
     custom = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
     default = os.path.join(TEMPLATES_DIR, 'default_template.tex')
     path = custom if os.path.exists(custom) else default
@@ -741,10 +810,9 @@ def download_template():
     return FileResponse(path, filename=os.path.basename(path), media_type='text/plain')
 
 
-# ── Tareas background ─────────────────────────────────────────────────────────
+# ── Background tasks ──────────────────────────────────────────────────────────
 
 def _scrape_task(cantidad: int, terminos: list[str] | None = None, filtros: dict | None = None):
-    """Ejecuta browser_agent.py con límite, términos y filtros de búsqueda."""
     agent_path = os.path.join(os.path.dirname(__file__), 'browser_agent.py')
     cmd = [sys.executable, agent_path, '--limit', str(cantidad)]
     if terminos:
@@ -766,9 +834,7 @@ def _scrape_task(cantidad: int, terminos: list[str] | None = None, filtros: dict
         if result.stderr:
             for line in result.stderr.strip().splitlines():
                 _log.warning("[scraper-err] %s", line)
-        _scrape_status["last"] = (
-            f"OK – exit={result.returncode} – {cantidad} vacantes solicitadas"
-        )
+        _scrape_status["last"] = f"OK – exit={result.returncode} – {cantidad} vacantes solicitadas"
         if result.returncode != 0:
             _scrape_status["last"] = f"ERROR – exit={result.returncode} – {result.stderr[:200]}"
     except subprocess.TimeoutExpired:

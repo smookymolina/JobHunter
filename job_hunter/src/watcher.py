@@ -1,23 +1,37 @@
 import os
-import sqlite3
+import pg8000.dbapi as _pg8000
+from urllib.parse import urlparse as _urlparse
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from dotenv import load_dotenv
 
-from gemini_engine import DB_PATH, OUTPUTS_DIR, compilar_pdf
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env')))
 
+from gemini_engine import OUTPUTS_DIR, compilar_pdf
 
 SYNC_STATUSES = {"No_Creado", "En_Proceso", "Revisado_IA", "Requiere_Correccion", "Listo_Manual"}
+_VACANTE_COLS = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro"]
 
 
 def _db():
-    return sqlite3.connect(DB_PATH)
+    _u = _urlparse(os.getenv('DATABASE_URL'))
+    return _pg8000.connect(host=_u.hostname, port=_u.port or 5432, user=_u.username, password=_u.password, database=_u.path.lstrip('/'))
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    cols = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro"]
-    return dict(zip(cols, row))
+def _set_status(vacante_id: int, status: str) -> None:
+    conn = _db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE vacantes SET status=%s WHERE id=%s AND user_id='default_user'",
+            (status, vacante_id)
+        )
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
 
 
 def _pdf_path(vacante_id: int) -> str:
@@ -28,28 +42,22 @@ def _tex_path(vacante_id: int) -> str:
     return os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vacante_id}.tex"))
 
 
-def _set_status(vacante_id: int, status: str) -> None:
-    conn = _db()
-    try:
-        conn.execute("UPDATE vacantes SET status=? WHERE id=?", (status, vacante_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def _fetch_vacantes(limit: int | None = None) -> list[dict[str, Any]]:
     conn = _db()
     try:
+        cur = conn.cursor()
         query = (
             "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro "
-            "FROM vacantes ORDER BY id DESC"
+            "FROM vacantes WHERE user_id='default_user' ORDER BY id DESC"
         )
         params: tuple[Any, ...] = ()
         if limit:
-            query += " LIMIT ?"
+            query += " LIMIT %s"
             params = (limit,)
-        rows = conn.execute(query, params).fetchall()
-        return [_row_to_dict(row) for row in rows]
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
+        return [dict(zip(_VACANTE_COLS, row)) for row in rows]
     finally:
         conn.close()
 
@@ -73,7 +81,6 @@ def _sync_one(vacante: dict[str, Any], dry_run: bool = True) -> dict[str, Any]:
     desired = None
     error = None
 
-    # Listo_Manual es un estado terminal confirmado por el usuario; no revertir
     if state["status"] == "Listo_Manual":
         return {**state, "desired_status": None, "changed": False, "error": None}
 
@@ -180,4 +187,3 @@ class DeepHealthWatcher:
             except Exception as exc:
                 self._last_error = str(exc)
             self._stop.wait(self.interval_seconds)
-
