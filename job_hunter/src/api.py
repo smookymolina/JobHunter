@@ -14,12 +14,17 @@ from contextlib import asynccontextmanager
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO)
 _log = logging.getLogger("api")
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from gemini_engine import TEMPLATES_DIR, DB_PATH, OUTPUTS_DIR, CONTEXT_DIR, compilar_pdf, evaluar_compatibilidad_rapida, generar_terminos_busqueda
+from auth import get_current_user, get_optional_user, hash_password, verify_password, create_token
+from gemini_engine import (
+    TEMPLATES_DIR, DB_PATH, OUTPUTS_DIR, CONTEXT_DIR,
+    get_user_outputs_dir, get_user_profile_path,
+    compilar_pdf, evaluar_compatibilidad_rapida, generar_terminos_busqueda,
+)
 from watcher import DeepHealthWatcher, deep_health_check
 
 try:
@@ -28,13 +33,10 @@ try:
 except ImportError:
     _HAS_PYPDF2 = False
 
-PERFIL_MAESTRO_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'perfil_maestro.json')
-)
+_DATA_DIR           = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data'))
+PERFIL_MAESTRO_PATH = os.path.join(_DATA_DIR, 'perfil_maestro.json')   # default_user legacy path
 
 _scrape_status: dict = {"running": False, "last": None}
-_bot_last_heartbeat: float = 0.0
-_mcp_last_heartbeat: float = 0.0
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -55,39 +57,39 @@ def _row_dict(cols, row):
     return {k: _ts(v) for k, v in zip(cols, row)}
 
 
-def _set_status(vid: int, status: str):
+def _set_status(vid: int, status: str, user_id: str = 'default_user'):
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE vacantes SET status=%s WHERE id=%s AND user_id='default_user'",
-        (status, vid)
+        "UPDATE vacantes SET status=%s WHERE id=%s AND user_id=%s",
+        (status, vid, user_id)
     )
     conn.commit()
     cur.close()
     conn.close()
 
 
-def _is_blacklisted(conn, enlace: str) -> bool:
+def _is_blacklisted(conn, enlace: str, user_id: str = 'default_user') -> bool:
     if not enlace:
         return False
     cur = conn.cursor()
     cur.execute(
-        "SELECT 1 FROM vacantes_eliminadas WHERE enlace=%s AND user_id='default_user'",
-        (enlace,)
+        "SELECT 1 FROM vacantes_eliminadas WHERE enlace=%s AND user_id=%s",
+        (enlace, user_id)
     )
     result = cur.fetchone()
     cur.close()
     return result is not None
 
 
-def _blacklist_add(conn, enlace: str, titulo: str):
+def _blacklist_add(conn, enlace: str, titulo: str, user_id: str = 'default_user'):
     if not enlace:
         return
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO vacantes_eliminadas (user_id, enlace, titulo) VALUES ('default_user',%s,%s) "
+        "INSERT INTO vacantes_eliminadas (user_id, enlace, titulo) VALUES (%s,%s,%s) "
         "ON CONFLICT (user_id, enlace) DO NOTHING",
-        (enlace, titulo or "")
+        (user_id, enlace, titulo or "")
     )
     conn.commit()
     cur.close()
@@ -99,6 +101,8 @@ def _blacklist_add(conn, enlace: str, titulo: str):
 async def lifespan(app: FastAPI):
     os.makedirs(OUTPUTS_DIR, exist_ok=True)
     os.makedirs(TEMPLATES_DIR, exist_ok=True)
+    app.state.bot_last_heartbeat = 0.0
+    app.state.mcp_last_heartbeat = 0.0
     _mc = _db()
     try:
         _cur = _mc.cursor()
@@ -138,6 +142,23 @@ async def lifespan(app: FastAPI):
             _cur.execute("ALTER TABLE vacantes ADD COLUMN favorito INTEGER DEFAULT 0")
         if 'user_id' not in existing_cols:
             _cur.execute("ALTER TABLE vacantes ADD COLUMN user_id VARCHAR(50) NOT NULL DEFAULT 'default_user'")
+        # usuarios table
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id              SERIAL PRIMARY KEY,
+                user_id         VARCHAR(50) UNIQUE NOT NULL,
+                email           VARCHAR(255) UNIQUE NOT NULL,
+                hashed_password TEXT NOT NULL,
+                created_at      TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        # Seed default_user — keeps link to the 33 migrated vacantes
+        _cur.execute("SELECT id FROM usuarios WHERE user_id='default_user'")
+        if not _cur.fetchone():
+            _cur.execute(
+                "INSERT INTO usuarios (user_id, email, hashed_password) VALUES ('default_user', %s, %s)",
+                ('test@jobhunter.com', hash_password('jobhunter123'))
+            )
         _mc.commit()
         _cur.close()
     finally:
@@ -165,27 +186,51 @@ app.add_middleware(
 
 @app.post("/bot/heartbeat")
 def bot_heartbeat():
-    global _bot_last_heartbeat
-    _bot_last_heartbeat = time.time()
+    app.state.bot_last_heartbeat = time.time()
     return {"ok": True}
 
 
 @app.post("/mcp/heartbeat")
 def mcp_heartbeat():
-    global _mcp_last_heartbeat
-    _mcp_last_heartbeat = time.time()
+    app.state.mcp_last_heartbeat = time.time()
     return {"ok": True}
 
 
 @app.get("/")
 def root_health():
+    bot_last = getattr(app.state, "bot_last_heartbeat", 0.0)
+    mcp_last = getattr(app.state, "mcp_last_heartbeat", 0.0)
     return {
         "ok": True,
         "service": "job-hunter-api",
         "scrape": dict(_scrape_status),
-        "bot_active": (time.time() - _bot_last_heartbeat) < 45,
-        "mcp_active": (time.time() - _mcp_last_heartbeat) < 45,
+        "bot_active": (time.time() - bot_last) < 45,
+        "mcp_active": (time.time() - mcp_last) < 45,
     }
+
+
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/auth/login")
+async def login(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido.")
+    email    = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email y contraseña requeridos.")
+    conn = _db()
+    cur  = conn.cursor()
+    cur.execute("SELECT user_id, hashed_password FROM usuarios WHERE email=%s", (email,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row or not verify_password(password, row[1]):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas.")
+    token = create_token(row[0], email)
+    return {"access_token": token, "token_type": "bearer", "user_id": row[0]}
 
 
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────
@@ -278,35 +323,37 @@ _VSEL  = ("SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, s
 # ── Vacantes endpoints ────────────────────────────────────────────────────────
 
 @app.get("/vacantes")
-def listar_vacantes(limit: int = 50, status: str | None = None):
+def listar_vacantes(limit: int = 50, status: str | None = None, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
     if status:
         cur.execute(
-            f"{_VSEL} WHERE user_id='default_user' AND status=%s ORDER BY id DESC LIMIT %s",
-            (status, limit)
+            f"{_VSEL} WHERE user_id=%s AND status=%s ORDER BY id DESC LIMIT %s",
+            (uid, status, limit)
         )
     else:
         cur.execute(
-            f"{_VSEL} WHERE user_id='default_user' ORDER BY id DESC LIMIT %s",
-            (limit,)
+            f"{_VSEL} WHERE user_id=%s ORDER BY id DESC LIMIT %s",
+            (uid, limit)
         )
     rows = cur.fetchall()
     cur.close()
     conn.close()
     result = [_row_dict(_VCOLS, r) for r in rows]
-    _log.info("GET /vacantes → %d filas (status=%s, limit=%d)", len(result), status or "all", limit)
+    _log.info("GET /vacantes → %d filas (status=%s, limit=%d, uid=%s)", len(result), status or "all", limit, uid)
     return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/vacantes/eliminadas")
-def listar_eliminadas(limit: int = 200):
+def listar_eliminadas(limit: int = 200, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
     cur.execute(
         "SELECT id, enlace, titulo, fecha_eliminacion FROM vacantes_eliminadas "
-        "WHERE user_id='default_user' ORDER BY id DESC LIMIT %s",
-        (limit,)
+        "WHERE user_id=%s ORDER BY id DESC LIMIT %s",
+        (uid, limit)
     )
     rows = cur.fetchall()
     cur.close()
@@ -316,10 +363,11 @@ def listar_eliminadas(limit: int = 200):
 
 
 @app.delete("/vacantes/eliminadas/{eid}")
-def restaurar_eliminada(eid: int):
+def restaurar_eliminada(eid: int, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM vacantes_eliminadas WHERE id=%s AND user_id='default_user'", (eid,))
+    cur.execute("DELETE FROM vacantes_eliminadas WHERE id=%s AND user_id=%s", (eid, uid))
     conn.commit()
     changes = cur.rowcount
     cur.close()
@@ -330,10 +378,11 @@ def restaurar_eliminada(eid: int):
 
 
 @app.get("/vacantes/{vid}")
-def detalle_vacante(vid: int):
+def detalle_vacante(vid: int, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
-    cur.execute(f"{_VSEL} WHERE id=%s AND user_id='default_user'", (vid,))
+    cur.execute(f"{_VSEL} WHERE id=%s AND user_id=%s", (vid, uid))
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -343,7 +392,8 @@ def detalle_vacante(vid: int):
 
 
 @app.patch("/vacantes/{vid}/status")
-def cambiar_status(vid: int, body: dict):
+def cambiar_status(vid: int, body: dict, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     VALIDOS = {"No_Creado", "En_Proceso", "Revisado_IA", "Listo_Manual", "Requiere_Correccion"}
     nuevo = body.get("status", "")
     if nuevo not in VALIDOS:
@@ -352,13 +402,13 @@ def cambiar_status(vid: int, body: dict):
     cur = conn.cursor()
     if nuevo == "Listo_Manual":
         cur.execute(
-            "UPDATE vacantes SET status=%s, fecha_postulacion=NOW() WHERE id=%s AND user_id='default_user'",
-            (nuevo, vid)
+            "UPDATE vacantes SET status=%s, fecha_postulacion=NOW() WHERE id=%s AND user_id=%s",
+            (nuevo, vid, uid)
         )
     else:
         cur.execute(
-            "UPDATE vacantes SET status=%s WHERE id=%s AND user_id='default_user'",
-            (nuevo, vid)
+            "UPDATE vacantes SET status=%s WHERE id=%s AND user_id=%s",
+            (nuevo, vid, uid)
         )
     conn.commit()
     changes = cur.rowcount
@@ -370,25 +420,21 @@ def cambiar_status(vid: int, body: dict):
 
 
 @app.post("/vacantes/{vid}/sync")
-def sync_vacante(vid: int):
-    pdf_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf"))
-    tex_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex"))
+def sync_vacante(vid: int, current_user: dict = Depends(get_current_user)):
+    uid      = current_user["user_id"]
+    out_dir  = get_user_outputs_dir(uid)
+    pdf_path = os.path.join(out_dir, f"cv_vacante_{vid}.pdf")
+    tex_path = os.path.join(out_dir, f"cv_vacante_{vid}.tex")
     if os.path.exists(pdf_path):
-        _set_status(vid, "Revisado_IA")
-        return {
-            "ok": True,
-            "synced": True,
-            "status": "Revisado_IA",
-            "pdf": pdf_path,
-            "tex_exists": os.path.exists(tex_path),
-        }
+        _set_status(vid, "Revisado_IA", uid)
+        return {"ok": True, "synced": True, "status": "Revisado_IA", "pdf": pdf_path, "tex_exists": os.path.exists(tex_path)}
     if os.path.exists(tex_path):
         try:
             result_pdf = compilar_pdf(tex_path)
-            _set_status(vid, "Revisado_IA")
+            _set_status(vid, "Revisado_IA", uid)
             return {"ok": True, "synced": True, "status": "Revisado_IA", "pdf": result_pdf}
         except Exception as e:
-            _set_status(vid, "Requiere_Correccion")
+            _set_status(vid, "Requiere_Correccion", uid)
             return {"ok": False, "synced": False, "status": "Requiere_Correccion", "error": str(e)}
     return {"ok": False, "synced": False, "detail": f"No existe .tex ni .pdf para vacante #{vid}."}
 
@@ -397,13 +443,15 @@ def sync_vacante(vid: int):
 def debug_sync_health():
     watcher = getattr(app.state, "health_watcher", None)
     snapshot = deep_health_check(dry_run=True)
+    bot_last = getattr(app.state, "bot_last_heartbeat", 0.0)
+    mcp_last = getattr(app.state, "mcp_last_heartbeat", 0.0)
     watcher_snapshot = (
         watcher.snapshot() if watcher
         else {"running": False, "interval_seconds": None, "last_error": "watcher no inicializado", "last_snapshot": {}}
     )
     snapshot["watcher"] = watcher_snapshot
-    snapshot["bot_active"] = (time.time() - _bot_last_heartbeat) < 45
-    snapshot["mcp_active"] = (time.time() - _mcp_last_heartbeat) < 45
+    snapshot["bot_active"] = (time.time() - bot_last) < 45
+    snapshot["mcp_active"] = (time.time() - mcp_last) < 45
     return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
 
 
@@ -421,7 +469,8 @@ def debug_sync_health_apply():
 
 
 @app.patch("/vacantes/{vid}/compatibilidad")
-def cambiar_compatibilidad(vid: int, body: dict):
+def cambiar_compatibilidad(vid: int, body: dict, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     VALIDOS = {"Alta", "Media", "Baja", "Nula"}
     nuevo = body.get("compatibilidad", "")
     if nuevo not in VALIDOS:
@@ -429,8 +478,8 @@ def cambiar_compatibilidad(vid: int, body: dict):
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE vacantes SET compatibilidad=%s WHERE id=%s AND user_id='default_user'",
-        (nuevo, vid)
+        "UPDATE vacantes SET compatibilidad=%s WHERE id=%s AND user_id=%s",
+        (nuevo, vid, uid)
     )
     conn.commit()
     changes = cur.rowcount
@@ -442,15 +491,16 @@ def cambiar_compatibilidad(vid: int, body: dict):
 
 
 @app.patch("/vacantes/{vid}/favorito")
-def toggle_favorito(vid: int):
+def toggle_favorito(vid: int, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE vacantes SET favorito = 1 - COALESCE(favorito,0) WHERE id=%s AND user_id='default_user'",
-        (vid,)
+        "UPDATE vacantes SET favorito = 1 - COALESCE(favorito,0) WHERE id=%s AND user_id=%s",
+        (vid, uid)
     )
     conn.commit()
-    cur.execute("SELECT favorito FROM vacantes WHERE id=%s AND user_id='default_user'", (vid,))
+    cur.execute("SELECT favorito FROM vacantes WHERE id=%s AND user_id=%s", (vid, uid))
     nuevo = cur.fetchone()
     cur.close()
     conn.close()
@@ -462,8 +512,9 @@ def toggle_favorito(vid: int):
 # ── LaTeX / PDF endpoints ─────────────────────────────────────────────────────
 
 @app.get("/latex/{vid}", response_class=PlainTextResponse)
-def get_latex(vid: int):
-    tex_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex"))
+def get_latex(vid: int, current_user: dict = Depends(get_current_user)):
+    uid      = current_user["user_id"]
+    tex_path = os.path.join(get_user_outputs_dir(uid), f"cv_vacante_{vid}.tex")
     if not os.path.exists(tex_path):
         raise HTTPException(status_code=404, detail=f"LaTeX no encontrado para vacante #{vid}.")
     with open(tex_path, "r", encoding="utf-8") as f:
@@ -471,12 +522,13 @@ def get_latex(vid: int):
 
 
 @app.post("/latex/{vid}")
-async def save_latex(vid: int, request: Request):
+async def save_latex(vid: int, request: Request, current_user: dict = Depends(get_current_user)):
+    uid         = current_user["user_id"]
     tex_content = (await request.body()).decode("utf-8")
     if not tex_content.strip():
         raise HTTPException(status_code=400, detail="El cuerpo LaTeX está vacío.")
-    tex_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex"))
-    os.makedirs(OUTPUTS_DIR, exist_ok=True)
+    out_dir  = get_user_outputs_dir(uid)
+    tex_path = os.path.join(out_dir, f"cv_vacante_{vid}.tex")
     with open(tex_path, "w", encoding="utf-8") as f:
         f.write(tex_content)
     pdf_path = None
@@ -486,9 +538,9 @@ async def save_latex(vid: int, request: Request):
     except Exception as e:
         error = str(e)
     if pdf_path and os.path.exists(pdf_path):
-        _set_status(vid, "Revisado_IA")
+        _set_status(vid, "Revisado_IA", uid)
         return {"ok": True, "pdf": True, "tex_path": tex_path, "pdf_path": pdf_path}
-    _set_status(vid, "Requiere_Correccion")
+    _set_status(vid, "Requiere_Correccion", uid)
     return {"ok": True, "pdf": False, "error": error or "pdflatex no generó el archivo."}
 
 
@@ -503,47 +555,50 @@ async def upload_template(file: UploadFile = File(...)):
 
 
 @app.post("/generar_cv/{vid}")
-async def generar_cv_endpoint(vid: int):
+async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current_user)):
     import asyncio
+    import functools
     from gemini_engine import generar_y_compilar
     from inspector import evaluar_cv
 
-    _set_status(vid, "En_Proceso")
+    uid  = current_user["user_id"]
     loop = asyncio.get_event_loop()
     try:
-        tex_path, pdf_path = await loop.run_in_executor(None, generar_y_compilar, vid)
+        tex_path, pdf_path = await loop.run_in_executor(
+            None, functools.partial(generar_y_compilar, vid, uid)
+        )
     except Exception as e:
-        _set_status(vid, "Requiere_Correccion")
+        _set_status(vid, "Requiere_Correccion", uid)
         raise HTTPException(status_code=500, detail=f"Error generando CV: {e}")
 
     if not tex_path:
-        _set_status(vid, "Requiere_Correccion")
         raise HTTPException(status_code=500, detail="Falló la generación del LaTeX.")
 
     auditoria = await loop.run_in_executor(None, evaluar_cv, vid, tex_path)
     tiene_pdf = bool(pdf_path and os.path.exists(pdf_path))
 
     return {
-        "ok": True,
-        "aprobado": auditoria["aprobado"],
-        "comentarios": auditoria["comentarios"],
-        "pdf": tiene_pdf,
-        "tex_path": tex_path,
-        "pdf_path": pdf_path if tiene_pdf else None,
+        "ok":         True,
+        "aprobado":   auditoria["aprobado"],
+        "comentarios":auditoria["comentarios"],
+        "pdf":        tiene_pdf,
+        "tex_path":   tex_path,
+        "pdf_path":   pdf_path if tiene_pdf else None,
     }
 
 
 # ── CRUD vacantes ─────────────────────────────────────────────────────────────
 
 @app.post("/vacantes")
-def crear_vacante(body: VacanteCreate):
+def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_optional_user)):
+    uid = current_user["user_id"]
     enlace = body.enlace.strip()
     conn = _db()
-    if _is_blacklisted(conn, enlace):
+    if _is_blacklisted(conn, enlace, uid):
         conn.close()
         return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante eliminada previamente", "blacklisted": True})
     cur = conn.cursor()
-    cur.execute("SELECT id FROM vacantes WHERE enlace=%s AND user_id='default_user'", (enlace,))
+    cur.execute("SELECT id FROM vacantes WHERE enlace=%s AND user_id=%s", (enlace, uid))
     existing = cur.fetchone()
     if existing:
         cur.close()
@@ -558,8 +613,9 @@ def crear_vacante(body: VacanteCreate):
 
     cur.execute(
         "INSERT INTO vacantes (user_id, titulo, empresa, enlace, requerimientos, compatibilidad, status) "
-        "VALUES ('default_user',%s,%s,%s,%s,%s,'No_Creado') RETURNING id",
+        "VALUES (%s,%s,%s,%s,%s,%s,'No_Creado') RETURNING id",
         (
+            uid,
             body.titulo.strip()[:200],
             body.empresa.strip()[:100] or "Desconocida",
             enlace,
@@ -575,10 +631,11 @@ def crear_vacante(body: VacanteCreate):
 
 
 @app.post("/vacantes/bulk")
-def crear_vacantes_bulk(items: list[VacanteBulkItem]):
+def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depends(get_optional_user)):
     if not items:
         raise HTTPException(status_code=400, detail="El arreglo JSON esta vacio.")
 
+    uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
     insertados = 0
@@ -588,15 +645,16 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
     try:
         for item in items:
             enlace_b = item.enlace.strip()
-            if _is_blacklisted(conn, enlace_b):
+            if _is_blacklisted(conn, enlace_b, uid):
                 omitidos += 1
                 continue
             reqs_b = item.requerimientos.strip()[:5000]
             compat_b = evaluar_compatibilidad_rapida(reqs_b) if reqs_b else "Nula"
             cur.execute(
                 "INSERT INTO vacantes (user_id, titulo, empresa, enlace, requerimientos, compatibilidad, status) "
-                "VALUES ('default_user',%s,%s,%s,%s,%s,'No_Creado') ON CONFLICT (enlace) DO NOTHING RETURNING id",
+                "VALUES (%s,%s,%s,%s,%s,%s,'No_Creado') ON CONFLICT (enlace) DO NOTHING RETURNING id",
                 (
+                    uid,
                     item.titulo.strip()[:200],
                     item.empresa.strip()[:100] or "Desconocida",
                     enlace_b,
@@ -626,8 +684,9 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem]):
 
 
 @app.get("/pdf/{vid}")
-def descargar_pdf(vid: int, download: bool = False):
-    pdf_path = os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.pdf"))
+def descargar_pdf(vid: int, download: bool = False, current_user: dict = Depends(get_current_user)):
+    uid      = current_user["user_id"]
+    pdf_path = os.path.join(get_user_outputs_dir(uid), f"cv_vacante_{vid}.pdf")
     if not os.path.exists(pdf_path):
         raise HTTPException(status_code=404, detail="PDF no encontrado.")
     disposition = "attachment" if download else "inline"
@@ -639,6 +698,28 @@ def descargar_pdf(vid: int, download: bool = False):
             "X-Frame-Options": "SAMEORIGIN",
             "Content-Security-Policy": "frame-ancestors 'self' http://localhost:3000",
         },
+    )
+
+
+@app.get("/download/cv/{vid}")
+def download_cv_secure(vid: int, current_user: dict = Depends(get_current_user)):
+    """Descarga protegida: valida ownership antes de entregar el PDF."""
+    uid = current_user["user_id"]
+    conn = _db()
+    cur  = conn.cursor()
+    cur.execute("SELECT id FROM vacantes WHERE id=%s AND user_id=%s", (vid, uid))
+    exists = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
+    pdf_path = os.path.join(get_user_outputs_dir(uid), f"cv_vacante_{vid}.pdf")
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail="PDF no generado aún para esta vacante.")
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"cv_vacante_{vid}.pdf",
     )
 
 
@@ -667,18 +748,19 @@ def scrape_status():
 
 
 @app.delete("/vacantes/{vid}")
-def borrar_vacante(vid: int):
+def borrar_vacante(vid: int, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
-    cur.execute("SELECT enlace, titulo FROM vacantes WHERE id=%s AND user_id='default_user'", (vid,))
+    cur.execute("SELECT enlace, titulo FROM vacantes WHERE id=%s AND user_id=%s", (vid, uid))
     row = cur.fetchone()
     if not row:
         cur.close()
         conn.close()
         raise HTTPException(status_code=404, detail=f"Vacante #{vid} no encontrada.")
     enlace, titulo = row
-    _blacklist_add(conn, enlace, titulo)
-    cur.execute("DELETE FROM vacantes WHERE id=%s AND user_id='default_user'", (vid,))
+    _blacklist_add(conn, enlace, titulo, uid)
+    cur.execute("DELETE FROM vacantes WHERE id=%s AND user_id=%s", (vid, uid))
     conn.commit()
     cur.close()
     conn.close()
@@ -751,15 +833,20 @@ def get_search_terms():
 
 
 @app.get("/api/perfil")
-def get_perfil_maestro():
-    if not os.path.exists(PERFIL_MAESTRO_PATH):
-        raise HTTPException(status_code=404, detail="perfil_maestro.json no encontrado.")
-    with open(PERFIL_MAESTRO_PATH, encoding="utf-8") as f:
+def get_perfil_maestro(current_user: dict = Depends(get_current_user)):
+    uid        = current_user["user_id"]
+    user_path  = get_user_profile_path(uid)
+    # Fallback: legacy perfil_maestro.json for default_user
+    path = user_path if os.path.exists(user_path) else (PERFIL_MAESTRO_PATH if uid == 'default_user' else None)
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Perfil no encontrado.")
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
 @app.post("/api/perfil")
-async def save_perfil_maestro(request: Request):
+async def save_perfil_maestro(request: Request, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
     try:
         data = await request.json()
     except Exception:
@@ -768,11 +855,16 @@ async def save_perfil_maestro(request: Request):
     missing = required - set(data.keys())
     if missing:
         raise HTTPException(status_code=400, detail=f"Campos requeridos: {sorted(missing)}")
-    os.makedirs(os.path.dirname(PERFIL_MAESTRO_PATH), exist_ok=True)
-    with open(PERFIL_MAESTRO_PATH, "w", encoding="utf-8") as f:
+    os.makedirs(_DATA_DIR, exist_ok=True)
+    dest = get_user_profile_path(uid)
+    with open(dest, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    # Also write legacy path for default_user (watcher/scraper compatibility)
+    if uid == 'default_user':
+        with open(PERFIL_MAESTRO_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
     _regenerate_mi_perfil(data)
-    return {"ok": True, "mensaje": "Perfil maestro guardado y mi_perfil.md actualizado."}
+    return {"ok": True, "mensaje": "Perfil guardado correctamente."}
 
 
 # ── Template endpoints ────────────────────────────────────────────────────────

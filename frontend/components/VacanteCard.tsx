@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   CheckCircle,
   ChevronDown,
@@ -35,47 +36,77 @@ function buildMcpPrompt(id: number): string {
 // ── Modales ───────────────────────────────────────────────────────────────────
 
 function PdfModal({ vacanteId, onClose }: { vacanteId: number; onClose: () => void }) {
-  return (
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loadingPdf, setLoadingPdf] = useState(true)
+  const [pdfErr, setPdfErr] = useState('')
+  const pdfUrl = blobUrl ?? ''
+
+  useEffect(() => {
+    let objectUrl = ''
+    api.getPdfBlob(vacanteId)
+      .then(blob => {
+        objectUrl = URL.createObjectURL(blob)
+        setBlobUrl(objectUrl)
+      })
+      .catch(e => setPdfErr(e instanceof Error ? e.message : 'Error al cargar el PDF.'))
+      .finally(() => setLoadingPdf(false))
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [vacanteId])
+
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
+  if (typeof document === 'undefined') return null
+
+  const handleDownload = () => {
+    if (!blobUrl) return
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = `cv-vacante-${vacanteId}.pdf`
+    a.click()
+  }
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950"
+        className="relative flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-zinc-900 shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-          <div className="flex items-center gap-2">
-            <FileText size={13} className="text-indigo-500 dark:text-indigo-400" />
-            <span className="text-[13px] font-medium text-slate-700 dark:text-slate-200">CV PDF — vacante #{vacanteId}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href={`http://127.0.0.1:8000/pdf/${vacanteId}?download=true`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-            >
-              <Download size={11} /> Descargar
-            </a>
-            <button
-              onClick={onClose}
-              className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            >
-              <X size={14} />
-            </button>
-          </div>
+        <div className="flex justify-between items-center border-b border-zinc-800 bg-zinc-950 p-3">
+          <h3 className="font-medium text-white">Visor de CV</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">Cerrar ✕</button>
         </div>
-        <div className="flex-1 overflow-hidden">
-          <iframe
-            src={`http://127.0.0.1:8000/pdf/${vacanteId}`}
-            width="100%"
-            height="100%"
-            className="block bg-slate-50 dark:bg-slate-900"
-            title={`CV vacante #${vacanteId}`}
-          />
+        <div className="relative flex-1 bg-zinc-950 overflow-hidden">
+          {loadingPdf && (
+            <div className="absolute inset-0 flex items-center justify-center gap-2 text-zinc-400">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="text-[12px]">Cargando PDF...</span>
+            </div>
+          )}
+          {pdfErr && (
+            <div className="absolute inset-0 flex items-center justify-center p-4 text-center">
+              <p className="text-[12px] text-rose-400">{pdfErr}</p>
+            </div>
+          )}
+          {pdfUrl && !pdfErr && (
+            <iframe
+              src={pdfUrl}
+              className="h-full w-full border-none"
+              title={`CV vacante #${vacanteId}`}
+            />
+          )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -363,13 +394,21 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
                 >
                   <Code size={13} /> Editar LaTeX
                 </button>
-                <a
-                  href={`http://127.0.0.1:8000/pdf/${vacante.id}?download=true`}
+                <button
+                  onClick={async () => {
+                    try {
+                      const blob = await api.getPdfBlob(vacante.id)
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url; a.download = `cv-vacante-${vacante.id}.pdf`; a.click()
+                      setTimeout(() => URL.revokeObjectURL(url), 5000)
+                    } catch { /* silent */ }
+                  }}
                   className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 py-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
                   title="Descargar PDF"
                 >
                   <Download size={13} />
-                </a>
+                </button>
               </div>
             )}
 

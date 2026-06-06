@@ -13,6 +13,8 @@ import urllib.request
 import logging
 from functools import wraps
 
+import requests
+
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
@@ -107,11 +109,7 @@ async def api(method: str, path: str, data=None,
 def _heartbeat_loop() -> None:
     while True:
         try:
-            req = urllib.request.Request(
-                f"{API_BASE}/bot/heartbeat", data=b"", method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=5):
-                pass
+            requests.post(f"{API_BASE}/bot/heartbeat", timeout=5)
         except Exception:
             pass
         time.sleep(30)
@@ -1134,7 +1132,6 @@ def main():
 
     print(f"✓ API target: {API_BASE}")
     heartbeat_api()
-    start_heartbeat()
 
     conf = load_conf()
 
@@ -1152,4 +1149,5 @@ def main():
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
+    start_heartbeat()
     main()

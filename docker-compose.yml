@@ -30,6 +30,7 @@ services:
     environment:
       - PLAYWRIGHT_HEADLESS=true
       - DATABASE_URL=postgresql://jobhunter:devpass@postgres:5432/jobhunter_db
+      - AUTH_SECRET=jobhunter-dev-secret-CHANGE-IN-PRODUCTION
     shm_size: '256m'
     volumes:
       - ./job_hunter/db:/app/db
@@ -57,6 +58,10 @@ services:
         condition: service_healthy
     environment:
       - NODE_ENV=production
+      - BACKEND_URL=http://api:8000
+      - AUTH_SECRET=jobhunter-nextauth-secret-CHANGE-IN-PRODUCTION
+      - AUTH_URL=http://localhost:3000
+      - AUTH_TRUST_HOST=true
 
 volumes:
   postgres_data:

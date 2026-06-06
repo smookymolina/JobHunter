@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useSession } from 'next-auth/react'
 import {
   AlertCircle, Bot, Clock, Loader2,
   Plus, Radio, RefreshCw, Send, Sparkles, WifiOff,
@@ -55,6 +56,7 @@ const STAT_COLS: {
 ]
 
 export default function DashboardPage() {
+  const { status } = useSession()
   const [vacantes, setVacantes] = useState<Vacante[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -106,15 +108,25 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
+    if (status === 'loading') {
+      setLoading(true)
+      return
+    }
+    if (status !== 'authenticated') {
+      setLoading(false)
+      setError('Sesión no autenticada.')
+      return
+    }
     void fetchVacantes()
-  }, [fetchVacantes])
+  }, [fetchVacantes, status])
 
   useEffect(() => {
+    if (status !== 'authenticated') return
     const id = setInterval(() => {
       void fetchVacantes(true)
     }, 2000)
     return () => clearInterval(id)
-  }, [fetchVacantes])
+  }, [fetchVacantes, status])
 
   const handleRefresh = () => {
     setSpinning(true)

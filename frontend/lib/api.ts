@@ -1,5 +1,11 @@
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
 
+let _token: string | null = null
+
+export function setAuthToken(token: string | null) {
+  _token = token
+}
+
 export interface PerfilMaestro {
   nombre: string
   apellidos: string
@@ -43,9 +49,9 @@ export interface Vacante {
 }
 
 export interface FiltrosBusqueda {
-  ubicacion: string   // '' = cualquiera
+  ubicacion: string
   modalidad: 'any' | 'remoto' | 'hibrido' | 'presencial'
-  pais: string        // 'Mexico' | 'España' | 'Argentina' | 'Colombia' | 'Internacional'
+  pais: string
 }
 
 export interface VacanteEliminada {
@@ -112,7 +118,9 @@ export interface SyncHealthReport {
 }
 
 async function req<T>(input: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${input}`, init)
+  const hdrs: Record<string, string> = { ...(init?.headers as Record<string, string> ?? {}) }
+  if (_token) hdrs['Authorization'] = `Bearer ${_token}`
+  const res = await fetch(`${API}${input}`, { ...init, headers: hdrs })
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
   return res.json() as Promise<T>
 }
@@ -139,9 +147,7 @@ export const api = {
     }),
 
   deleteVacante: (id: number) =>
-    req<{ ok: boolean; id: number }>(`/vacantes/${id}`, {
-      method: 'DELETE',
-    }),
+    req<{ ok: boolean; id: number }>(`/vacantes/${id}`, { method: 'DELETE' }),
 
   cambiarStatus: (id: number, status: Status) =>
     req<{ ok: boolean }>(`/vacantes/${id}/status`, {
@@ -158,17 +164,17 @@ export const api = {
     }),
 
   getLatex: async (id: number): Promise<string> => {
-    const res = await fetch(`${API}/latex/${id}`)
+    const hdrs: Record<string, string> = {}
+    if (_token) hdrs['Authorization'] = `Bearer ${_token}`
+    const res = await fetch(`${API}/latex/${id}`, { headers: hdrs })
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
     return res.text()
   },
 
   saveLatex: async (id: number, content: string): Promise<LatexSaveResult> => {
-    const res = await fetch(`${API}/latex/${id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      body: content,
-    })
+    const hdrs: Record<string, string> = { 'Content-Type': 'text/plain; charset=utf-8' }
+    if (_token) hdrs['Authorization'] = `Bearer ${_token}`
+    const res = await fetch(`${API}/latex/${id}`, { method: 'POST', headers: hdrs, body: content })
     if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
     return res.json() as Promise<LatexSaveResult>
   },
@@ -176,10 +182,7 @@ export const api = {
   uploadTemplate: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return req<{ ok: boolean; mensaje: string }>('/upload_template', {
-      method: 'POST',
-      body: form,
-    })
+    return req<{ ok: boolean; mensaje: string }>('/upload_template', { method: 'POST', body: form })
   },
 
   templateActiva: () => req<TemplateInfo>('/template/activa'),
@@ -187,6 +190,14 @@ export const api = {
   downloadTemplateUrl: () => `${API}/template/download`,
 
   pdfUrl: (id: number) => `${API}/pdf/${id}`,
+
+  getPdfBlob: async (id: number): Promise<Blob> => {
+    const hdrs: Record<string, string> = {}
+    if (_token) hdrs['Authorization'] = `Bearer ${_token}`
+    const res = await fetch(`${API}/pdf/${id}`, { headers: hdrs })
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
+    return res.blob()
+  },
 
   scrape: (cantidad: number, terminos?: string[], filtros?: Partial<FiltrosBusqueda>) =>
     req<{ ok: boolean; mensaje: string; terminos?: string[]; filtros?: FiltrosBusqueda }>('/scrape', {

@@ -1,0 +1,98 @@
+"""JWT + password hashing — stdlib only, no external deps."""
+import os
+import hashlib
+import hmac
+import base64
+import json
+import time
+from typing import Optional
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+SECRET_KEY = os.getenv('AUTH_SECRET', 'jobhunter-dev-secret-CHANGE-IN-PRODUCTION')
+_TTL = 7 * 24 * 3600  # 7 days
+
+_bearer = HTTPBearer(auto_error=False)
+
+
+# ── JWT ───────────────────────────────────────────────────────────────────────
+
+def _b64u(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+
+def _d64u(s: str) -> bytes:
+    rem = len(s) % 4
+    if rem:
+        s += '=' * (4 - rem)
+    return base64.urlsafe_b64decode(s)
+
+
+def create_token(user_id: str, email: str) -> str:
+    h = _b64u(json.dumps({'alg': 'HS256', 'typ': 'JWT'}).encode())
+    p = _b64u(json.dumps({'sub': user_id, 'email': email,
+                           'iat': int(time.time()),
+                           'exp': int(time.time()) + _TTL}).encode())
+    msg = f"{h}.{p}".encode()
+    sig = _b64u(hmac.new(SECRET_KEY.encode(), msg, hashlib.sha256).digest())
+    return f"{h}.{p}.{sig}"
+
+
+def verify_token(token: str) -> Optional[dict]:
+    try:
+        h, p, s = token.split('.')
+        msg = f"{h}.{p}".encode()
+        expected = _b64u(hmac.new(SECRET_KEY.encode(), msg, hashlib.sha256).digest())
+        if not hmac.compare_digest(s, expected):
+            return None
+        payload = json.loads(_d64u(p))
+        if payload.get('exp', 0) < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+# ── Password ──────────────────────────────────────────────────────────────────
+
+def hash_password(plain: str) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, 200_000)
+    return base64.b64encode(salt + dk).decode()
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        raw  = base64.b64decode(hashed.encode())
+        salt = raw[:16]
+        dk   = raw[16:]
+        check = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, 200_000)
+        return hmac.compare_digest(dk, check)
+    except Exception:
+        return False
+
+
+# ── FastAPI dependencies ──────────────────────────────────────────────────────
+
+def get_current_user(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> dict:
+    if not creds:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
+    payload = verify_token(creds.credentials)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")
+    return {"user_id": payload["sub"], "email": payload.get("email", "")}
+
+
+def get_optional_user(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> dict:
+    """Authenticated → use JWT user_id. Unauthenticated → default_user (scraper compat)."""
+    if not creds:
+        return {"user_id": "default_user", "email": ""}
+    payload = verify_token(creds.credentials)
+    if not payload:
+        return {"user_id": "default_user", "email": ""}
+    return {"user_id": payload["sub"], "email": payload.get("email", "")}

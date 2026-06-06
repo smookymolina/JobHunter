@@ -2,16 +2,18 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LayoutDashboard,
   Briefcase,
   FileCode2,
   UserCircle,
   Zap,
-  Settings,
   Archive,
+  LogOut,
+  ChevronUp,
 } from 'lucide-react'
+import { signOut } from 'next-auth/react'
 import ThemeToggle from '@/components/ui/ThemeToggle'
 import UserAvatar from '@/components/ui/UserAvatar'
 import { useAvatar } from '@/context/AvatarContext'
@@ -88,6 +90,18 @@ const nav = [
 export default function Sidebar() {
   const path = usePathname()
   const { initials } = useAvatar()
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setIsProfileOpen(false)
+      }
+    }
+    if (isProfileOpen) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [isProfileOpen])
 
   return (
     <aside className="fixed inset-y-0 left-0 z-50 flex w-[220px] flex-col border-r border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950">
@@ -143,14 +157,43 @@ export default function Sidebar() {
         <div className="mb-2 flex justify-center">
           <ThemeToggle />
         </div>
-        <button className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60">
-          <UserAvatar initials={initials} size={28} shape="full" />
-          <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-[12px] font-medium text-slate-700 dark:text-slate-300">Mi Cuenta</p>
-            <p className="truncate text-[10px] text-slate-400 dark:text-slate-600">Personal Plan</p>
-          </div>
-          <Settings size={13} className="shrink-0 text-slate-400 dark:text-slate-600" />
-        </button>
+        <div ref={profileRef} className="relative">
+          {/* Dropdown menu (floats above) */}
+          {isProfileOpen && (
+            <div className="absolute bottom-full left-0 right-0 mb-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+              <Link
+                href="/perfil"
+                onClick={() => setIsProfileOpen(false)}
+                className="flex items-center gap-2.5 px-3 py-2.5 text-[12px] text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              >
+                <UserCircle size={13} className="text-slate-400" />
+                Perfil &amp; Settings
+              </Link>
+              <div className="mx-2 border-t border-slate-100 dark:border-slate-800" />
+              <button
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[12px] text-rose-500 transition-colors hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+              >
+                <LogOut size={13} />
+                Cerrar sesión
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => setIsProfileOpen(v => !v)}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60"
+          >
+            <UserAvatar initials={initials} size={28} shape="full" />
+            <div className="min-w-0 flex-1 text-left">
+              <p className="truncate text-[12px] font-medium text-slate-700 dark:text-slate-300">Mi Cuenta</p>
+              <p className="truncate text-[10px] text-slate-400 dark:text-slate-600">Personal Plan</p>
+            </div>
+            <ChevronUp
+              size={13}
+              className={`shrink-0 text-slate-400 transition-transform duration-150 dark:text-slate-600 ${isProfileOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+        </div>
       </div>
     </aside>
   )

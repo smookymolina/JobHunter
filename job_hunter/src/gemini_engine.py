@@ -12,7 +12,6 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 from openai import OpenAI
 
-# ── Logger (mismo archivo que mcp_server usa) ─────────────────────────────────
 _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'mcp_debug.log')
 _log = _logging.getLogger("gemini_engine")
 if not _log.handlers:
@@ -24,18 +23,14 @@ if not _log.handlers:
 # ── Config ────────────────────────────────────────────────────────────────────
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL   = "llama-3.3-70b-versatile"   # mejor calidad de código en free tier
+GROQ_MODEL   = "llama-3.3-70b-versatile"
 
 BASE_DIR      = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 DB_PATH       = os.path.join(BASE_DIR, 'db', 'vacantes.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'latex_templates')
-OUTPUTS_DIR   = os.path.join(BASE_DIR, 'outputs')
+OUTPUTS_DIR   = os.path.join(BASE_DIR, 'outputs')           # root outputs dir (kept for compat)
 
-# Directorio de perfil: variable de entorno, ruta absoluta canónica o fallback interno
-_PROFILE_CANDIDATE = os.getenv(
-    "PROFILE_BASE_DIR",
-    r"C:\Users\GIRTEC\Desktop\Trabajo\Trabajo"
-)
+_PROFILE_CANDIDATE = os.getenv("PROFILE_BASE_DIR", r"C:\Users\GIRTEC\Desktop\Trabajo\Trabajo")
 CONTEXT_DIR = _PROFILE_CANDIDATE if os.path.isdir(_PROFILE_CANDIDATE) \
               else os.path.join(BASE_DIR, 'context')
 
@@ -44,9 +39,6 @@ TEMPLATE_DEFAULT = os.path.join(TEMPLATES_DIR, 'default_template.tex')
 
 DEFAULT_TEMPLATE_CONTENT = """% ============================================================
 %  JOB HUNTER - Plantilla Base de CV
-%  La IA sustituira los bloques {{MARCADOR}} con contenido
-%  adaptado a cada vacante. No modificar la estructura de
-%  comandos LaTeX; solo cambiar el texto entre llaves.
 % ============================================================
 \\documentclass[11pt, a4paper]{article}
 
@@ -127,38 +119,59 @@ def _ensure_runtime_paths():
 
 _ensure_runtime_paths()
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# ── Multi-tenant path helpers ─────────────────────────────────────────────────
+
+def get_user_outputs_dir(user_id: str) -> str:
+    """Returns outputs/{user_id}/ and creates it if necessary."""
+    path = os.path.join(OUTPUTS_DIR, user_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def get_user_profile_path(user_id: str) -> str:
+    """Returns data/{user_id}_perfil.json (may not exist yet)."""
+    return os.path.join(BASE_DIR, 'data', f'{user_id}_perfil.json')
+
+
+# ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _read(path):
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
+
 def _db():
     _u = _urlparse(os.getenv('DATABASE_URL'))
-    return _pg8000.connect(host=_u.hostname, port=_u.port or 5432, user=_u.username, password=_u.password, database=_u.path.lstrip('/'))
+    return _pg8000.connect(host=_u.hostname, port=_u.port or 5432,
+                           user=_u.username, password=_u.password,
+                           database=_u.path.lstrip('/'))
 
-def _get_vacante(vid):
+
+def _get_vacante(vid, user_id='default_user'):
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, titulo, empresa, enlace, requerimientos FROM vacantes WHERE id=%s AND user_id='default_user'",
-        (vid,)
+        "SELECT id, titulo, empresa, enlace, requerimientos FROM vacantes WHERE id=%s AND user_id=%s",
+        (vid, user_id)
     )
     row = cur.fetchone()
     cur.close()
     conn.close()
     return row
 
-def _set_status(vid, status):
+
+def _set_status(vid, status, user_id='default_user'):
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE vacantes SET status=%s WHERE id=%s AND user_id='default_user'",
-        (status, vid)
+        "UPDATE vacantes SET status=%s WHERE id=%s AND user_id=%s",
+        (status, vid, user_id)
     )
     conn.commit()
     cur.close()
     conn.close()
+
 
 def _select_template():
     _ensure_runtime_paths()
@@ -168,24 +181,57 @@ def _select_template():
     _log.debug("[template] usando default_template.tex")
     return _read(TEMPLATE_DEFAULT)
 
+
 def _extract_latex(text):
-    """Extrae bloque \\documentclass...\\end{document} limpiando markdown."""
-    # Eliminar bloques ```latex ... ```
     text = re.sub(r'```(?:latex|tex)?\s*', '', text)
     text = re.sub(r'```', '', text)
     match = re.search(r'(\\documentclass.*?\\end\{document\})', text, re.DOTALL)
     return match.group(1).strip() if match else text.strip()
 
-def _groq_client():
-    return OpenAI(
-        api_key=GROQ_API_KEY,
-        base_url="https://api.groq.com/openai/v1",
-    )
 
+def _groq_client():
+    return OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+
+
+def _get_user_profile(user_id: str) -> str:
+    """Read profile for CV generation. Fallback chain: user JSON → perfil_maestro → mi_perfil.md → empty."""
+    import json as _json
+
+    def _fmt(pdata: dict) -> str:
+        habs   = pdata.get('habilidades', {})
+        skills = [s for v in habs.values() for s in v]
+        return (
+            f"Nombre: {pdata.get('nombre','')} {pdata.get('apellidos','')}\n"
+            f"Título: {pdata.get('titulo_profesional','')}\n"
+            f"Resumen: {pdata.get('resumen','')[:400]}\n"
+            f"Habilidades: {', '.join(skills[:40])}\n"
+            f"Experiencia: {', '.join(str(e.get('puesto','')) for e in pdata.get('experiencia',[])[:3])}\n"
+        )
+
+    # 1. User-specific JSON profile
+    user_json = get_user_profile_path(user_id)
+    if os.path.exists(user_json):
+        with open(user_json, encoding='utf-8') as f:
+            return _fmt(_json.load(f))
+
+    # 2. default_user → legacy perfil_maestro.json
+    if user_id == 'default_user':
+        maestro = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
+        if os.path.exists(maestro):
+            with open(maestro, encoding='utf-8') as f:
+                return _fmt(_json.load(f))
+
+    # 3. Legacy mi_perfil.md (any user)
+    md_path = os.path.join(CONTEXT_DIR, 'mi_perfil.md')
+    if os.path.exists(md_path):
+        return _read(md_path)
+
+    return ""
+
+
+# ── generar_terminos_busqueda ──────────────────────────────────────────────────
 
 def generar_terminos_busqueda() -> list[str]:
-    """Deriva términos de búsqueda desde perfil_maestro.json.
-    Genera hasta 4 términos por área de skill para diversificar resultados."""
     maestro_path = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
     _FALLBACK = [
         "Desarrollador Full Stack", "Desarrollador Python",
@@ -205,82 +251,46 @@ def generar_terminos_busqueda() -> list[str]:
     sw     = ' '.join(habs.get('software_fullstack', []))
     mec    = ' '.join(habs.get('mecanica_manufactura', []))
 
-    # ── Área Software / Web (mayor volumen de vacantes) ──────────────
     terms_sw: list[str] = []
     if 'Full-Stack' in titulo or 'Full Stack' in titulo or 'Flask' in sw or 'FastAPI' in sw:
-        terms_sw.append('Desarrollador Full Stack')
-        terms_sw.append('Full Stack Developer')
-    if 'Python' in sw:
-        terms_sw.append('Desarrollador Python')
-    if 'React' in sw or 'Next.js' in sw:
-        terms_sw.append('Desarrollador React')
-    if 'Docker' in sw or 'CI/CD' in sw:
-        terms_sw.append('DevOps Engineer')
-    if 'FastAPI' in sw or 'Flask' in sw:
-        terms_sw.append('Backend Developer Python')
-    if 'HTML/CSS/JS' in sw or 'React' in sw:
-        terms_sw.append('Desarrollador Web')
+        terms_sw += ['Desarrollador Full Stack', 'Full Stack Developer']
+    if 'Python' in sw:    terms_sw.append('Desarrollador Python')
+    if 'React' in sw or 'Next.js' in sw: terms_sw.append('Desarrollador React')
+    if 'Docker' in sw or 'CI/CD' in sw:  terms_sw.append('DevOps Engineer')
+    if 'FastAPI' in sw or 'Flask' in sw:  terms_sw.append('Backend Developer Python')
+    if 'HTML/CSS/JS' in sw or 'React' in sw: terms_sw.append('Desarrollador Web')
 
-    # ── Área IoT / Sistemas Embebidos ─────────────────────────────────
     terms_iot: list[str] = []
-    if 'IoT' in titulo or 'IoT' in iot:
-        terms_iot.append('Desarrollador IoT')
-    if 'ESP32' in iot or 'STM32' in iot or 'Arduino' in iot:
-        terms_iot.append('Ingeniero Sistemas Embebidos')
-    if 'Domótica' in titulo or 'Domótica' in iot:
-        terms_iot.append('Automatización Industrial')
-    if 'MQTT' in iot or 'WiFi' in iot:
-        terms_iot.append('Desarrollador Firmware IoT')
+    if 'IoT' in titulo or 'IoT' in iot:   terms_iot.append('Desarrollador IoT')
+    if 'ESP32' in iot or 'STM32' in iot:  terms_iot.append('Ingeniero Sistemas Embebidos')
+    if 'Domótica' in titulo or 'Domótica' in iot: terms_iot.append('Automatización Industrial')
+    if 'MQTT' in iot or 'WiFi' in iot:    terms_iot.append('Desarrollador Firmware IoT')
 
-    # ── Área Mecánica / Mecatrónica ───────────────────────────────────
     terms_mec: list[str] = []
     if 'Mecán' in titulo or 'Mecanic' in titulo:
-        terms_mec.append('Ingeniero Mecánico')
-        terms_mec.append('Ingeniero Mecatrónico')
-    if 'SolidWorks' in mec or 'ANSYS' in mec:
-        terms_mec.append('Ingeniero CAD CAE')
-    if 'MATLAB' in mec or 'Control PID' in mec or 'LabVIEW' in mec:
-        terms_mec.append('Ingeniero Control Automático')
+        terms_mec += ['Ingeniero Mecánico', 'Ingeniero Mecatrónico']
+    if 'SolidWorks' in mec or 'ANSYS' in mec: terms_mec.append('Ingeniero CAD CAE')
+    if 'MATLAB' in mec or 'Control PID' in mec: terms_mec.append('Ingeniero Control Automático')
 
-    # Intercalar: hasta 4 por área (SW primero por mayor volumen de ofertas)
     all_terms: list[str] = []
     for bucket in (terms_sw, terms_iot, terms_mec):
         all_terms.extend(bucket[:4])
 
-    # Deduplicar preservando orden, cap 12
     seen: set[str] = set()
     unique: list[str] = []
     for t in all_terms:
         if t and t not in seen:
             seen.add(t)
             unique.append(t)
-
     return unique[:12] if unique else _FALLBACK
 
 
+# ── Compatibilidad rápida ──────────────────────────────────────────────────────
+
 def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
-    """Evalúa match candidato-vacante con Groq. Lee perfil_maestro.json (SSoT) o mi_perfil.md."""
     if not GROQ_API_KEY or not requerimientos.strip():
         return "Nula"
-
-    # SSoT: perfil_maestro.json tiene prioridad sobre mi_perfil.md
-    maestro_path = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
-    if os.path.exists(maestro_path):
-        import json as _json
-        with open(maestro_path, encoding='utf-8') as f:
-            pdata = _json.load(f)
-        habs = pdata.get('habilidades', {})
-        skills = [s for v in habs.values() for s in v]
-        perfil = (
-            f"Nombre: {pdata.get('nombre','')} {pdata.get('apellidos','')}\n"
-            f"Título: {pdata.get('titulo_profesional','')}\n"
-            f"Resumen: {pdata.get('resumen','')[:400]}\n"
-            f"Habilidades: {', '.join(skills[:40])}\n"
-        )
-    else:
-        perfil_path = os.path.join(CONTEXT_DIR, 'mi_perfil.md')
-        perfil = _read(perfil_path) if os.path.exists(perfil_path) else ""
-
+    perfil = _get_user_profile('default_user')
     if not perfil.strip():
         return "Nula"
     try:
@@ -303,27 +313,24 @@ def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
 
 # ── Motor principal ───────────────────────────────────────────────────────────
 
-def generar_latex_cv(vacante_id: int) -> str | None:
-    """Genera un .tex adaptado a la vacante usando IA. Retorna ruta o None."""
-    row = _get_vacante(vacante_id)
+def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | None:
+    row = _get_vacante(vacante_id, user_id)
     if not row:
-        _log.error("Vacante #%s no encontrada.", vacante_id)
+        _log.error("Vacante #%s no encontrada para user %s.", vacante_id, user_id)
         return None
     vid, titulo, empresa, enlace, requerimientos = row
 
-    perfil_path  = os.path.join(CONTEXT_DIR, 'mi_perfil.md')
-    instruc_path = os.path.join(CONTEXT_DIR, 'instrucciones_sistema.md')
-    perfil       = _read(perfil_path)  if os.path.exists(perfil_path)  else ""
-    instrucciones= _read(instruc_path) if os.path.exists(instruc_path) else ""
-    template_code= _select_template()
+    perfil        = _get_user_profile(user_id)
+    instruc_path  = os.path.join(CONTEXT_DIR, 'instrucciones_sistema.md')
+    instrucciones = _read(instruc_path) if os.path.exists(instruc_path) else ""
+    template_code = _select_template()
 
     system_msg = (
         "Eres un experto en redacción de CVs técnicos y código LaTeX. "
-        "Cuando se te pida un CV, devuelves ÚNICAMENTE código LaTeX puro. "
-        "Sin bloques markdown, sin explicaciones, sin texto fuera del documento LaTeX. "
+        "Devuelves ÚNICAMENTE código LaTeX puro. "
+        "Sin bloques markdown, sin explicaciones. "
         "Empieza directamente con \\documentclass."
     )
-
     user_msg = f"""Genera un CV completo en LaTeX para esta vacante.
 
 VACANTE:
@@ -334,12 +341,12 @@ VACANTE:
 {requerimientos or 'No especificados'}
 
 PERFIL DEL CANDIDATO:
-{perfil}
+{perfil or '[Sin perfil configurado — usa datos de ejemplo]'}
 
 INSTRUCCIONES DEL SISTEMA:
 {instrucciones}
 
-PLANTILLA BASE (respetar estructura y paquetes LaTeX al 100%):
+PLANTILLA BASE:
 {template_code}
 
 REGLAS:
@@ -347,11 +354,10 @@ REGLAS:
 2. Adapta el título profesional al puesto exacto.
 3. Usa vocabulario espejo al de la vacante.
 4. Logros cuantificables cuando sea posible.
-5. Máximo 1 página para puestos junior/mid.
-6. Usa solo los datos de contacto que están en el perfil."""
+5. Máximo 1 página para puestos junior/mid."""
 
-    _set_status(vid, "En_Proceso")
-    _log.info("[IA] Generando CV para vacante #%s: %s", vid, titulo[:50])
+    _set_status(vid, "En_Proceso", user_id)
+    _log.info("[IA] Generando CV vacante #%s user=%s: %s", vid, user_id, titulo[:50])
 
     try:
         client = _groq_client()
@@ -367,15 +373,15 @@ REGLAS:
         latex_raw = resp.choices[0].message.content or ""
     except Exception as e:
         _log.error("[IA ERROR] %s", e)
-        _set_status(vid, "Requiere_Correccion")
+        _set_status(vid, "Requiere_Correccion", user_id)
         return None
 
     latex_clean = _extract_latex(latex_raw)
     if not latex_clean.startswith("\\documentclass"):
-        _log.warning("[IA] Respuesta no parece LaTeX valido, guardando de todas formas...")
+        _log.warning("[IA] Respuesta no parece LaTeX válido, guardando de todas formas...")
 
-    _ensure_runtime_paths()
-    tex_path = os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex")
+    out_dir  = get_user_outputs_dir(user_id)
+    tex_path = os.path.join(out_dir, f"cv_vacante_{vid}.tex")
     with open(tex_path, 'w', encoding='utf-8') as f:
         f.write(latex_clean)
     _log.info("[tex] Guardado: %s", tex_path)
@@ -383,30 +389,22 @@ REGLAS:
 
 
 def compilar_pdf(tex_path: str) -> str | None:
-    """Compila .tex -> PDF con pdflatex. Retorna ruta al PDF o lanza error.
-
-    Si el PDF ya existe y es igual de reciente que el .tex (compilado externamente),
-    lo reutiliza sin relanzar pdflatex — esto permite que CVs compilados fuera de
-    Windows (sandbox, CI, etc.) sean reconocidos correctamente.
-    """
     if not os.path.exists(tex_path):
         _log.error("[pdflatex ERROR] No encontrado: %s", tex_path)
         raise RuntimeError(f"No existe el archivo .tex: {tex_path}")
 
     abs_tex     = os.path.abspath(tex_path)
-    abs_out_dir = os.path.abspath(OUTPUTS_DIR)
+    abs_out_dir = os.path.dirname(abs_tex)     # mismo directorio que el .tex
     pdf_path    = os.path.splitext(abs_tex)[0] + '.pdf'
 
-    # ── Reutilizar PDF ya compilado ────────────────────────────────────────────
     if os.path.exists(pdf_path):
         tex_mtime = os.path.getmtime(abs_tex)
         pdf_mtime = os.path.getmtime(pdf_path)
-        if pdf_mtime >= tex_mtime - 2:          # margen de 2 s para escrituras simultáneas
-            _log.info("[pdf] Reutilizando PDF existente (no se relanza pdflatex): %s", pdf_path)
+        if pdf_mtime >= tex_mtime - 2:
+            _log.info("[pdf] Reutilizando PDF existente: %s", pdf_path)
             return pdf_path
 
     _log.info("[pdflatex] Compilando %s", os.path.basename(tex_path))
-
     try:
         result = subprocess.run(
             ["pdflatex", "-interaction=nonstopmode",
@@ -416,63 +414,52 @@ def compilar_pdf(tex_path: str) -> str | None:
         _log.debug("[pdflatex stdout] %s", result.stdout or "(sin stdout)")
         _log.debug("[pdflatex stderr] %s", result.stderr or "(sin stderr)")
         if os.path.exists(pdf_path):
-            if result.returncode == 0:
-                _log.info("[pdf] Generado: %s", pdf_path)
-            else:
-                _log.warning("[pdf] Generado con advertencias (rc=%s): %s", result.returncode, pdf_path)
+            _log.info("[pdf] Generado: %s", pdf_path)
             return pdf_path
         _log.error("[pdflatex ERROR] No se generó PDF. rc=%s", result.returncode)
         raise RuntimeError(
-            "Fallo la compilacion con pdflatex. "
-            f"returncode={result.returncode}. "
-            f"stdout={result.stdout[-1500:] if result.stdout else ''}. "
-            f"stderr={result.stderr[-1500:] if result.stderr else ''}"
+            f"Fallo la compilacion. rc={result.returncode}. "
+            f"stdout={result.stdout[-1500:]}. stderr={result.stderr[-1500:]}"
         )
     except subprocess.TimeoutExpired:
         _log.error("[pdflatex ERROR] Timeout.")
-        raise RuntimeError("pdflatex excedio el tiempo limite de 60s.")
+        raise RuntimeError("pdflatex excedió el tiempo límite de 60s.")
     except FileNotFoundError:
-        # pdflatex no está en PATH: si el PDF ya existe (compilado externamente), usarlo
         if os.path.exists(pdf_path):
-            _log.warning("[pdflatex] No encontrado en PATH pero existe PDF previo — reutilizando.")
+            _log.warning("[pdflatex] No en PATH, reutilizando PDF previo.")
             return pdf_path
         _log.error("[pdflatex ERROR] pdflatex no encontrado y no hay PDF previo.")
         raise RuntimeError(
-            "pdflatex no encontrado en PATH. Instala MiKTeX (https://miktex.org) "
-            "o TeX Live y asegúrate de que esté en la variable PATH del sistema."
+            "pdflatex no encontrado en PATH. Instala MiKTeX o TeX Live."
         )
 
 
-def generar_y_compilar(vacante_id: int) -> tuple[str | None, str | None]:
-    """Pipeline completo: IA -> .tex -> PDF. Retorna (tex_path, pdf_path).
-    Actualiza status: En_Proceso → Revisado_IA (éxito) | Requiere_Correccion (fallo)."""
+def generar_y_compilar(vacante_id: int, user_id: str = 'default_user') -> tuple[str | None, str | None]:
     if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY no configurada. Agrégala al archivo .env")
-    tex_path = generar_latex_cv(vacante_id)
+        raise ValueError("GROQ_API_KEY no configurada.")
+    tex_path = generar_latex_cv(vacante_id, user_id)
     if not tex_path:
-        # generar_latex_cv ya marcó Requiere_Correccion en caso de error de IA
         return None, None
     try:
         pdf_path = compilar_pdf(tex_path)
     except Exception as e:
         _log.error("[generar_y_compilar] Error compilando PDF: %s", e)
-        _set_status(vacante_id, "Requiere_Correccion")
+        _set_status(vacante_id, "Requiere_Correccion", user_id)
         return tex_path, None
     if pdf_path and os.path.exists(pdf_path):
-        _set_status(vacante_id, "Revisado_IA")
+        _set_status(vacante_id, "Revisado_IA", user_id)
     else:
-        _set_status(vacante_id, "Requiere_Correccion")
+        _set_status(vacante_id, "Requiere_Correccion", user_id)
     return tex_path, pdf_path
 
-
-# ── CLI ───────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
     import sys as _sys
     if len(_sys.argv) < 2:
-        print("Uso: python gemini_engine.py <vacante_id>")
+        print("Uso: python gemini_engine.py <vacante_id> [user_id]")
         _sys.exit(1)
-    tex, pdf = generar_y_compilar(int(_sys.argv[1]))
+    uid = _sys.argv[2] if len(_sys.argv) > 2 else 'default_user'
+    tex, pdf = generar_y_compilar(int(_sys.argv[1]), uid)
     if pdf:   print(f"\n✓ PDF listo: {pdf}")
     elif tex: print(f"\n! .tex generado, PDF falló: {tex}")
     else:     print("\n✗ Generación fallida.")
