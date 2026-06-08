@@ -12,11 +12,14 @@ from mcp.types import Tool, TextContent
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-from gemini_engine import OUTPUTS_DIR, compilar_pdf
+from gemini_engine import compilar_pdf, get_user_outputs_dir
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+API_BASE   = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+_MCP_EMAIL = os.getenv("MCP_API_EMAIL", "test@jobhunter.com")
+_MCP_PASS  = os.getenv("MCP_API_PASSWORD", "jobhunter123")
+_TOKEN     = ""          # populated by _login() at startup
 
 # Debug logger — escribe en job_hunter/mcp_debug.log
 _LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'mcp_debug.log')
@@ -42,6 +45,30 @@ _STOP_API_DOWN = (
     "Espera 5 segundos y vuelve a intentar el mismo paso."
 )
 
+def _login() -> None:
+    global _TOKEN
+    payload = json.dumps({"email": _MCP_EMAIL, "password": _MCP_PASS}).encode()
+    req = urllib.request.Request(
+        f"{API_BASE}/auth/login", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            _TOKEN = json.loads(r.read()).get("access_token", "")
+        _log.info("MCP login OK — token obtenido")
+    except Exception as e:
+        _log.warning("MCP login falló: %s — llamadas autenticadas fallarán", e)
+
+
+def _auth_headers(extra: dict | None = None) -> dict:
+    h = {"Content-Type": "application/json", "Accept": "application/json"}
+    if _TOKEN:
+        h["Authorization"] = f"Bearer {_TOKEN}"
+    if extra:
+        h.update(extra)
+    return h
+
+
 def _api_health() -> bool:
     try:
         with urllib.request.urlopen(f"{API_BASE}/scrape/status", timeout=3) as r:
@@ -53,7 +80,7 @@ def _api_health() -> bool:
 def _http_post(path: str) -> None:
     req = urllib.request.Request(
         f"{API_BASE}{path}", data=b"{}", method="POST",
-        headers={"Content-Type": "application/json"},
+        headers=_auth_headers(),
     )
     try:
         with urllib.request.urlopen(req, timeout=5):
@@ -69,8 +96,9 @@ async def _heartbeat_loop():
 
 
 def _http_get(path: str) -> dict | list:
+    req = urllib.request.Request(f"{API_BASE}{path}", headers=_auth_headers())
     try:
-        with urllib.request.urlopen(f"{API_BASE}{path}", timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"HTTP {e.code}: {e.read().decode(errors='replace')}")
@@ -81,13 +109,8 @@ def _http_get(path: str) -> dict | list:
 def _http_patch(path: str, data: dict) -> dict:
     payload = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
-        f"{API_BASE}{path}",
-        data=payload,
-        method="PATCH",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+        f"{API_BASE}{path}", data=payload, method="PATCH",
+        headers=_auth_headers(),
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -150,13 +173,40 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="reset_vacancy",
+            description=(
+                "[REQUIERE api.py corriendo en 127.0.0.1:8000] "
+                "Resetea el status de una vacante a No_Creado y elimina sus archivos CV (.tex y .pdf). "
+                "Úsala cuando un CV generado NO corresponde a los requerimientos de la vacante, "
+                "para limpiar y permitir una regeneración correcta. "
+                "También puede usarse para marcar vacantes como Nula compatibilidad (ej. Brasil-only, "
+                "puesto de redacción, etc.). "
+                "Si la API no responde: DETENTE y levanta docker compose."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "vacante_id": {"type": "integer", "description": "ID de la vacante a resetear"},
+                },
+                "required": ["vacante_id"],
+            },
+        ),
+        Tool(
             name="save_latex_cv",
             description=(
                 "[REQUIERE api.py corriendo en 127.0.0.1:8000] "
                 "Guarda el código LaTeX, lo compila con pdflatex y actualiza el status "
                 "a Revisado_IA vía PATCH HTTP. "
                 "SOLO código LaTeX puro (sin bloques markdown). "
-                "Si la API no responde: DETENTE y ejecuta start_api.ps1 — NUNCA uses bash/sqlite."
+                "REGLAS DE GENERACIÓN ATS: "
+                "(1) Single-column — PROHIBIDO multicol/minipage lado a lado; "
+                "(2) PROHIBIDO \\usepackage{fontawesome5}; "
+                "(3) Keywords EXACTAS de la vacante (mirror literal); "
+                "(4) Título profesional = título exacto del puesto; "
+                "(5) Macros Jake's Resume: \\resumeSubheading{Puesto}{Periodo}{Empresa}{Ciudad} + \\resumeItem{}; "
+                "(6) 1 página junior/mid, máx 2 senior; "
+                "(7) Caracteres especiales con \\' para compatibilidad pdflatex. "
+                "Si la API no responde: DETENTE y levanta docker compose — NUNCA uses bash/sqlite."
             ),
             inputSchema={
                 "type": "object",
@@ -181,6 +231,8 @@ async def call_tool(name: str, arguments: dict):
         return await _get_pending_vacancies()
     if name == "update_compatibility":
         return await _update_compatibility(int(arguments["vacante_id"]), str(arguments["nivel"]))
+    if name == "reset_vacancy":
+        return await _reset_vacancy(int(arguments["vacante_id"]))
     if name == "save_latex_cv":
         return await _save_latex_cv(int(arguments["vacante_id"]), str(arguments["tex_content"]))
     return [TextContent(type="text", text=f"Tool desconocida: {name}")]
@@ -227,6 +279,47 @@ async def _update_compatibility(vacante_id: int, nivel: str):
     return [TextContent(type="text", text=f"✓ Compatibilidad vacante #{vacante_id} → {nivel}")]
 
 
+async def _reset_vacancy(vacante_id: int):
+    """Resetea status a No_Creado y borra los archivos CV del disco."""
+    if not _api_health():
+        return [TextContent(type="text", text=_STOP_API_DOWN)]
+
+    # Verificar que la vacante existe
+    try:
+        vacante = _http_get(f"/vacantes/{vacante_id}")
+        titulo = vacante.get("titulo", f"#{vacante_id}")
+    except RuntimeError as e:
+        return [TextContent(type="text", text=f"ERROR verificando vacante: {e}")]
+
+    # Resetear status → No_Creado
+    try:
+        _http_patch(f"/vacantes/{vacante_id}/status", {"status": "No_Creado"})
+    except RuntimeError as e:
+        return [TextContent(type="text", text=f"ERROR reseteando status: {e}")]
+
+    # Borrar archivos CV del disco
+    out_dir = get_user_outputs_dir("default_user")
+    deleted = []
+    for ext in ("tex", "pdf"):
+        path = os.path.join(out_dir, f"cv_vacante_{vacante_id}.{ext}")
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                deleted.append(ext)
+            except OSError:
+                pass  # Si no se puede borrar, no es crítico
+
+    deleted_str = ", ".join(f".{e}" for e in deleted) if deleted else "ninguno (ya no existían)"
+    return [TextContent(
+        type="text",
+        text=(
+            f"✓ Vacante #{vacante_id} — {titulo}\n"
+            f"  Status   → No_Creado\n"
+            f"  Archivos eliminados: {deleted_str}"
+        )
+    )]
+
+
 async def _save_latex_cv(vacante_id: int, tex_content: str):
     # Health-check: abortar si la API no responde
     if not _api_health():
@@ -253,9 +346,10 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
         except RuntimeError as exc:
             _log.warning("No se pudo actualizar status a %s: %s", new_status, exc)
 
-    # Escribir .tex
-    os.makedirs(OUTPUTS_DIR, exist_ok=True)
-    tex_path = os.path.join(OUTPUTS_DIR, f"cv_vacante_{vacante_id}.tex")
+    # Escribir .tex en el directorio del usuario correcto
+    out_dir = get_user_outputs_dir("default_user")
+    os.makedirs(out_dir, exist_ok=True)
+    tex_path = os.path.join(out_dir, f"cv_vacante_{vacante_id}.tex")
     try:
         with open(tex_path, "w", encoding="utf-8") as f:
             f.write(tex_content)
@@ -301,6 +395,7 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
 async def main():
+    _login()
     _log.info("stdio_server iniciando — esperando mensajes JSON-RPC de Claude Desktop")
     heartbeat_task = asyncio.create_task(_heartbeat_loop())
     try:

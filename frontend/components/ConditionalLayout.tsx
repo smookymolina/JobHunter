@@ -13,7 +13,7 @@ export default function ConditionalLayout({ children }: { children: React.ReactN
     setAuthToken((session as any)?.accessToken ?? null)
   }, [session])
 
-  if (pathname === '/login') return <>{children}</>
+  if (pathname === '/login' || pathname === '/register') return <>{children}</>
 
   if (status === 'loading') return (
     <div className="flex h-screen items-center justify-center bg-white dark:bg-slate-950">

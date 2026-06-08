@@ -1,161 +1,170 @@
 # Job Hunter — Setup en nuevo dispositivo
 
-Prompt para Claude (o cualquier agente IA) al migrar el proyecto:
+> Última actualización: 2026-06-07
 
----
-
-## PROMPT DE MIGRACIÓN
+## Estructura del proyecto
 
 ```
-Estoy configurando el proyecto "Job Hunter" en un nuevo dispositivo Windows.
-Necesitas hacer el setup completo y verificar que todo funciona correctamente.
-
-## Repositorio
-El proyecto está en: [RUTA_DEL_PROYECTO]
-Estructura principal:
-  job_hunter/src/api.py          → Backend FastAPI (puerto 8000)
-  job_hunter/src/mcp_server.py   → Servidor MCP para Claude Desktop
-  job_hunter/src/gemini_engine.py → Motor de IA + compilación LaTeX
-  frontend/                      → Next.js (puerto 3000)
-  job_hunter/data/perfil_maestro.json → Perfil del usuario (NO modificar)
-  job_hunter/db/vacantes.db      → Base de datos SQLite
-
-## Pasos que debes ejecutar en orden:
-
-### 1. Verificar Python y dependencias
-- Python 3.11+ requerido
-- Instalar dependencias: `pip install -r job_hunter/requirements.txt`
-- Verificar imports críticos: fastapi, uvicorn, sqlite3, subprocess
-
-### 2. Instalar y configurar pdflatex (CRÍTICO)
-El proyecto compila CVs en PDF usando pdflatex. Sin esto el status nunca
-llega a "Revisado_IA". Debes:
-
-a) Instalar MiKTeX desde https://miktex.org/download (Windows)
-   - Elegir "Install for all users"
-   - Habilitar "Install missing packages automatically"
-
-b) Verificar que pdflatex está en PATH:
-   `pdflatex --version`
-   Si falla: agregar `C:\Users\[USER]\AppData\Local\Programs\MiKTeX\miktex\bin\x64`
-   a la variable PATH del sistema.
-
-c) Instalar paquetes LaTeX requeridos (ejecutar UNA VEZ):
-   `pdflatex -interaction=nonstopmode job_hunter/latex_templates/default_template.tex`
-   MiKTeX descargará los paquetes faltantes automáticamente.
-
-d) IMPORTANTE: La plantilla default_template.tex NO usa fontawesome5 ni
-   babel con opción [spanish] — estos fueron eliminados por causar errores.
-   Si alguien los reintroduce, el PDF fallará silenciosamente.
-
-### 3. Verificar la base de datos
-- El archivo vacantes.db debe existir en job_hunter/db/
-- Si no existe: `python job_hunter/src/init_db.py`
-- Verificar esquema: tabla `vacantes` con columnas:
-  id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro
-- Valores válidos de status: No_Creado | En_Proceso | Revisado_IA | Requiere_Correccion | Listo_Manual
-
-### 4. Variables de entorno
-Crear archivo `job_hunter/.env` con:
-```
-GROQ_API_KEY=...       # o GEMINI_API_KEY según el motor configurado
+C:\Users\GIRTEC\Desktop\CODEMAGA\JobHunter\
+  job_hunter/
+    src/
+      api.py              → Backend FastAPI (puerto 8000)
+      auth.py             → JWT + password hashing (stdlib puro)
+      gemini_engine.py    → Motor IA + LaTeX + helpers multi-tenant
+      mcp_server.py       → Servidor MCP para Claude Desktop
+      browser_agent.py    → Scraper de vacantes
+      watcher.py          → DeepHealthWatcher (sync automático)
+      inspector.py        → Auditor IA de CVs
+    data/
+      perfil_maestro.json          → Perfil de default_user (legacy)
+      {user_id}_perfil.json        → Perfil aislado por usuario
+    outputs/
+      {user_id}/
+        cv_vacante_{id}.tex/.pdf   → Outputs aislados por usuario
+    context/
+      mi_perfil.md                 → Contexto IA (legacy/global)
+    latex_templates/
+      default_template.tex         → Plantilla base
+      mi_estilo.tex                → Plantilla personalizada (si existe)
+    requirements.txt
+    .env
+  frontend/
+    app/
+      login/page.tsx      → Página de login (NextAuth v5)
+      register/page.tsx   → Página de registro
+      dashboard/          → Panel principal
+      perfil/page.tsx     → Gestión perfil maestro (requiere JWT)
+      vacantes/           → CRUD vacantes
+    auth.ts               → NextAuth config (Credentials provider)
+    middleware.ts         → Protege rutas; permite /login y /register sin auth
+    lib/api.ts            → Cliente HTTP; inyecta Bearer token automáticamente
+    components/
+      ConditionalLayout.tsx → Sidebar condicional + sync JWT
+    .env.local
 ```
 
-### 5. Levantar los servicios (3 terminales)
-Terminal 1 — API:
-  `cd job_hunter/src && python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload`
+## Variables de entorno
 
-Terminal 2 — Frontend:
-  `cd frontend && npm install && npm run dev`
+### `job_hunter/.env`
 
-Terminal 3 — Bot Telegram (opcional):
-  `cd job_hunter/src && python bot.py`
+```env
+GROQ_API_KEY=gsk_...
+AUTH_SECRET=tu-secreto-jwt-aqui
+DATABASE_URL=postgresql://usuario:password@localhost:5432/jobhunter
+```
 
-### 6. Verificar que todo funciona
-Ejecutar estos comandos en PowerShell:
+### `frontend/.env.local`
 
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+AUTH_URL=http://localhost:3000
+AUTH_SECRET=tu-secreto-jwt-aqui          # Debe coincidir con el backend
+AUTH_TRUST_HOST=true
+# En Docker, el frontend usa la URL interna:
+# BACKEND_URL=http://api:8000
+```
+
+## Setup paso a paso
+
+### 1. PostgreSQL
+
+```powershell
+# Instalar PostgreSQL 16+ y crear la BD:
+createdb jobhunter
+# La API crea todas las tablas automáticamente al arrancar (lifespan)
+```
+
+### 2. Python y dependencias
+
+```powershell
+cd job_hunter
+pip install -r requirements.txt
+```
+
+### 3. pdflatex (para compilar CVs en PDF)
+
+Instalar MiKTeX desde https://miktex.org/download (Windows)
+- Elegir "Install for all users"
+- Habilitar "Install missing packages automatically"
+
+Verificar:
+```powershell
+pdflatex --version
+```
+
+### 4. Levantar servicios
+
+**Terminal 1 — Backend:**
+```powershell
+cd job_hunter\src
+python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Terminal 2 — Frontend:**
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+### 5. Verificar
+
+```powershell
 # Health check API
-Invoke-WebRequest -Uri "http://127.0.0.1:8000/" -Method GET
+Invoke-WebRequest -Uri "http://127.0.0.1:8000/" | Select-Object -ExpandProperty Content
 
-# Listar vacantes
-Invoke-WebRequest -Uri "http://127.0.0.1:8000/vacantes" -Method GET
+# Swagger docs
+start http://127.0.0.1:8000/docs
 
-# Si hay vacantes con status desactualizado (Sin Iniciar pero con PDF ya generado):
-Invoke-WebRequest -Uri "http://127.0.0.1:8000/vacantes/[ID]/sync" -Method POST
+# App
+start http://localhost:3000/login
+```
 
-# Abrir dashboard
-start http://localhost:3000/dashboard
+## Credenciales por defecto
 
-### 7. Configurar MCP en Claude Desktop
+| Campo | Valor |
+|---|---|
+| Email | `test@jobhunter.com` |
+| Password | `jobhunter123` |
+| user_id | `default_user` |
+
+Estos son creados automáticamente por el seed en `lifespan` de `api.py`.
+
+## Flujo de autenticación
+
+1. **Login**: `POST /auth/login` → backend valida credenciales en tabla `usuarios` → retorna JWT de 7 días.
+2. **NextAuth**: `frontend/auth.ts` llama al backend con Credentials provider → guarda `accessToken` en session.
+3. **Inyección de token**: `ConditionalLayout.tsx` detecta cambio de session y llama `setAuthToken()` → `lib/api.ts` inyecta `Authorization: Bearer` en todas las requests.
+4. **Registro**: `POST /auth/register` crea usuario con `uuid4().hex` como `user_id` y genera el perfil JSON inicial. Redirige a `/login?registered=true`.
+5. **Middleware**: protege todas las rutas excepto `/login` y `/register`.
+
+## Configurar MCP en Claude Desktop
+
 Editar `%APPDATA%\Claude\claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
     "job-hunter": {
       "command": "python",
-      "args": ["C:/[RUTA]/job_hunter/src/mcp_server.py"]
+      "args": ["C:/Users/GIRTEC/Desktop/CODEMAGA/JobHunter/job_hunter/src/mcp_server.py"]
     }
   }
 }
 ```
-Reiniciar Claude Desktop y verificar que aparecen las tools:
-  - get_vacancy_by_id
-  - save_latex_cv
-  - get_pending_vacancies
-  - update_compatibility
 
-## Bugs conocidos y sus fixes (ya aplicados en el código)
+## Checklist de verificación
 
-### Bug 1: pdflatex no en PATH → status se queda en "Sin iniciar"
-FIX en gemini_engine.py — compilar_pdf():
-  - Si PDF ya existe y es >= reciente que el .tex → lo reutiliza sin relanzar pdflatex
-  - Si pdflatex no está en PATH pero existe PDF previo → lo usa
-  - Si pdflatex no está y no hay PDF → error claro con instrucciones de instalación
+- [ ] `pdflatex --version` responde correctamente
+- [ ] PostgreSQL corriendo con BD `jobhunter`
+- [ ] API responde en `http://127.0.0.1:8000/`
+- [ ] Frontend carga en `http://localhost:3000/login`
+- [ ] Login con `test@jobhunter.com` / `jobhunter123` redirige a `/dashboard`
+- [ ] Registro de nuevo usuario en `/register` redirige a `/login?registered=true`
+- [ ] Perfil en `/perfil` carga y guarda correctamente para el usuario autenticado
+- [ ] Generar CV para una vacante llega a status `Revisado_IA`
 
-### Bug 2: /latex/{vid} no actualizaba status al fallar compilación
-FIX en api.py — POST /latex/{vid}:
-  - Ahora marca Requiere_Correccion cuando el PDF no se genera
+## Notas LaTeX
 
-### Bug 3: Sin forma de sincronizar status cuando PDF se compiló fuera del pipeline
-FIX en api.py — nuevo endpoint POST /vacantes/{vid}/sync:
-  - Detecta PDF existente en outputs/ → marca Revisado_IA
-  - Si solo hay .tex → intenta compilar → marca Revisado_IA o Requiere_Correccion
-
-### Bug 4: fontawesome5 no instalado en TeX Live del sandbox
-FIX en default_template.tex y en todos los CVs generados:
-  - Eliminado \usepackage{fontawesome5}
-  - Iconos reemplazados por \textbf{Email:}, \textbf{Tel:}, etc.
-
-### Bug 5: \usepackage[spanish]{babel} falla en TeX Live sin babel-spanish
-FIX en default_template.tex:
-  - Cambiado a \usepackage{babel} sin opción de idioma
-  - Los acentos se escapan manualmente (\'a, \'e, \~n, etc.)
-
-## Notas de PowerShell vs curl
-En PowerShell, `curl` es un alias de Invoke-WebRequest con sintaxis diferente:
-
-# Incorrecto (falla en PowerShell):
-curl -X POST http://127.0.0.1:8000/vacantes/1/sync
-
-# Correcto:
-Invoke-WebRequest -Uri "http://127.0.0.1:8000/vacantes/1/sync" -Method POST
-
-# GET con output legible:
-(Invoke-WebRequest -Uri "http://127.0.0.1:8000/vacantes" -Method GET).Content
-
-# Para instalar curl real en Windows:
-winget install curl.curl
-# Luego usar: curl.exe -X POST http://...
-
-## Checklist de verificación final
-[ ] pdflatex --version responde correctamente
-[ ] API responde en http://127.0.0.1:8000/
-[ ] Frontend carga en http://localhost:3000/dashboard
-[ ] Dashboard muestra "API conectada"
-[ ] Generar CV para una vacante de prueba y verificar que llega a "Revisado por IA"
-[ ] Bot Telegram responde (si aplica)
-```
-
----
-
-Última actualización: 2026-06-03
+- `default_template.tex` NO usa `fontawesome5` ni `\usepackage[spanish]{babel}` — no reintroducir.
+- `mi_estilo.tex` (plantilla personalizada) se sube vía `POST /upload_template`.

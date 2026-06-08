@@ -1,0 +1,146 @@
+% ═══════════════════════════════════════════════════════════════
+%  PLANTILLA ATS-OPTIMIZADA — Job Hunter CV Engine
+%  Basada en: Jake's Resume (github.com/jakegut/resume, ~10k stars)
+%  GANADOR de auditoría: single-column, sin iconos, ATS 100%
+%  Adaptación: A4 • Español • pdflatex
+% ═══════════════════════════════════════════════════════════════
+\documentclass[10pt,a4paper]{article}
+
+% ── Paquetes (solo los necesarios — sin fontawesome, sin multicol) ──
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[left=1.4cm,right=1.4cm,top=1.2cm,bottom=1.2cm]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{tabularx}
+% PROHIBIDO: fontawesome5 (rompe extracción ATS), multicol (confunde ATS)
+
+% ── Colores ───────────────────────────────────────────────────
+\definecolor{azul}{RGB}{14,77,163}
+\definecolor{gris}{RGB}{90,90,90}
+
+% ── Config base ───────────────────────────────────────────────
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\raggedright
+\raggedbottom
+
+% ── Secciones ─────────────────────────────────────────────────
+\titleformat{\section}{\bfseries\large\color{azul}}{}{0em}{}[\color{azul}\titlerule]
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+
+% ── MACROS (estilo Jake's Resume) ────────────────────────────
+% Entrada de experiencia/educación:
+%   #1 = Puesto/Título  #2 = Periodo
+%   #3 = Empresa/Inst.  #4 = Ciudad
+\newcommand{\resumeSubheading}[4]{%
+  \vspace{1pt}%
+  \noindent\textbf{#1}\hfill{\small\textit{\color{gris}#2}}\\%
+  \noindent\textit{\color{gris}#3}\hfill{\small\color{gris}#4}%
+  \vspace{2pt}%
+}
+
+% Entrada de proyecto: #1 = Nombre  #2 = Stack tecnológico
+\newcommand{\resumeProject}[2]{%
+  \vspace{1pt}%
+  \noindent\textbf{#1}\enspace{\small\textit{\color{gris}| #2}}%
+  \vspace{1pt}%
+}
+
+% Listas ATS-friendly
+\newcommand{\resumeItemListStart}{%
+  \begin{itemize}[leftmargin=1.2em,noitemsep,topsep=2pt,partopsep=0pt,parsep=0pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{3pt}}
+\newcommand{\resumeItem}[1]{\item\small #1}
+
+% ─────────────────────────────────────────────────────────────
+\begin{document}
+
+% ══ CABECERA ═════════════════════════════════════════════════
+% REGLA ATS: contacto en texto plano, no en tabla ni header/footer
+\begin{center}
+  {\LARGE\bfseries {{NOMBRE_COMPLETO}}}\\[4pt]
+  {\large\color{azul} {{TITULO_PROFESIONAL_ADAPTADO}}}\\[3pt]
+  {\small
+    \href{mailto:{{EMAIL}}}{{{EMAIL}}}
+    \,$\cdot$\,
+    {{TELEFONO}}
+    \,$\cdot$\,
+    {{UBICACION}}
+  }
+\end{center}
+
+\vspace{4pt}
+
+% ══ PERFIL PROFESIONAL ═══════════════════════════════════════
+% Fórmula: [Perfil] + [Exp. relevante] + [Tech. clave vacante] + [Valor]
+% Incluir 2-3 keywords EXACTAS de la vacante. Máx 4 líneas.
+\section{Perfil Profesional}
+\small{{RESUMEN_EJECUTIVO}}
+
+% ══ HABILIDADES TÉCNICAS ═════════════════════════════════════
+% REGLA ATS: tabla de 2 col. solo para skills (texto extraíble)
+% Ordenar por relevancia a la vacante (primero lo que piden)
+\section{Habilidades T\'ecnicas}
+\begin{tabular}{@{}>{\bfseries}p{4.6cm}p{12cm}@{}}
+  {{CATEGORIA_SKILL_1}}: & {{LISTA_SKILLS_1}} \\[2pt]
+  {{CATEGORIA_SKILL_2}}: & {{LISTA_SKILLS_2}} \\[2pt]
+  {{CATEGORIA_SKILL_3}}: & {{LISTA_SKILLS_3}} \\[2pt]
+  Idiomas:              & {{IDIOMAS}} \\
+\end{tabular}
+
+% ══ EXPERIENCIA PROFESIONAL ══════════════════════════════════
+% REGLA: primero la experiencia MÁS relevante a la vacante
+% Formato logros XYZ: "Logré [X] mediante [Y] resultando en [Z]"
+% Verbo de acción + métrica cuando sea posible
+\section{Experiencia Profesional}
+
+\resumeSubheading
+  {{{PUESTO_1}}}{{{FECHA_INICIO_1}} -- {{FECHA_FIN_1}}}
+  {{{EMPRESA_1}}}{{{UBICACION_1}}}
+\resumeItemListStart
+  \resumeItem{{{LOGRO_1_1}}}
+  \resumeItem{{{LOGRO_1_2}}}
+  \resumeItem{{{LOGRO_1_3}}}
+\resumeItemListEnd
+
+\resumeSubheading
+  {{{PUESTO_2}}}{{{FECHA_INICIO_2}} -- {{FECHA_FIN_2}}}
+  {{{EMPRESA_2}}}{{{UBICACION_2}}}
+\resumeItemListStart
+  \resumeItem{{{LOGRO_2_1}}}
+  \resumeItem{{{LOGRO_2_2}}}
+\resumeItemListEnd
+
+% ══ PROYECTOS DESTACADOS ═════════════════════════════════════
+% Solo 2-3 proyectos más relevantes a la vacante
+\section{Proyectos Destacados}
+
+\resumeProject{{{PROYECTO_1}}}{{{TECNOLOGIAS_1}}}
+\resumeItemListStart
+  \resumeItem{{{DESCRIPCION_PROYECTO_1}}}
+\resumeItemListEnd
+
+\resumeProject{{{PROYECTO_2}}}{{{TECNOLOGIAS_2}}}
+\resumeItemListStart
+  \resumeItem{{{DESCRIPCION_PROYECTO_2}}}
+\resumeItemListEnd
+
+% ══ EDUCACIÓN ════════════════════════════════════════════════
+\section{Educaci\'on}
+
+\resumeSubheading
+  {{{TITULO_ACADEMICO_1}}}{{{ANIO_1}}}
+  {{{INSTITUCION_1}}}{{{CIUDAD_1}}}
+
+\resumeSubheading
+  {{{TITULO_ACADEMICO_2}}}{{{ANIO_2}}}
+  {{{INSTITUCION_2}}}{{{CIUDAD_2}}}
+
+% ══ PUBLICACIONES (opcional — omitir si no es relevante) ══════
+% \section{Publicaciones}
+% \resumeItem{Título. Evento/Revista, año. DOI: ...}
+
+\end{document}

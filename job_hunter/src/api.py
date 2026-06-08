@@ -3,6 +3,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 import json
 import logging
+import uuid
 import pg8000.dbapi as _pg8000
 from urllib.parse import urlparse as _urlparse
 import os
@@ -165,6 +166,8 @@ async def lifespan(app: FastAPI):
         _mc.close()
     app.state.health_watcher = DeepHealthWatcher(interval_seconds=20, dry_run=False)
     app.state.health_watcher.start()
+    # Sync inmediato al arrancar: corrige huérfanos Revisado_IA sin archivos
+    app.state.health_watcher.check_now(dry_run=False)
     yield
     watcher = getattr(app.state, "health_watcher", None)
     if watcher:
@@ -231,6 +234,38 @@ async def login(request: Request):
         raise HTTPException(status_code=401, detail="Credenciales inválidas.")
     token = create_token(row[0], email)
     return {"access_token": token, "token_type": "bearer", "user_id": row[0]}
+
+
+@app.post("/auth/register", status_code=201)
+async def register(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido.")
+    email    = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email y contraseña requeridos.")
+    conn = _db()
+    cur  = conn.cursor()
+    cur.execute("SELECT id FROM usuarios WHERE email=%s", (email,))
+    if cur.fetchone():
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=400, detail="El correo ya está registrado.")
+    user_id = uuid.uuid4().hex
+    cur.execute(
+        "INSERT INTO usuarios (user_id, email, hashed_password) VALUES (%s, %s, %s)",
+        (user_id, email, hash_password(password))
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    os.makedirs(_DATA_DIR, exist_ok=True)
+    profile_path = get_user_profile_path(user_id)
+    with open(profile_path, "w", encoding="utf-8") as f:
+        json.dump({"nombre": "", "titulo": "", "skills": []}, f)
+    return JSONResponse(status_code=201, content={"ok": True, "user_id": user_id})
 
 
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────

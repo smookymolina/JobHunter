@@ -5,7 +5,7 @@ export default auth((req) => {
   const isAuthenticated = !!req.auth
   const { pathname } = req.nextUrl
 
-  if (!isAuthenticated && pathname !== '/login') {
+  if (!isAuthenticated && pathname !== '/login' && pathname !== '/register') {
     const url = req.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

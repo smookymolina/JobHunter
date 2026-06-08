@@ -9,10 +9,10 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env')))
 
-from gemini_engine import OUTPUTS_DIR, compilar_pdf
+from gemini_engine import OUTPUTS_DIR, compilar_pdf, get_user_outputs_dir
 
 SYNC_STATUSES = {"No_Creado", "En_Proceso", "Revisado_IA", "Requiere_Correccion", "Listo_Manual"}
-_VACANTE_COLS = ["id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro"]
+_VACANTE_COLS = ["id", "user_id", "titulo", "empresa", "enlace", "requerimientos", "compatibilidad", "status", "fecha_registro"]
 
 
 def _db():
@@ -20,13 +20,13 @@ def _db():
     return _pg8000.connect(host=_u.hostname, port=_u.port or 5432, user=_u.username, password=_u.password, database=_u.path.lstrip('/'))
 
 
-def _set_status(vacante_id: int, status: str) -> None:
+def _set_status(vacante_id: int, status: str, user_id: str = 'default_user') -> None:
     conn = _db()
     try:
         cur = conn.cursor()
         cur.execute(
-            "UPDATE vacantes SET status=%s WHERE id=%s AND user_id='default_user'",
-            (status, vacante_id)
+            "UPDATE vacantes SET status=%s WHERE id=%s AND user_id=%s",
+            (status, vacante_id, user_id)
         )
         conn.commit()
         cur.close()
@@ -34,12 +34,12 @@ def _set_status(vacante_id: int, status: str) -> None:
         conn.close()
 
 
-def _pdf_path(vacante_id: int) -> str:
-    return os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vacante_id}.pdf"))
+def _pdf_path(vacante_id: int, user_id: str = 'default_user') -> str:
+    return os.path.abspath(os.path.join(get_user_outputs_dir(user_id), f"cv_vacante_{vacante_id}.pdf"))
 
 
-def _tex_path(vacante_id: int) -> str:
-    return os.path.abspath(os.path.join(OUTPUTS_DIR, f"cv_vacante_{vacante_id}.tex"))
+def _tex_path(vacante_id: int, user_id: str = 'default_user') -> str:
+    return os.path.abspath(os.path.join(get_user_outputs_dir(user_id), f"cv_vacante_{vacante_id}.tex"))
 
 
 def _fetch_vacantes(limit: int | None = None) -> list[dict[str, Any]]:
@@ -47,8 +47,8 @@ def _fetch_vacantes(limit: int | None = None) -> list[dict[str, Any]]:
     try:
         cur = conn.cursor()
         query = (
-            "SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro "
-            "FROM vacantes WHERE user_id='default_user' ORDER BY id DESC"
+            "SELECT id, user_id, titulo, empresa, enlace, requerimientos, compatibilidad, status, fecha_registro "
+            "FROM vacantes ORDER BY id DESC"
         )
         params: tuple[Any, ...] = ()
         if limit:
@@ -64,8 +64,9 @@ def _fetch_vacantes(limit: int | None = None) -> list[dict[str, Any]]:
 
 def _vacante_sync_state(vacante: dict[str, Any]) -> dict[str, Any]:
     vid = int(vacante["id"])
-    pdf = _pdf_path(vid)
-    tex = _tex_path(vid)
+    uid = str(vacante.get("user_id", "default_user"))
+    pdf = _pdf_path(vid, uid)
+    tex = _tex_path(vid, uid)
     return {
         "id": vid,
         "status": vacante.get("status", "No_Creado"),
@@ -78,6 +79,7 @@ def _vacante_sync_state(vacante: dict[str, Any]) -> dict[str, Any]:
 
 def _sync_one(vacante: dict[str, Any], dry_run: bool = True) -> dict[str, Any]:
     state = _vacante_sync_state(vacante)
+    uid   = str(vacante.get("user_id", "default_user"))
     desired = None
     error = None
 
@@ -96,10 +98,13 @@ def _sync_one(vacante: dict[str, Any], dry_run: bool = True) -> dict[str, Any]:
         except Exception as exc:
             desired = "Requiere_Correccion"
             error = str(exc)
+    elif state["status"] in {"Revisado_IA", "En_Proceso"}:
+        # Huérfano: status dice que hay CV pero no hay archivos → revertir
+        desired = "No_Creado"
 
     changed = desired is not None and desired != state["status"] and not dry_run
     if changed and desired:
-        _set_status(state["id"], desired)
+        _set_status(state["id"], desired, uid)
 
     return {
         **state,

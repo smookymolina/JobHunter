@@ -30,9 +30,9 @@ DB_PATH       = os.path.join(BASE_DIR, 'db', 'vacantes.db')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'latex_templates')
 OUTPUTS_DIR   = os.path.join(BASE_DIR, 'outputs')           # root outputs dir (kept for compat)
 
-_PROFILE_CANDIDATE = os.getenv("PROFILE_BASE_DIR", r"C:\Users\GIRTEC\Desktop\Trabajo\Trabajo")
-CONTEXT_DIR = _PROFILE_CANDIDATE if os.path.isdir(_PROFILE_CANDIDATE) \
-              else os.path.join(BASE_DIR, 'context')
+_PROFILE_CANDIDATE = os.getenv("PROFILE_BASE_DIR", "")
+CONTEXT_DIR = (_PROFILE_CANDIDATE if _PROFILE_CANDIDATE and os.path.isdir(_PROFILE_CANDIDATE)
+               else os.path.join(BASE_DIR, 'context'))
 
 TEMPLATE_CUSTOM  = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
 TEMPLATE_DEFAULT = os.path.join(TEMPLATES_DIR, 'default_template.tex')
