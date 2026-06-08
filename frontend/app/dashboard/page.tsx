@@ -66,17 +66,28 @@ export default function DashboardPage() {
   const [health, setHealth] = useState<SyncHealthReport | null>(null)
 
   const fetchVacantes = useCallback(async (silent = false) => {
+    let data: Vacante[] | null = null
+    let failed = false
     try {
-      const data = await api.vacantes()
+      data = await api.vacantes()
+    } catch {
+      // One retry after 500ms — covers auth-token race on hard reload
+      await new Promise<void>(r => setTimeout(r, 500))
+      try {
+        data = await api.vacantes()
+      } catch {
+        failed = true
+      }
+    }
+    if (data !== null) {
       setVacantes(data)
       if (!silent) setError('')
-    } catch {
-      if (!silent) setError('No se pudo conectar con la API. Verifica http://127.0.0.1:8000.')
-    } finally {
-      if (!silent) {
-        setLoading(false)
-        setSpinning(false)
-      }
+    } else if (failed && !silent) {
+      setError('No se pudo conectar con la API. Verifica http://127.0.0.1:8000.')
+    }
+    if (!silent) {
+      setLoading(false)
+      setSpinning(false)
     }
   }, [])
 

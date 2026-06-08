@@ -120,11 +120,11 @@ def start_heartbeat() -> None:
 
 def heartbeat_api() -> None:
     try:
-        req = urllib.request.Request(f"{API_BASE}/vacantes?limit=1", method="GET")
+        req = urllib.request.Request(f"{API_BASE}/", method="GET")
         with urllib.request.urlopen(req, timeout=5) as r:
             payload = json.loads(r.read().decode("utf-8"))
-        if not isinstance(payload, list):
-            raise RuntimeError("Respuesta inesperada del endpoint /vacantes")
+        if not payload.get("ok"):
+            raise RuntimeError("API no reporta estado OK")
         log.info("Conexión con API establecida: OK")
         print("Conexión con API establecida: OK")
     except Exception as e:
