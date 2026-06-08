@@ -28,11 +28,11 @@ export default function ConditionalLayout({ children }: { children: React.ReactN
   )
 
   return (
-    <>
+    <div className="flex h-full">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden pl-[220px]">
         {children}
       </div>
-    </>
+    </div>
   )
 }

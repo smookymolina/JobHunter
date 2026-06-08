@@ -43,13 +43,13 @@ export default function RegisterPage() {
   ].join(' ')
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#f8fafc] py-4 px-4"
+    <div className="min-h-screen w-full bg-[#f8fafc] dark:bg-[#020617] p-0 md:p-4 lg:p-8 transition-colors duration-300"
          style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
 
-      <div className="w-full max-w-[900px] min-h-[560px] grid grid-cols-1 md:grid-cols-2 rounded-2xl overflow-hidden border border-[#e2e8f0]">
+      <div className="w-full min-h-screen md:min-h-[calc(100vh-4rem)] grid grid-cols-1 md:grid-cols-2 md:rounded-2xl overflow-hidden border-y md:border border-[#e2e8f0] dark:border-[#1e293b] shadow-sm transition-colors duration-300">
 
         {/* ── Columna Izquierda (dark) ── */}
-        <div className="bg-[#0f172a] px-9 py-10 flex flex-col justify-between relative overflow-hidden">
+        <div className="bg-[#0f172a] dark:bg-[#020617] px-9 py-10 flex flex-col justify-between relative overflow-hidden transition-colors duration-300">
 
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             <div className="absolute rounded-full bg-[#e11d48]"
@@ -116,15 +116,15 @@ export default function RegisterPage() {
         </div>
 
         {/* ── Columna Derecha (light) ── */}
-        <div className="bg-white flex flex-col justify-center px-9 py-10">
+        <div className="bg-white dark:bg-[#0f172a] flex flex-col justify-center px-9 py-10 transition-colors duration-300">
 
           <div className="mb-7">
-            <h2 className="text-[20px] font-bold tracking-tight text-[#0f172a]">Registro de Cuenta</h2>
+            <h2 className="text-[20px] font-bold tracking-tight text-[#0f172a] dark:text-[#f1f5f9]">Registro de Cuenta</h2>
             <p className="text-[12px] text-[#94a3b8] mt-1">Crea tu cuenta gratuita para empezar</p>
           </div>
 
           {error && (
-            <div className="mb-4 rounded-[10px] border border-red-200 bg-red-50 px-4 py-3 text-[12px] text-red-600">
+            <div className="mb-4 rounded-[10px] border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800/50 px-4 py-3 text-[12px] text-red-600 dark:text-red-400">
               {error}
             </div>
           )}
@@ -132,7 +132,7 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit}>
 
             <div className="mb-3.5">
-              <label className="block text-[11px] font-medium text-[#64748b] mb-1.5 tracking-[.02em]">
+              <label className="block text-[11px] font-medium text-[#64748b] dark:text-[#94a3b8] mb-1.5 tracking-[.02em]">
                 Correo electrónico
               </label>
               <div className="relative">
@@ -148,15 +148,15 @@ export default function RegisterPage() {
                   onChange={e => setEmail(e.target.value)}
                   placeholder="tu@email.com"
                   required
-                  className={INPUT}
+                  className="w-full bg-white dark:bg-[#1e293b] border border-[#e2e8f0] dark:border-[#334155] text-[#0f172a] dark:text-[#f1f5f9] placeholder-slate-300 dark:placeholder-slate-500 rounded-[10px] pl-9 pr-3 py-[10px] text-[13px] outline-none transition-all duration-150"
                   onFocus={e => { e.target.style.borderColor = 'rgba(225,29,72,.5)'; e.target.style.boxShadow = '0 0 0 3px rgba(225,29,72,.08)' }}
-                  onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = '' }}
+                  onBlur={e => { e.target.style.borderColor = ''; e.target.style.boxShadow = '' }}
                 />
               </div>
             </div>
 
             <div className="mb-6">
-              <label className="block text-[11px] font-medium text-[#64748b] mb-1.5 tracking-[.02em]">
+              <label className="block text-[11px] font-medium text-[#64748b] dark:text-[#94a3b8] mb-1.5 tracking-[.02em]">
                 Contraseña
               </label>
               <div className="relative">
@@ -173,9 +173,9 @@ export default function RegisterPage() {
                   placeholder="••••••••"
                   required
                   minLength={6}
-                  className={INPUT}
+                  className="w-full bg-white dark:bg-[#1e293b] border border-[#e2e8f0] dark:border-[#334155] text-[#0f172a] dark:text-[#f1f5f9] placeholder-slate-300 dark:placeholder-slate-500 rounded-[10px] pl-9 pr-3 py-[10px] text-[13px] outline-none transition-all duration-150"
                   onFocus={e => { e.target.style.borderColor = 'rgba(225,29,72,.5)'; e.target.style.boxShadow = '0 0 0 3px rgba(225,29,72,.08)' }}
-                  onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = '' }}
+                  onBlur={e => { e.target.style.borderColor = ''; e.target.style.boxShadow = '' }}
                 />
               </div>
             </div>
@@ -183,10 +183,9 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 rounded-[10px] text-white py-[11px] text-[13px] font-semibold tracking-[.01em] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: '#0f172a' }}
-              onMouseOver={e => { if (!loading) { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.transform = 'scale(1.015)' } }}
-              onMouseOut={e => { e.currentTarget.style.background = '#0f172a'; e.currentTarget.style.transform = '' }}
+              className="w-full flex items-center justify-center gap-2 rounded-[10px] text-white dark:text-[#0f172a] py-[11px] text-[13px] font-semibold tracking-[.01em] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-[#0f172a] dark:bg-[#f1f5f9] hover:bg-[#1e293b] dark:hover:bg-white"
+              onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.015)' }}
+              onMouseOut={e => { e.currentTarget.style.transform = '' }}
             >
               {loading ? (
                 <>
@@ -202,7 +201,7 @@ export default function RegisterPage() {
 
           <p className="mt-6 text-center text-[11px] text-[#94a3b8]">
             ¿Ya tienes cuenta?{' '}
-            <Link href="/login" className="font-medium" style={{ color: '#e11d48', textDecoration: 'none' }}>
+            <Link href="/login" className="font-medium text-[#e11d48] dark:text-[#fb7185] no-underline">
               Inicia sesión
             </Link>
           </p>

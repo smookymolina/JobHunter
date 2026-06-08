@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${geist.variable} ${geistMono.variable} h-full dark`}
       suppressHydrationWarning
     >
-      <body className="flex h-full font-sans antialiased">
+      <body className="h-full font-sans antialiased">
         <script
           dangerouslySetInnerHTML={{
             __html: `try{var t=localStorage.getItem('theme');if(t==='light')document.documentElement.classList.remove('dark');}catch(e){}`,

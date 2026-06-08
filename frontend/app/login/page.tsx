@@ -34,13 +34,13 @@ function LoginPageContent() {
   ].join(' ')
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#f8fafc] py-4 px-4"
+    <div className="min-h-screen w-full bg-[#f8fafc] dark:bg-[#020617] p-0 md:p-4 lg:p-8 transition-colors duration-300"
          style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
 
-      <div className="w-full max-w-[900px] min-h-[560px] grid grid-cols-1 md:grid-cols-2 rounded-2xl overflow-hidden border border-[#e2e8f0]">
+      <div className="w-full min-h-screen md:min-h-[calc(100vh-4rem)] grid grid-cols-1 md:grid-cols-2 md:rounded-2xl overflow-hidden border-y md:border border-[#e2e8f0] dark:border-[#1e293b] shadow-sm transition-colors duration-300">
 
         {/* ── Columna Izquierda (dark) ── */}
-        <div className="bg-[#0f172a] px-9 py-10 flex flex-col justify-between relative overflow-hidden">
+        <div className="bg-[#0f172a] dark:bg-[#020617] px-9 py-10 flex flex-col justify-between relative overflow-hidden transition-colors duration-300">
 
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             <div className="absolute rounded-full bg-[#e11d48]"
@@ -107,21 +107,21 @@ function LoginPageContent() {
         </div>
 
         {/* ── Columna Derecha (light) ── */}
-        <div className="bg-white flex flex-col justify-center px-9 py-10">
+        <div className="bg-white dark:bg-[#0f172a] flex flex-col justify-center px-9 py-10 transition-colors duration-300">
 
           <div className="mb-7">
-            <h2 className="text-[20px] font-bold tracking-tight text-[#0f172a]">Bienvenido de vuelta</h2>
+            <h2 className="text-[20px] font-bold tracking-tight text-[#0f172a] dark:text-[#f1f5f9]">Bienvenido de vuelta</h2>
             <p className="text-[12px] text-[#94a3b8] mt-1">Inicia sesión para continuar con tu búsqueda</p>
           </div>
 
           {registered && (
-            <div className="mb-4 rounded-[10px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-700">
+            <div className="mb-4 rounded-[10px] border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800/50 px-4 py-3 text-[12px] text-emerald-700 dark:text-emerald-400">
               Cuenta creada correctamente. Inicia sesión para continuar.
             </div>
           )}
 
           {error && (
-            <div className="mb-4 rounded-[10px] border border-red-200 bg-red-50 px-4 py-3 text-[12px] text-red-600">
+            <div className="mb-4 rounded-[10px] border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800/50 px-4 py-3 text-[12px] text-red-600 dark:text-red-400">
               {error}
             </div>
           )}
@@ -129,7 +129,7 @@ function LoginPageContent() {
           <form onSubmit={handleSubmit}>
 
             <div className="mb-3.5">
-              <label className="block text-[11px] font-medium text-[#64748b] mb-1.5 tracking-[.02em]">
+              <label className="block text-[11px] font-medium text-[#64748b] dark:text-[#94a3b8] mb-1.5 tracking-[.02em]">
                 Correo electrónico
               </label>
               <div className="relative">
@@ -145,15 +145,15 @@ function LoginPageContent() {
                   onChange={e => setEmail(e.target.value)}
                   placeholder="tu@email.com"
                   required
-                  className={INPUT}
+                  className="w-full bg-white dark:bg-[#1e293b] border border-[#e2e8f0] dark:border-[#334155] text-[#0f172a] dark:text-[#f1f5f9] placeholder-slate-300 dark:placeholder-slate-500 rounded-[10px] pl-9 pr-3 py-[10px] text-[13px] outline-none transition-all duration-150"
                   onFocus={e => { e.target.style.borderColor = 'rgba(225,29,72,.5)'; e.target.style.boxShadow = '0 0 0 3px rgba(225,29,72,.08)' }}
-                  onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = '' }}
+                  onBlur={e => { e.target.style.borderColor = ''; e.target.style.boxShadow = '' }}
                 />
               </div>
             </div>
 
             <div className="mb-1">
-              <label className="block text-[11px] font-medium text-[#64748b] mb-1.5 tracking-[.02em]">
+              <label className="block text-[11px] font-medium text-[#64748b] dark:text-[#94a3b8] mb-1.5 tracking-[.02em]">
                 Contraseña
               </label>
               <div className="relative">
@@ -169,26 +169,24 @@ function LoginPageContent() {
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  className={INPUT}
+                  className="w-full bg-white dark:bg-[#1e293b] border border-[#e2e8f0] dark:border-[#334155] text-[#0f172a] dark:text-[#f1f5f9] placeholder-slate-300 dark:placeholder-slate-500 rounded-[10px] pl-9 pr-3 py-[10px] text-[13px] outline-none transition-all duration-150"
                   onFocus={e => { e.target.style.borderColor = 'rgba(225,29,72,.5)'; e.target.style.boxShadow = '0 0 0 3px rgba(225,29,72,.08)' }}
-                  onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = '' }}
+                  onBlur={e => { e.target.style.borderColor = ''; e.target.style.boxShadow = '' }}
                 />
               </div>
             </div>
 
             <a href="#"
-               className="block text-right text-[11px] mt-1.5 mb-4 cursor-pointer"
-               style={{ color: '#e11d48', textDecoration: 'none' }}>
+               className="block text-right text-[11px] mt-1.5 mb-4 cursor-pointer text-[#e11d48] dark:text-[#fb7185] no-underline">
               ¿Olvidaste tu contraseña?
             </a>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 rounded-[10px] text-white py-[11px] text-[13px] font-semibold tracking-[.01em] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: '#0f172a' }}
-              onMouseOver={e => { if (!loading) (e.currentTarget.style.background = '#1e293b'); (e.currentTarget.style.transform = 'scale(1.015)') }}
-              onMouseOut={e => { (e.currentTarget.style.background = '#0f172a'); (e.currentTarget.style.transform = '') }}
+              className="w-full flex items-center justify-center gap-2 rounded-[10px] text-white dark:text-[#0f172a] py-[11px] text-[13px] font-semibold tracking-[.01em] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-[#0f172a] dark:bg-[#f1f5f9] hover:bg-[#1e293b] dark:hover:bg-white"
+              onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.015)' }}
+              onMouseOut={e => { e.currentTarget.style.transform = '' }}
             >
               {loading ? (
                 <>
@@ -203,17 +201,15 @@ function LoginPageContent() {
           </form>
 
           <div className="flex items-center gap-2.5 my-4">
-            <div className="flex-1 h-px bg-[#f1f5f9]" />
+            <div className="flex-1 h-px bg-[#f1f5f9] dark:bg-[#1e293b]" />
             <span className="text-[10px] text-[#cbd5e1]">o continúa con</span>
-            <div className="flex-1 h-px bg-[#f1f5f9]" />
+            <div className="flex-1 h-px bg-[#f1f5f9] dark:bg-[#1e293b]" />
           </div>
 
           <button
             type="button"
             onClick={() => signIn('google')}
-            className="w-full flex items-center justify-center gap-2 rounded-[10px] border border-[#e2e8f0] bg-white text-[#374151] py-2.5 text-[12px] font-medium transition-all"
-            onMouseOver={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#d1d5db' }}
-            onMouseOut={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0' }}
+            className="w-full flex items-center justify-center gap-2 rounded-[10px] border border-[#e2e8f0] dark:border-[#334155] bg-white dark:bg-[#1e293b] text-[#374151] dark:text-[#f1f5f9] py-2.5 text-[12px] font-medium transition-all hover:bg-[#f8fafc] dark:hover:bg-[#334155] hover:border-[#d1d5db]"
           >
             <svg viewBox="0 0 24 24" className="w-3.5 h-3.5">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -226,7 +222,7 @@ function LoginPageContent() {
 
           <p className="mt-5 text-center text-[11px] text-[#94a3b8]">
             ¿No tienes cuenta?{' '}
-            <Link href="/register" className="font-medium" style={{ color: '#e11d48', textDecoration: 'none' }}>
+            <Link href="/register" className="font-medium text-[#e11d48] dark:text-[#fb7185] no-underline">
               Regístrate gratis
             </Link>
           </p>
