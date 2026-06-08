@@ -20,7 +20,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from auth import get_current_user, get_optional_user, hash_password, verify_password, create_token
+from auth import (
+    get_current_user,
+    get_optional_user,
+    hash_password,
+    verify_password,
+    create_token,
+    encrypt_token,
+    decrypt_token,
+)
 from gemini_engine import (
     TEMPLATES_DIR, DB_PATH, OUTPUTS_DIR, CONTEXT_DIR,
     get_user_outputs_dir, get_user_profile_path,
@@ -96,6 +104,18 @@ def _blacklist_add(conn, enlace: str, titulo: str, user_id: str = 'default_user'
     cur.close()
 
 
+def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT role FROM usuarios WHERE user_id=%s", (current_user["user_id"],))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row or row[0] != 'admin':
+        raise HTTPException(status_code=403, detail="Acceso restringido a administradores.")
+    return current_user
+
+
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -146,13 +166,34 @@ async def lifespan(app: FastAPI):
         # usuarios table
         _cur.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
-                id              SERIAL PRIMARY KEY,
-                user_id         VARCHAR(50) UNIQUE NOT NULL,
-                email           VARCHAR(255) UNIQUE NOT NULL,
-                hashed_password TEXT NOT NULL,
-                created_at      TIMESTAMP DEFAULT NOW()
+                id                       SERIAL PRIMARY KEY,
+                user_id                  VARCHAR(50) UNIQUE NOT NULL,
+                email                    VARCHAR(255) UNIQUE NOT NULL,
+                hashed_password          TEXT NOT NULL,
+                tier                     VARCHAR(20) DEFAULT 'free' NOT NULL,
+                role                     VARCHAR(20) DEFAULT 'user' NOT NULL,
+                telegram_token_encrypted VARCHAR(500) DEFAULT NULL,
+                vacantes_limite          INT DEFAULT 5 NOT NULL,
+                latex_limite             INT DEFAULT 3 NOT NULL,
+                latex_generados          INT DEFAULT 0 NOT NULL,
+                created_at               TIMESTAMP DEFAULT NOW()
             )
         """)
+        # Migrate: add columns to existing installations
+        _cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='usuarios'")
+        _usr_cols = {r[0] for r in _cur.fetchall()}
+        if 'tier' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN tier VARCHAR(20) DEFAULT 'free' NOT NULL")
+        if 'role' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN role VARCHAR(20) DEFAULT 'user' NOT NULL")
+        if 'telegram_token_encrypted' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN telegram_token_encrypted VARCHAR(500) DEFAULT NULL")
+        if 'vacantes_limite' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN vacantes_limite INT DEFAULT 5 NOT NULL")
+        if 'latex_limite' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_limite INT DEFAULT 3 NOT NULL")
+        if 'latex_generados' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_generados INT DEFAULT 0 NOT NULL")
         # Seed default_user — keeps link to the 33 migrated vacantes
         _cur.execute("SELECT id FROM usuarios WHERE user_id='default_user'")
         if not _cur.fetchone():
@@ -160,6 +201,16 @@ async def lifespan(app: FastAPI):
                 "INSERT INTO usuarios (user_id, email, hashed_password) VALUES ('default_user', %s, %s)",
                 ('test@jobhunter.com', hash_password('jobhunter123'))
             )
+        # God Mode: default_user always admin + unlimited credits
+        _cur.execute(
+            "UPDATE usuarios SET tier='pro', role='admin', vacantes_limite=9999, latex_limite=9999 "
+            "WHERE user_id='default_user'"
+        )
+        # Elevate founder account + unlimited credits
+        _cur.execute(
+            "UPDATE usuarios SET role='admin', vacantes_limite=9999, latex_limite=9999 "
+            "WHERE email='speedysmoking@gmail.com'"
+        )
         _mc.commit()
         _cur.close()
     finally:
@@ -183,6 +234,48 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Models ────────────────────────────────────────────────────────────────────
+
+class VacanteCreate(BaseModel):
+    titulo: str = Field(min_length=1, max_length=200)
+    empresa: str = Field(default="Desconocida", max_length=100)
+    enlace: str = Field(default="", max_length=500)
+    requerimientos: str = Field(default="", max_length=5000)
+    compatibilidad: str = Field(default="Nula")
+
+
+class VacanteBulkItem(BaseModel):
+    titulo: str = Field(min_length=1, max_length=200)
+    empresa: str = Field(default="Desconocida", max_length=100)
+    enlace: str = Field(default="", max_length=500)
+    requerimientos: str = Field(default="", max_length=5000)
+
+
+class FiltrosBusqueda(BaseModel):
+    ubicacion: str  = Field(default="", description="Ciudad o estado — vacío = cualquiera")
+    modalidad: str  = Field(default="any", description="any | remoto | hibrido | presencial")
+    pais:      str  = Field(default="Mexico", description="Mexico | España | Argentina | Colombia | Internacional")
+
+
+class ScrapeRequest(BaseModel):
+    cantidad: int = Field(ge=1, le=200, description="Vacantes a extraer (máximo global)")
+    terminos: list[str] | None = Field(default=None, description="Términos de búsqueda (None = usar perfil_maestro.json)")
+    filtros:  FiltrosBusqueda  = Field(default_factory=FiltrosBusqueda)
+
+
+class TierUpdate(BaseModel):
+    tier: str
+
+
+class TelegramTokenSetRequest(BaseModel):
+    password: str = Field(min_length=1)
+    telegram_token: str = Field(min_length=1, max_length=500)
+
+
+class TelegramTokenRevealRequest(BaseModel):
+    password: str = Field(min_length=1)
 
 
 # ── Heartbeats ────────────────────────────────────────────────────────────────
@@ -265,7 +358,95 @@ async def register(request: Request):
     profile_path = get_user_profile_path(user_id)
     with open(profile_path, "w", encoding="utf-8") as f:
         json.dump({"nombre": "", "titulo": "", "skills": []}, f)
-    return JSONResponse(status_code=201, content={"ok": True, "user_id": user_id})
+    token = create_token(user_id, email)
+    return JSONResponse(status_code=201, content={"access_token": token, "token_type": "bearer", "user_id": user_id})
+
+
+@app.get("/auth/me")
+def get_me(current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT email, tier, role, telegram_token_encrypted, vacantes_limite, latex_limite, latex_generados "
+        "FROM usuarios WHERE user_id=%s", (uid,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    return {
+        "user_id": uid, "email": row[0], "tier": row[1], "role": row[2],
+        "has_telegram_bot": bool(row[3]),
+        "vacantes_limite": row[4], "latex_limite": row[5], "latex_generados": row[6],
+    }
+
+
+@app.post("/perfil/telegram/set")
+def set_telegram_token(body: TelegramTokenSetRequest, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT hashed_password FROM usuarios WHERE user_id=%s", (uid,))
+    row = cur.fetchone()
+    if not row or not verify_password(body.password, row[0]):
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta.")
+    encrypted = encrypt_token(body.telegram_token.strip())
+    cur.execute(
+        "UPDATE usuarios SET telegram_token_encrypted=%s WHERE user_id=%s",
+        (encrypted, uid),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/perfil/telegram/reveal")
+def reveal_telegram_token(body: TelegramTokenRevealRequest, current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT hashed_password, telegram_token_encrypted FROM usuarios WHERE user_id=%s", (uid,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if not verify_password(body.password, row[0]):
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta.")
+    if not row[1]:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Token de Telegram no configurado.")
+    token = decrypt_token(row[1])
+    cur.close()
+    conn.close()
+    return {"telegram_token": token}
+
+
+@app.get("/bot/telegram-token")
+def get_bot_telegram_token(current_user: dict = Depends(get_current_user)):
+    """Internal: bot.py calls this at startup to auto-load the user's Telegram token.
+    Authenticated via BOT_MASTER_TOKEN — no password required (internal service only)."""
+    uid = current_user["user_id"]
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT telegram_token_encrypted FROM usuarios WHERE user_id=%s", (uid,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row or not row[0]:
+        raise HTTPException(
+            status_code=404,
+            detail="Token de Telegram no configurado. Guárdalo en Perfil → Configurar Token."
+        )
+    return {"telegram_token": decrypt_token(row[0]), "user_id": uid}
 
 
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────
@@ -317,35 +498,6 @@ def _regenerate_mi_perfil(data: dict) -> None:
     ])
     with open(os.path.join(CONTEXT_DIR, "mi_perfil.md"), "w", encoding="utf-8") as f:
         f.write(md)
-
-
-# ── Models ────────────────────────────────────────────────────────────────────
-
-class VacanteCreate(BaseModel):
-    titulo: str = Field(min_length=1, max_length=200)
-    empresa: str = Field(default="Desconocida", max_length=100)
-    enlace: str = Field(default="", max_length=500)
-    requerimientos: str = Field(default="", max_length=5000)
-    compatibilidad: str = Field(default="Nula")
-
-
-class VacanteBulkItem(BaseModel):
-    titulo: str = Field(min_length=1, max_length=200)
-    empresa: str = Field(default="Desconocida", max_length=100)
-    enlace: str = Field(default="", max_length=500)
-    requerimientos: str = Field(default="", max_length=5000)
-
-
-class FiltrosBusqueda(BaseModel):
-    ubicacion: str  = Field(default="", description="Ciudad o estado — vacío = cualquiera")
-    modalidad: str  = Field(default="any", description="any | remoto | hibrido | presencial")
-    pais:      str  = Field(default="Mexico", description="Mexico | España | Argentina | Colombia | Internacional")
-
-
-class ScrapeRequest(BaseModel):
-    cantidad: int = Field(ge=1, le=200, description="Vacantes a extraer (máximo global)")
-    terminos: list[str] | None = Field(default=None, description="Términos de búsqueda (None = usar perfil_maestro.json)")
-    filtros:  FiltrosBusqueda  = Field(default_factory=FiltrosBusqueda)
 
 
 # ── Endpoint constants ────────────────────────────────────────────────────────
@@ -597,6 +749,20 @@ async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current
     from inspector import evaluar_cv
 
     uid  = current_user["user_id"]
+
+    # LaTeX credit gate
+    _cv_conn = _db()
+    _cv_cur  = _cv_conn.cursor()
+    _cv_cur.execute("SELECT latex_limite, latex_generados FROM usuarios WHERE user_id=%s", (uid,))
+    _cv_row = _cv_cur.fetchone()
+    _cv_cur.close()
+    _cv_conn.close()
+    if _cv_row and _cv_row[1] >= _cv_row[0]:
+        raise HTTPException(
+            status_code=403,
+            detail="Límite de generaciones LaTeX agotado. Adquiere un paquete para continuar."
+        )
+
     loop = asyncio.get_event_loop()
     try:
         tex_path, pdf_path = await loop.run_in_executor(
@@ -612,6 +778,14 @@ async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current
     auditoria = await loop.run_in_executor(None, evaluar_cv, vid, tex_path)
     tiene_pdf = bool(pdf_path and os.path.exists(pdf_path))
 
+    # Increment LaTeX counter
+    _inc_conn = _db()
+    _inc_cur  = _inc_conn.cursor()
+    _inc_cur.execute("UPDATE usuarios SET latex_generados = latex_generados + 1 WHERE user_id=%s", (uid,))
+    _inc_conn.commit()
+    _inc_cur.close()
+    _inc_conn.close()
+
     return {
         "ok":         True,
         "aprobado":   auditoria["aprobado"],
@@ -625,7 +799,7 @@ async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current
 # ── CRUD vacantes ─────────────────────────────────────────────────────────────
 
 @app.post("/vacantes")
-def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_optional_user)):
+def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_current_user)):
     uid = current_user["user_id"]
     enlace = body.enlace.strip()
     conn = _db()
@@ -633,6 +807,14 @@ def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_optional
         conn.close()
         return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante eliminada previamente", "blacklisted": True})
     cur = conn.cursor()
+    # Paywall: credit-based vacante limit
+    cur.execute("SELECT vacantes_limite FROM usuarios WHERE user_id=%s", (uid,))
+    _lim = (cur.fetchone() or [5])[0]
+    cur.execute("SELECT COUNT(*) FROM vacantes WHERE user_id=%s", (uid,))
+    if cur.fetchone()[0] >= _lim:
+        cur.close()
+        conn.close()
+        return JSONResponse(status_code=403, content={"ok": False, "detail": "Límite de vacantes alcanzado. Adquiere un paquete para continuar."})
     cur.execute("SELECT id FROM vacantes WHERE enlace=%s AND user_id=%s", (enlace, uid))
     existing = cur.fetchone()
     if existing:
@@ -666,13 +848,21 @@ def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_optional
 
 
 @app.post("/vacantes/bulk")
-def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depends(get_optional_user)):
+def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depends(get_current_user)):
     if not items:
         raise HTTPException(status_code=400, detail="El arreglo JSON esta vacio.")
 
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
+    # Paywall: credit-based vacante limit
+    cur.execute("SELECT vacantes_limite FROM usuarios WHERE user_id=%s", (uid,))
+    _lim = (cur.fetchone() or [5])[0]
+    cur.execute("SELECT COUNT(*) FROM vacantes WHERE user_id=%s", (uid,))
+    if cur.fetchone()[0] >= _lim:
+        cur.close()
+        conn.close()
+        return JSONResponse(status_code=403, content={"ok": False, "detail": "Límite de vacantes alcanzado. Adquiere un paquete para continuar."})
     insertados = 0
     duplicados = 0
     omitidos = 0
@@ -885,7 +1075,11 @@ async def save_perfil_maestro(request: Request, current_user: dict = Depends(get
     try:
         data = await request.json()
     except Exception:
+        _log.error("POST /api/perfil → JSON inválido")
         raise HTTPException(status_code=400, detail="JSON inválido.")
+    
+    _log.info("POST /api/perfil → Guardando perfil para user_id=%s", uid)
+    
     required = {"nombre", "apellidos", "email"}
     missing = required - set(data.keys())
     if missing:
@@ -935,6 +1129,46 @@ def download_template():
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Plantilla no encontrada.")
     return FileResponse(path, filename=os.path.basename(path), media_type='text/plain')
+
+
+# ── Admin endpoints ───────────────────────────────────────────────────────────
+
+@app.get("/admin/users")
+def admin_list_users(current_user: dict = Depends(require_admin)):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, email, tier, role, created_at FROM usuarios ORDER BY created_at")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    cols = ["user_id", "email", "tier", "role", "fecha_creacion"]
+    return JSONResponse(content=[_row_dict(cols, r) for r in rows], headers={"Cache-Control": "no-store"})
+
+
+@app.patch("/admin/users/{user_id}/tier")
+def admin_update_tier(user_id: str, body: TierUpdate, current_user: dict = Depends(require_admin)):
+    tiers = {
+        "free": {"v": 5, "l": 3},
+        "pro": {"v": 20, "l": 12},
+        "ultimate": {"v": 50, "l": 35}
+    }
+    if body.tier not in tiers:
+        raise HTTPException(status_code=400, detail="tier debe ser 'free', 'pro' o 'ultimate'")
+    
+    limits = tiers[body.tier]
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE usuarios SET tier=%s, vacantes_limite=%s, latex_limite=%s WHERE user_id=%s",
+        (body.tier, limits["v"], limits["l"], user_id)
+    )
+    conn.commit()
+    changes = cur.rowcount
+    cur.close()
+    conn.close()
+    if not changes:
+        raise HTTPException(status_code=404, detail=f"Usuario {user_id} no encontrado.")
+    return {"ok": True, "user_id": user_id, "tier": body.tier}
 
 
 # ── Background tasks ──────────────────────────────────────────────────────────

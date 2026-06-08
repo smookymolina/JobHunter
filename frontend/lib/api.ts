@@ -6,6 +6,13 @@ export function setAuthToken(token: string | null) {
   _token = token
 }
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 export interface PerfilMaestro {
   nombre: string
   apellidos: string
@@ -121,7 +128,16 @@ async function req<T>(input: string, init?: RequestInit): Promise<T> {
   const hdrs: Record<string, string> = { ...(init?.headers as Record<string, string> ?? {}) }
   if (_token) hdrs['Authorization'] = `Bearer ${_token}`
   const res = await fetch(`${API}${input}`, { ...init, headers: hdrs })
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    let detail = `API ${res.status}`
+    try {
+      const body = await res.json() as Record<string, unknown>
+      detail = (body?.detail as string) ?? detail
+    } catch {
+      try { detail = (await res.text()) || detail } catch { /* ignore */ }
+    }
+    throw new ApiError(res.status, detail)
+  }
   return res.json() as Promise<T>
 }
 
@@ -248,5 +264,36 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
+    }),
+
+  me: () =>
+    req<{
+      user_id: string; email: string; tier: string; role: string;
+      has_telegram_bot: boolean;
+      vacantes_limite: number; latex_limite: number; latex_generados: number;
+    }>('/auth/me'),
+
+  setTelegramToken: (password: string, telegram_token: string) =>
+    req<{ ok: boolean }>('/perfil/telegram/set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, telegram_token }),
+    }),
+
+  revealTelegramToken: (password: string) =>
+    req<{ telegram_token: string }>('/perfil/telegram/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    }),
+
+  adminUsers: () =>
+    req<{ user_id: string; email: string; tier: string; role: string; fecha_creacion: string }[]>('/admin/users'),
+
+  adminUpdateTier: (user_id: string, tier: 'free' | 'pro') =>
+    req<{ ok: boolean; user_id: string; tier: string }>(`/admin/users/${user_id}/tier`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier }),
     }),
 }

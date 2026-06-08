@@ -132,7 +132,10 @@ def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bo
     req = urllib.request.Request(
         f"{API_BASE}/vacantes",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {os.getenv('BOT_MASTER_TOKEN', 'BOT_MASTER_TOKEN_2026')}",
+        },
         method="POST",
     )
     try:

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FileJson, Loader2, Plus, RefreshCw, Search, Upload, X } from 'lucide-react'
-import { api, type VacanteBulkInput, type FiltrosBusqueda } from '@/lib/api'
+import Link from 'next/link'
+import { api, ApiError, type VacanteBulkInput, type FiltrosBusqueda } from '@/lib/api'
 
 type Tab = 'manual' | 'bulk' | 'scrape'
 type State = 'idle' | 'saving' | 'success' | 'error'
@@ -24,6 +25,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
   const [tab, setTab] = useState<Tab>('manual')
   const [state, setState] = useState<State>('idle')
   const [message, setMessage] = useState('')
+  const [isPaywall, setIsPaywall] = useState(false)
   const [manual, setManual] = useState(EMPTY_MANUAL)
   const [bulkItems, setBulkItems] = useState<VacanteBulkInput[]>([])
   const [bulkName, setBulkName] = useState('')
@@ -54,6 +56,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       setTab('manual')
       setState('idle')
       setMessage('')
+      setIsPaywall(false)
       setManual(EMPTY_MANUAL)
       setBulkItems([])
       setBulkName('')
@@ -124,9 +127,21 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
     }
   }
 
+  const _handleError = (error: unknown, fallback: string) => {
+    setState('error')
+    if (error instanceof ApiError && error.status === 403) {
+      setIsPaywall(true)
+      setMessage('Límite de vacantes alcanzado.')
+    } else {
+      setIsPaywall(false)
+      setMessage(error instanceof Error ? error.message : fallback)
+    }
+  }
+
   const submitManual = async () => {
     setState('saving')
     setMessage('')
+    setIsPaywall(false)
     try {
       await api.createVacante(manual)
       setState('success')
@@ -134,14 +149,14 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       onSuccess()
       onClose()
     } catch (error) {
-      setState('error')
-      setMessage(error instanceof Error ? error.message : 'No se pudo crear la vacante.')
+      _handleError(error, 'No se pudo crear la vacante.')
     }
   }
 
   const submitBulk = async () => {
     setState('saving')
     setMessage('')
+    setIsPaywall(false)
     try {
       const res = await api.bulkVacantes(bulkItems)
       setState('success')
@@ -149,8 +164,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       onSuccess()
       onClose()
     } catch (error) {
-      setState('error')
-      setMessage(error instanceof Error ? error.message : 'No se pudo importar el JSON.')
+      _handleError(error, 'No se pudo importar el JSON.')
     }
   }
 
@@ -445,7 +459,21 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                 ? <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                 : <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
               }
-              <p className="leading-relaxed">{message}</p>
+              <p className="leading-relaxed">
+                {message}
+                {isPaywall && (
+                  <>
+                    {' '}
+                    <Link
+                      href="/pricing"
+                      onClick={onClose}
+                      className="font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity"
+                    >
+                      Ver planes de mejora →
+                    </Link>
+                  </>
+                )}
+              </p>
             </div>
           )}
 

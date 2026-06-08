@@ -39,30 +39,18 @@ Romper este cuello de botella es la mejora más impactante y debe ser la funció
 
 ## CATEGORÍA 1 — GENERACIÓN DE CV AUTÓNOMA (impacto crítico)
 
-### 1.1 Generación one-click desde el Dashboard
+### 1.1 Generación one-click desde el Dashboard (COMPLETADO ✅)
 
-**Problema actual**: el usuario debe abrir Claude Desktop, copiar el prompt MCP, pegarlo y esperar.
-Son ~5 pasos manuales por vacante. Con 20 vacantes/día = 100 acciones manuales.
-
-**Solución**: botón "Generar CV" directamente en la VacanteCard que llame a `POST /generar_cv/{id}`.
-El endpoint ya existe en el backend (`gemini_engine.py` + Groq). Solo falta conectarlo al botón del frontend.
+**Solución**: Botón "Generar CV" directamente en la VacanteCard que llama a `POST /generar_cv/{id}`.
 
 **Implementación**:
-```
-Frontend: VacanteCard → botón "Generar CV" → POST /generar_cv/{id}
-Backend:  /generar_cv/{id} ya existe — usa Groq (llama3-8b-8192) + pdflatex
-UI:       status → En_Proceso (spinner) → Revisado_IA automático (polling lo detecta)
-```
-
-**Tier**: FREE — el endpoint ya existe, solo falta el botón y conectarlo al flujo Kanban.
-
-**Archivos a modificar**:
-- `frontend/components/VacanteCard.tsx` — agregar botón "Generar CV" en estado No_Creado/Requiere_Correccion
-- `frontend/lib/api.ts` — agregar `api.generarCv(id)` si no existe
+- Frontend: `VacanteCard` llama a `api.generarCv(id)`.
+- Backend: `api.py` usa `gemini_engine.py` (Groq) para generar LaTeX y compilar PDF.
+- UI: El estado cambia a `En_Proceso` y luego a `Revisado_IA` automáticamente.
 
 ---
 
-### 1.2 Generación batch (múltiples vacantes en cola)
+### 1.2 Generación batch (múltiples vacantes en cola) (PENDIENTE ⏳)
 
 **Problema**: con 20 vacantes nuevas, el usuario genera una por una.
 
@@ -255,28 +243,15 @@ async def evaluar_compatibilidad_detallada(vacante: dict, perfil: dict) -> dict:
 **Tier**: FREE = nivel actual (Alta/Media/Baja); PRO = score numérico + breakdown detallado.
 
 ---
+### 3.2 Ranking automático de vacantes (COMPLETADO ✅)
 
-### 3.2 Ranking automático de vacantes
+**Solución**: Ordenar Kanban por favorito y score de compatibilidad descendente.
 
-**Problema**: las vacantes aparecen en orden de inserción, no por match con el perfil.
-
-**Solución**: ordenar Kanban por score de compatibilidad descendente. Las vacantes más afines aparecen primero.
-
-**Implementación**:
-```tsx
-// frontend: toggle en Dashboard "Ordenar por compatibilidad"
-// Alta → Media → Baja → Nula dentro de cada columna
-// badge de score si disponible (PRO)
-```
-
-```python
-# backend: GET /vacantes acepta ?order_by=compatibilidad
-```
-
-**Tier**: FREE — solo requiere ordenar la lista existente.
+**Implementación**: `KanbanBoard.tsx` implementa `sortColumn` usando un mapa de pesos para Alta, Media, Baja y Nula.
 
 ---
 
+### 6.2 Búsqueda y filtros en el Kanban (PENDIENTE ⏳)
 ## CATEGORÍA 4 — GESTIÓN DE CV (impacto alto)
 
 ### 4.1 Historial de versiones de CV por vacante

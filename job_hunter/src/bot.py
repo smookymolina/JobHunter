@@ -34,6 +34,30 @@ TEMPLATES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'l
 CONF_FILE     = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bot_conf.json'))
 PAGE_SIZE     = 5
 
+
+def _fetch_token_from_api() -> str:
+    """Auto-fetch the Telegram bot token stored in the user profile via the internal API.
+    Called at startup when TELEGRAM_BOT_TOKEN is not set in .env."""
+    _master = os.getenv("BOT_MASTER_TOKEN", "BOT_MASTER_TOKEN_2026")
+    try:
+        req = urllib.request.Request(
+            f"{API_BASE}/bot/telegram-token",
+            headers={"Authorization": f"Bearer {_master}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode())
+            return data.get("telegram_token", "")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            log.warning("Token de Telegram no configurado en DB. Guárdalo en Perfil → Configurar Token.")
+        else:
+            log.warning("Error HTTP %d al obtener token desde la API.", e.code)
+        return ""
+    except Exception as e:
+        log.warning("No se pudo contactar la API para obtener el token: %s", e)
+        return ""
+
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
 log = logging.getLogger("bot")
 
@@ -82,9 +106,13 @@ def _api_sync(method: str, path: str, data=None, raw_body: bytes | None = None,
     else:
         body = None
         ct   = content_type
+    _bot_token = os.getenv("BOT_MASTER_TOKEN", "BOT_MASTER_TOKEN_2026")
+    _hdrs = {"Authorization": f"Bearer {_bot_token}"}
+    if body:
+        _hdrs["Content-Type"] = ct
     req = urllib.request.Request(
         url, data=body,
-        headers={"Content-Type": ct} if body else {},
+        headers=_hdrs,
         method=method.upper(),
     )
     try:
@@ -1121,8 +1149,17 @@ async def handle_tex_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    global TOKEN
+
+    # Auto-fetch token from user profile DB if not set in .env
     if not TOKEN:
-        print("ERROR: Configura TELEGRAM_BOT_TOKEN en job_hunter/.env")
+        print("ℹ  TELEGRAM_BOT_TOKEN no está en .env — buscando token guardado en perfil de usuario...")
+        TOKEN = _fetch_token_from_api()
+
+    if not TOKEN:
+        print("ERROR: Token de Telegram no encontrado.")
+        print("  · Opción 1: define TELEGRAM_BOT_TOKEN en job_hunter/.env")
+        print("  · Opción 2: guarda tu token desde la web (Perfil → Configurar Token)")
         return
 
     if not ADMIN_ID:

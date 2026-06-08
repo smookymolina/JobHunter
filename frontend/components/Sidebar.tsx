@@ -12,11 +12,14 @@ import {
   Archive,
   LogOut,
   ChevronUp,
+  Shield,
+  Sparkles,
 } from 'lucide-react'
-import { signOut } from 'next-auth/react'
+import { signOut, useSession } from 'next-auth/react'
 import ThemeToggle from '@/components/ui/ThemeToggle'
 import UserAvatar from '@/components/ui/UserAvatar'
 import { useAvatar } from '@/context/AvatarContext'
+import { api } from '@/lib/api'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000'
 
@@ -90,8 +93,21 @@ const nav = [
 export default function Sidebar() {
   const path = usePathname()
   const { initials } = useAvatar()
+  const { data: session } = useSession()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [credits, setCredits] = useState<{ generados: number; limite: number } | null>(null)
+
+  useEffect(() => {
+    if (!(session as any)?.accessToken) return
+    api.me().then(u => {
+      setIsAdmin(u.role === 'admin')
+      if (u.latex_limite < 9999) {
+        setCredits({ generados: u.latex_generados, limite: u.latex_limite })
+      }
+    }).catch(() => {})
+  }, [(session as any)?.accessToken])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -104,21 +120,21 @@ export default function Sidebar() {
   }, [isProfileOpen])
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-50 flex w-[220px] flex-col border-r border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950">
+    <aside className="fixed inset-y-0 left-0 z-50 flex w-[220px] flex-col border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 transition-colors">
       {/* Brand */}
-      <div className="flex items-center gap-2.5 border-b border-slate-100 px-4 py-[18px] dark:border-slate-800">
+      <div className="flex items-center gap-2.5 border-b border-slate-200 dark:border-slate-800 px-4 py-[18px]">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-rose-600 shadow-md shadow-rose-500/25">
           <Zap size={13} className="text-white" />
         </div>
         <div>
           <p className="text-[13px] font-semibold leading-none text-slate-900 dark:text-slate-100">Job Hunter</p>
-          <p className="mt-0.5 text-[10px] leading-none text-slate-400 dark:text-slate-500">CV Automation</p>
+          <p className="mt-0.5 text-[10px] leading-none text-slate-500 dark:text-slate-400">CV Automation</p>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-3">
-        <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600">
+        <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
           Main
         </p>
         {nav.map(({ href, label, icon: Icon }) => {
@@ -129,8 +145,8 @@ export default function Sidebar() {
               href={href}
               className={`group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] transition-colors duration-150 ${
                 active
-                  ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white'
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200'
+                  ? 'bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white shadow-sm ring-1 ring-slate-200 dark:ring-white/10'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               {active && (
@@ -145,6 +161,32 @@ export default function Sidebar() {
           )
         })}
 
+        {isAdmin && (
+          <>
+            <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+            <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600">
+              Admin
+            </p>
+            <Link
+              href="/admin"
+              className={`group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] transition-colors duration-150 ${
+                path === '/admin'
+                  ? 'bg-slate-100 dark:bg-slate-800 font-medium text-slate-900 dark:text-white'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >
+              {path === '/admin' && (
+                <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-rose-500" />
+              )}
+              <Shield
+                size={14}
+                className={path === '/admin' ? 'text-rose-500 dark:text-rose-400' : 'text-slate-400 dark:text-slate-500'}
+              />
+              Administración
+            </Link>
+          </>
+        )}
+
         <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
         <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-600">
           Sistema
@@ -153,26 +195,49 @@ export default function Sidebar() {
       </nav>
 
       {/* Theme toggle + User */}
-      <div className="border-t border-slate-100 p-2.5 dark:border-slate-800">
+      <div className="border-t border-slate-100 dark:border-slate-800 p-2.5">
+        {credits !== null && (
+          <Link
+            href="/pricing"
+            className="mb-2 flex flex-col gap-1.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 transition-colors hover:bg-emerald-500/15"
+          >
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                <Sparkles size={11} />
+                CVs generados
+              </span>
+              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                {credits.generados}/{credits.limite}
+              </span>
+            </div>
+            <div className="h-1 w-full overflow-hidden rounded-full bg-emerald-200 dark:bg-emerald-900/50">
+              <div
+                className="h-full rounded-full bg-emerald-500 dark:bg-emerald-400 transition-all"
+                style={{ width: `${Math.min(100, (credits.generados / credits.limite) * 100)}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-emerald-600/70 dark:text-emerald-500/70">Ver paquetes →</span>
+          </Link>
+        )}
         <div className="mb-2 flex justify-center">
           <ThemeToggle />
         </div>
         <div ref={profileRef} className="relative">
           {/* Dropdown menu (floats above) */}
           {isProfileOpen && (
-            <div className="absolute bottom-full left-0 right-0 mb-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            <div className="absolute bottom-full left-0 right-0 mb-1 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg shadow-black/5 dark:shadow-black/40">
               <Link
                 href="/perfil"
                 onClick={() => setIsProfileOpen(false)}
-                className="flex items-center gap-2.5 px-3 py-2.5 text-[12px] text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                className="flex items-center gap-2.5 px-3 py-2.5 text-[12px] text-slate-600 dark:text-slate-400 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200"
               >
-                <UserCircle size={13} className="text-slate-400" />
+                <UserCircle size={13} className="text-slate-400 dark:text-slate-500" />
                 Perfil &amp; Settings
               </Link>
               <div className="mx-2 border-t border-slate-100 dark:border-slate-800" />
               <button
                 onClick={() => signOut({ callbackUrl: '/login' })}
-                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[12px] text-rose-500 transition-colors hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[12px] text-rose-500 dark:text-rose-400 transition-colors hover:bg-rose-50 dark:hover:bg-rose-950/30"
               >
                 <LogOut size={13} />
                 Cerrar sesión
@@ -186,7 +251,7 @@ export default function Sidebar() {
             <UserAvatar initials={initials} size={28} shape="full" />
             <div className="min-w-0 flex-1 text-left">
               <p className="truncate text-[12px] font-medium text-slate-700 dark:text-slate-300">Mi Cuenta</p>
-              <p className="truncate text-[10px] text-slate-400 dark:text-slate-600">Personal Plan</p>
+              <p className="truncate text-[10px] text-slate-400 dark:text-slate-500">Personal Plan</p>
             </div>
             <ChevronUp
               size={13}

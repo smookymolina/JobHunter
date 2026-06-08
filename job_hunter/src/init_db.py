@@ -33,6 +33,19 @@ SCHEMA_SQL = [
         fecha_eliminacion TIMESTAMP DEFAULT NOW(),
         UNIQUE(user_id, enlace)
     )""",
+    """CREATE TABLE IF NOT EXISTS usuarios (
+        id                       SERIAL PRIMARY KEY,
+        user_id                  VARCHAR(50) UNIQUE NOT NULL,
+        email                    VARCHAR(255) UNIQUE NOT NULL,
+        hashed_password          TEXT NOT NULL,
+        tier                     VARCHAR(20) DEFAULT 'free' NOT NULL,
+        role                     VARCHAR(20) DEFAULT 'user' NOT NULL,
+        telegram_token_encrypted VARCHAR(500) DEFAULT NULL,
+        vacantes_limite          INT DEFAULT 5 NOT NULL,
+        latex_limite             INT DEFAULT 3 NOT NULL,
+        latex_generados          INT DEFAULT 0 NOT NULL,
+        created_at               TIMESTAMP DEFAULT NOW()
+    )""",
 ]
 
 

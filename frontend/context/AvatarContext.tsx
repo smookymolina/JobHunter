@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 
 interface AvatarCtx {
   avatarUrl: string | null
@@ -39,15 +39,15 @@ export function AvatarProvider({ children }: { children: ReactNode }) {
     if (stored) setInitialsState(stored)
   }, [])
 
-  const setAvatarUrl = (url: string | null) => {
+  const setAvatarUrl = useCallback((url: string | null) => {
     setUrl(url)
     url ? localStorage.setItem('avatarUrl', url) : localStorage.removeItem('avatarUrl')
-  }
+  }, [])
 
-  const setInitials = (i: string) => {
+  const setInitials = useCallback((i: string) => {
     setInitialsState(i)
     localStorage.setItem('avatarInitials', i)
-  }
+  }, [])
 
   return (
     <Ctx.Provider value={{ avatarUrl, setAvatarUrl, initials, setInitials }}>

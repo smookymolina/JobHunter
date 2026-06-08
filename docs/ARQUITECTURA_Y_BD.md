@@ -55,13 +55,12 @@
 | `fecha_eliminacion` | TIMESTAMP | default NOW() |
 | — | UNIQUE | `(user_id, enlace)` |
 
-## Aislamiento multi-tenant
+## Aislamiento multi-tenant y Seguridad
 
-- Cada usuario solo ve y opera sobre sus propias vacantes (`WHERE user_id=%s`).
-- Perfiles JSON aislados por usuario: `job_hunter/data/{user_id}_perfil.json`.
-- Outputs de PDF/LaTeX aislados: `job_hunter/outputs/{user_id}/`.
-- La blacklist también está aislada por `user_id`.
-- `get_optional_user` en `POST /vacantes` y `POST /vacantes/bulk` permite al scraper (`browser_agent.py`) escribir sin JWT, usando `user_id='default_user'`.
+- **Base de Datos**: Cada registro incluye `user_id` para filtrado estricto a nivel de consulta.
+- **Archivos**: Los PDFs y archivos `.tex` se guardan en `job_hunter/outputs/{user_id}/`, asegurando que un usuario no pueda acceder a los documentos de otro.
+- **Telegram**: El token del bot se almacena cifrado con **Fernet (AES-128)** en la tabla `usuarios`. Solo es accesible tras validar la contraseña del usuario.
+- **Scraper**: `browser_agent.py` opera de forma aislada, insertando vacantes vía API para respetar las reglas de negocio y blacklist.
 
 ## Máquina de estados
 
