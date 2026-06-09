@@ -48,6 +48,13 @@ const COLUMNS: Column[] = [
     borderAccent: 'border-t-emerald-400 dark:border-t-emerald-500',
     emptyText: 'CVs enviados, esperando respuesta.',
   },
+  {
+    id: 'Entrevista',
+    label: 'Entrevista',
+    headerClass: 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400',
+    borderAccent: 'border-t-purple-500 dark:border-t-purple-500',
+    emptyText: 'Vacantes que llegaron a entrevista.',
+  },
 ]
 
 interface Props {
@@ -55,12 +62,12 @@ interface Props {
   onRefresh: () => void
 }
 
-const COMPAT_ORDER: Record<string, number> = { Alta: 0, Media: 1, Baja: 2, Nula: 3 }
+const DYNAMIC_COLS = new Set<Status>(['En_Proceso', 'Requiere_Correccion'])
 
 function sortColumn(items: Vacante[]): Vacante[] {
   return [...items].sort((a, b) => {
     if (b.favorito !== a.favorito) return b.favorito - a.favorito
-    return (COMPAT_ORDER[a.compatibilidad] ?? 3) - (COMPAT_ORDER[b.compatibilidad] ?? 3)
+    return b.id - a.id  // más reciente primero
   })
 }
 
@@ -69,7 +76,7 @@ export default function KanbanBoard({ vacantes, onRefresh }: Props) {
 
   return (
     <div className="flex h-full gap-3 overflow-x-auto pb-4">
-      {COLUMNS.map(col => {
+      {COLUMNS.filter(col => !DYNAMIC_COLS.has(col.id) || byStatus(col.id).length > 0).map(col => {
         const items = byStatus(col.id)
         return (
           <div

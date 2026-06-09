@@ -41,6 +41,15 @@ export type Status =
   | 'Revisado_IA'
   | 'Listo_Manual'
   | 'Requiere_Correccion'
+  | 'Entrevista'
+
+export interface MetricasData {
+  total_aplicadas: number
+  total_entrevistas: number
+  total_enviados: number
+  tasa_conversion: number
+  top_skills_entrevistas: { skill: string; count: number }[]
+}
 
 export interface Vacante {
   id: number
@@ -59,6 +68,8 @@ export interface FiltrosBusqueda {
   ubicacion: string
   modalidad: 'any' | 'remoto' | 'hibrido' | 'presencial'
   pais: string
+  min_salary?: number | null
+  platforms?: string[]
 }
 
 export interface VacanteEliminada {
@@ -296,4 +307,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tier }),
     }),
+
+  metricas: () =>
+    req<MetricasData>('/metricas'),
 }

@@ -83,7 +83,7 @@ def _sync_one(vacante: dict[str, Any], dry_run: bool = True) -> dict[str, Any]:
     desired = None
     error = None
 
-    if state["status"] == "Listo_Manual":
+    if state["status"] in {"Listo_Manual", "Entrevista"}:
         return {**state, "desired_status": None, "changed": False, "error": None}
 
     if state["pdf_exists"]:

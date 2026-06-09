@@ -21,6 +21,11 @@ const config: Record<Status, { label: string; dot: string; badge: string }> = {
     dot:   'bg-rose-500 animate-pulse-badge',
     badge: 'bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800/40',
   },
+  Entrevista: {
+    label: 'Entrevista',
+    dot:   'bg-purple-500',
+    badge: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800/40',
+  },
   Listo_Manual: {
     label: 'Listo',
     dot:   'bg-emerald-500',

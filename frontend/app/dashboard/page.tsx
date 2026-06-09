@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import {
-  AlertCircle, Bot, Clock, Loader2,
+  AlertCircle, Bot, Clock, Loader2, MessageCircle,
   Plus, Radio, RefreshCw, Send, Sparkles, WifiOff,
 } from 'lucide-react'
 import Loader from '@/components/ui/Loader'
@@ -52,6 +52,13 @@ const STAT_COLS: {
     numberColor: 'text-emerald-500',
     icon: Send,
     cardClass: 'border-emerald-100 bg-emerald-50/60 dark:border-emerald-800/50 dark:bg-emerald-900/10',
+  },
+  {
+    id: 'Entrevista',
+    label: 'Entrevistas',
+    numberColor: 'text-purple-500',
+    icon: MessageCircle,
+    cardClass: 'border-purple-100 bg-purple-50/60 dark:border-purple-800/50 dark:bg-purple-900/10',
   },
 ]
 
@@ -215,7 +222,7 @@ export default function DashboardPage() {
       {/* ── Stat Cards ─────────────────────────────────────────────── */}
       {!loading && !error && (
         <div className="shrink-0 border-b border-slate-100 px-6 py-4 dark:border-slate-800">
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
             {STAT_COLS.map(({ id, label, numberColor, icon: Icon, cardClass }) => (
               <div
                 key={id}

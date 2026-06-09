@@ -8,6 +8,18 @@ import { api, ApiError, type VacanteBulkInput, type FiltrosBusqueda } from '@/li
 type Tab = 'manual' | 'bulk' | 'scrape'
 type State = 'idle' | 'saving' | 'success' | 'error'
 
+const PLATFORMS = [
+  { id: 'computrabajo', label: 'Computrabajo' },
+  { id: 'occ',          label: 'OCC' },
+  { id: 'indeed',       label: 'Indeed RSS' },
+  { id: 'bumeran',      label: 'Bumeran' },
+  { id: 'getonbrd',     label: 'GetOnBrd' },
+  { id: 'remotive',     label: 'Remotive' },
+  { id: 'linkedin',     label: 'LinkedIn ⚡' },
+] as const
+
+const _ALL_PLATFORM_IDS = PLATFORMS.map(p => p.id)
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -30,10 +42,12 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
   const [bulkItems, setBulkItems] = useState<VacanteBulkInput[]>([])
   const [bulkName, setBulkName] = useState('')
   const [dragOver, setDragOver] = useState(false)
-  const [scrapeCount, setScrapeCount]       = useState('5')
-  const [suggestedTerms, setSuggestedTerms] = useState<string[]>([])
-  const [selectedTerms, setSelectedTerms]   = useState<Set<string>>(new Set())
-  const [loadingTerms, setLoadingTerms]     = useState(false)
+  const [scrapeCount, setScrapeCount]         = useState('5')
+  const [suggestedTerms, setSuggestedTerms]   = useState<string[]>([])
+  const [selectedTerms, setSelectedTerms]     = useState<Set<string>>(new Set())
+  const [loadingTerms, setLoadingTerms]       = useState(false)
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(new Set(_ALL_PLATFORM_IDS))
+  const [minSalary, setMinSalary]             = useState('')
   const [filtros, setFiltros] = useState<FiltrosBusqueda>({
     ubicacion: '',
     modalidad: 'any',
@@ -64,6 +78,8 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       setScrapeCount('5')
       setSuggestedTerms([])
       setSelectedTerms(new Set())
+      setSelectedPlatforms(new Set(_ALL_PLATFORM_IDS))
+      setMinSalary('')
       setFiltros({ ubicacion: '', modalidad: 'any', pais: 'Mexico' })
     }
   }, [open])
@@ -187,7 +203,11 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
     }
     setState('saving'); setMessage('')
     try {
-      const res = await api.scrape(n, Array.from(selectedTerms), filtros)
+      const res = await api.scrape(n, Array.from(selectedTerms), {
+        ...filtros,
+        ...(minSalary ? { min_salary: parseInt(minSalary, 10) } : {}),
+        platforms: Array.from(selectedPlatforms),
+      })
       setState('success')
       setMessage(`${res.mensaje} · Tablero se actualiza automáticamente.`)
       onSuccess()
@@ -405,11 +425,16 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
 
                 {filtros.modalidad !== 'remoto' && (
                   <div className="space-y-1.5">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">Ubicación</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">Ubicación</span>
+                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-400 dark:bg-slate-700 dark:text-slate-500">
+                        Alias: CDMX, GDL, MTY, NL, EdomEx…
+                      </span>
+                    </div>
                     <input
                       value={filtros.ubicacion}
                       onChange={e => setFiltros(f => ({ ...f, ubicacion: e.target.value }))}
-                      placeholder="Ciudad de México, Monterrey… (vacío = cualquiera)"
+                      placeholder="Ciudad de México / CDMX / GDL… (vacío = cualquiera)"
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500/40"
                     />
                   </div>
@@ -429,6 +454,69 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                     <option value="Chile">Chile</option>
                     <option value="Internacional">Internacional (multi-país)</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Salario mínimo */}
+              <div className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Salario mínimo mensual (MXN)</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] text-slate-400">$</span>
+                  <input
+                    type="number" min={0} step={1000}
+                    value={minSalary}
+                    onChange={e => setMinSalary(e.target.value)}
+                    placeholder="Sin filtro"
+                    className="w-36 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] text-slate-700 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:border-indigo-500/40"
+                  />
+                  <span className="text-[11px] text-slate-400 dark:text-slate-600">MXN/mes (opcional)</span>
+                </div>
+              </div>
+
+              {/* Plataformas */}
+              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/30">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Plataformas · {selectedPlatforms.size}/{PLATFORMS.length}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSelectedPlatforms(new Set(_ALL_PLATFORM_IDS))}
+                      className="text-[10px] text-indigo-500 hover:text-indigo-700 transition-colors dark:text-indigo-400"
+                    >
+                      Todas
+                    </button>
+                    <span className="text-slate-300 dark:text-slate-600">·</span>
+                    <button
+                      onClick={() => setSelectedPlatforms(new Set())}
+                      className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors dark:text-slate-500"
+                    >
+                      Ninguna
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  {PLATFORMS.map(({ id, label }) => {
+                    const active = selectedPlatforms.has(id)
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setSelectedPlatforms(prev => {
+                          const next = new Set(prev)
+                          next.has(id) ? next.delete(id) : next.add(id)
+                          return next
+                        })}
+                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                          active
+                            ? 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-950/40 dark:text-indigo-200'
+                            : 'border-slate-200 text-slate-400 hover:text-slate-600 dark:border-slate-700 dark:text-slate-500'
+                        }`}
+                      >
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-indigo-400' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 

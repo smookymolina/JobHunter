@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   CheckCircle,
@@ -13,6 +13,9 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  Maximize2,
+  MessageCircle,
+  RotateCcw,
   Star,
   Trash2,
   X,
@@ -217,6 +220,146 @@ function LatexModal({
   )
 }
 
+function VacanteDetailModal({
+  vacante,
+  onClose,
+  onCopyPrompt,
+  onViewPdf,
+}: {
+  vacante: Vacante
+  onClose: () => void
+  onCopyPrompt: () => void
+  onViewPdf: () => void
+}) {
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
+
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+          <div className="min-w-0 flex-1 pr-4">
+            <h2 className="truncate text-[16px] font-semibold text-slate-900 dark:text-slate-100">
+              {vacante.titulo}
+            </h2>
+            <p className="mt-0.5 text-[13px] text-slate-500 dark:text-slate-400">{vacante.empresa}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <StatusBadge status={vacante.status} />
+              <span className={`inline-flex rounded-full border px-1.5 py-0 text-[10px] font-medium ${compatBadge(vacante.compatibilidad)}`}>
+                {vacante.compatibilidad}
+              </span>
+              {vacante.fecha_registro && (
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                  Agregada: {vacante.fecha_registro.slice(0, 10)}
+                </span>
+              )}
+              {vacante.fecha_postulacion && (
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                  Postulada: {vacante.fecha_postulacion.slice(0, 10)}
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            Descripción / Requerimientos
+          </p>
+          <div className="whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50 p-4 text-[12px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400 [scrollbar-width:thin]">
+            {(vacante.requerimientos ?? '').trim() || 'Sin descripción capturada.'}
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800">
+          {vacante.enlace && (
+            <a
+              href={vacante.enlace}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+            >
+              <ExternalLink size={12} /> URL Original
+            </a>
+          )}
+          <button
+            onClick={() => { onClose(); onCopyPrompt() }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[12px] text-indigo-700 transition-colors hover:bg-indigo-100 dark:border-indigo-700/30 dark:bg-indigo-950/30 dark:text-indigo-300"
+          >
+            <Clipboard size={12} /> Copiar Prompt CV
+          </button>
+          {['Revisado_IA', 'Listo_Manual', 'Entrevista'].includes(vacante.status) && (
+            <button
+              onClick={() => { onClose(); onViewPdf() }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700/30 dark:bg-amber-950/30 dark:text-amber-300"
+            >
+              <FileText size={12} /> Ver PDF
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] text-slate-500 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            Minimizar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function UndoToast({
+  newLabel,
+  onUndo,
+  onClose,
+}: {
+  newLabel: string
+  onUndo: () => void
+  onClose: () => void
+}) {
+  if (typeof document === 'undefined') return null
+  return createPortal(
+    <div className="fixed bottom-5 right-5 z-[70] flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+      <span className="text-[12px] text-slate-700 dark:text-slate-300">
+        Movido a <strong className="font-semibold">{newLabel}</strong>
+      </span>
+      <button
+        onClick={onUndo}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500 px-3 py-1 text-[11px] font-bold text-white hover:bg-rose-600"
+      >
+        <RotateCcw size={11} /> Deshacer
+      </button>
+      <button onClick={onClose} className="text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200">
+        <X size={14} />
+      </button>
+    </div>,
+    document.body,
+  )
+}
+
 // ── Tarjeta ───────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -230,6 +373,7 @@ const STATUS_OPTIONS: { value: Status; label: string }[] = [
   { value: 'Revisado_IA',         label: 'Revisado IA' },
   { value: 'Requiere_Correccion', label: 'Requiere corrección' },
   { value: 'Listo_Manual',        label: 'CV Enviado' },
+  { value: 'Entrevista',          label: 'Entrevista' },
 ]
 
 export default function VacanteCard({ vacante, onStatusChange }: Props) {
@@ -237,13 +381,17 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
   const [expanded, setExpanded]       = useState(false)
   const [pdfOpen, setPdfOpen]         = useState(false)
   const [latexOpen, setLatexOpen]     = useState(false)
+  const [detailOpen, setDetailOpen]   = useState(false)
   const [busyAction, setBusyAction]   = useState<'status' | 'delete' | 'fav' | null>(null)
   const [statusDraft, setStatusDraft] = useState<Status>(vacante.status)
   const [errMsg, setErrMsg]           = useState('')
   const [esFavorito, setEsFavorito]   = useState(!!vacante.favorito)
+  const [toast, setToast]             = useState<{ prevStatus: Status; newStatus: Status } | null>(null)
+  const toastTidRef                   = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { setStatusDraft(vacante.status) }, [vacante.status])
   useEffect(() => { setEsFavorito(!!vacante.favorito) }, [vacante.favorito])
+  useEffect(() => () => { if (toastTidRef.current) clearTimeout(toastTidRef.current) }, [])
 
   const handleFavorito = async () => {
     setBusyAction('fav')
@@ -275,13 +423,45 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
 
   const handleStatusChange = async (nextStatus: Status) => {
     if (nextStatus === vacante.status) return
+    const prevStatus = vacante.status
     setBusyAction('status')
-    try { await api.cambiarStatus(vacante.id, nextStatus); onStatusChange?.() }
-    catch (error) {
+    try {
+      await api.cambiarStatus(vacante.id, nextStatus)
+      onStatusChange?.()
+      if (toastTidRef.current) clearTimeout(toastTidRef.current)
+      toastTidRef.current = setTimeout(() => setToast(null), 6000)
+      setToast({ prevStatus, newStatus: nextStatus })
+    } catch (error) {
       setErrMsg(error instanceof Error ? error.message : 'No se pudo cambiar el estado.')
       setStatusDraft(vacante.status)
+    } finally {
+      setBusyAction(null)
     }
-    finally { setBusyAction(null) }
+  }
+
+  const handleUndo = async () => {
+    if (!toast) return
+    const { prevStatus } = toast
+    if (toastTidRef.current) clearTimeout(toastTidRef.current)
+    toastTidRef.current = null
+    setToast(null)
+    setBusyAction('status')
+    setStatusDraft(prevStatus)
+    try {
+      await api.cambiarStatus(vacante.id, prevStatus)
+      onStatusChange?.()
+    } catch (error) {
+      setErrMsg(error instanceof Error ? error.message : 'No se pudo deshacer.')
+      setStatusDraft(vacante.status)
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const dismissToast = () => {
+    if (toastTidRef.current) clearTimeout(toastTidRef.current)
+    toastTidRef.current = null
+    setToast(null)
   }
 
   return (
@@ -324,6 +504,13 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
                 size={14}
                 className={esFavorito ? 'fill-amber-400 text-amber-400' : 'text-slate-300 hover:text-amber-400 dark:text-slate-600'}
               />
+            </button>
+            <button
+              onClick={() => setDetailOpen(true)}
+              title="Ver detalle completo"
+              className="rounded-md p-1 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
+            >
+              <Maximize2 size={13} className="text-slate-300 dark:text-slate-600" />
             </button>
             <button
               onClick={() => setExpanded(v => !v)}
@@ -412,6 +599,14 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
               </div>
             )}
 
+            {vacante.status === 'Entrevista' && (
+              <div className="flex flex-col gap-0.5 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 dark:border-purple-700/25 dark:bg-purple-950/25">
+                <div className="flex items-center gap-2 text-[12px] font-medium text-purple-700 dark:text-purple-400">
+                  <MessageCircle size={13} /> En etapa de entrevista — sigue adelante!
+                </div>
+              </div>
+            )}
+
             {vacante.status === 'Listo_Manual' && (
               <div className="flex flex-col gap-0.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-700/25 dark:bg-emerald-950/25">
                 <div className="flex items-center gap-2 text-[12px] font-medium text-emerald-700 dark:text-emerald-400">
@@ -467,6 +662,21 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
           vacanteId={vacante.id}
           onClose={() => setLatexOpen(false)}
           onSaved={() => setLatexOpen(false)}
+        />
+      )}
+      {detailOpen && (
+        <VacanteDetailModal
+          vacante={vacante}
+          onClose={() => setDetailOpen(false)}
+          onCopyPrompt={handleCopiarPrompt}
+          onViewPdf={() => { setDetailOpen(false); setPdfOpen(true) }}
+        />
+      )}
+      {toast && (
+        <UndoToast
+          newLabel={STATUS_OPTIONS.find(o => o.value === toast.newStatus)?.label ?? toast.newStatus}
+          onUndo={handleUndo}
+          onClose={dismissToast}
         />
       )}
     </>

@@ -313,6 +313,30 @@ def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
 
 # ── Motor principal ───────────────────────────────────────────────────────────
 
+def _get_entrevista_context(user_id: str) -> str:
+    """Return a brief summary of the last 3 Entrevista vacantes for feedback injection."""
+    try:
+        conn = _db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT titulo, empresa, requerimientos FROM vacantes "
+            "WHERE user_id=%s AND status='Entrevista' ORDER BY id DESC LIMIT 3",
+            (user_id,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        if not rows:
+            return ""
+        parts = [
+            f"- {r[0]} en {r[1] or 'empresa'}: {(r[2] or '')[:200]}"
+            for r in rows
+        ]
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
 def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | None:
     row = _get_vacante(vacante_id, user_id)
     if not row:
@@ -331,6 +355,13 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
         "Sin bloques markdown, sin explicaciones. "
         "Empieza directamente con \\documentclass."
     )
+    entrevista_ctx = _get_entrevista_context(user_id)
+    if entrevista_ctx:
+        system_msg += (
+            "\n\nContexto de Éxito: El usuario ha logrado entrevistas para vacantes con estas descripciones/roles:\n"
+            f"{entrevista_ctx}\n"
+            "Prioriza resaltar habilidades y enfoques similares en este nuevo CV para maximizar la probabilidad de conversión."
+        )
     user_msg = f"""Genera un CV completo en LaTeX para esta vacante.
 
 VACANTE:

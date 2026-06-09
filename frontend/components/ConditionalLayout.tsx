@@ -1,7 +1,7 @@
 'use client'
 import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import Sidebar from './Sidebar'
 import { setAuthToken } from '@/lib/api'
 
@@ -9,7 +9,9 @@ export default function ConditionalLayout({ children }: { children: React.ReactN
   const pathname = usePathname()
   const { data: session, status } = useSession()
 
-  useEffect(() => {
+  // useLayoutEffect runs before any useEffect in child components, ensuring
+  // _token is set before Sidebar's useEffect calls api.me()
+  useLayoutEffect(() => {
     setAuthToken((session as any)?.accessToken ?? null)
   }, [session])
 

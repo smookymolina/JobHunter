@@ -194,6 +194,25 @@ async def lifespan(app: FastAPI):
             _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_limite INT DEFAULT 3 NOT NULL")
         if 'latex_generados' not in _usr_cols:
             _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_generados INT DEFAULT 0 NOT NULL")
+        # Drop any legacy CHECK constraint on vacantes.status (blocks "Entrevista")
+        _cur.execute("""
+            DO $$
+            DECLARE cname text;
+            BEGIN
+                FOR cname IN
+                    SELECT tc.constraint_name
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.check_constraints cc
+                         ON tc.constraint_name = cc.constraint_name
+                        AND tc.constraint_schema = cc.constraint_schema
+                    WHERE tc.table_name = 'vacantes'
+                      AND tc.constraint_type = 'CHECK'
+                      AND cc.check_clause LIKE '%status%'
+                LOOP
+                    EXECUTE 'ALTER TABLE vacantes DROP CONSTRAINT IF EXISTS ' || quote_ident(cname);
+                END LOOP;
+            END $$;
+        """)
         # Seed default_user — keeps link to the 33 migrated vacantes
         _cur.execute("SELECT id FROM usuarios WHERE user_id='default_user'")
         if not _cur.fetchone():
@@ -254,9 +273,11 @@ class VacanteBulkItem(BaseModel):
 
 
 class FiltrosBusqueda(BaseModel):
-    ubicacion: str  = Field(default="", description="Ciudad o estado — vacío = cualquiera")
-    modalidad: str  = Field(default="any", description="any | remoto | hibrido | presencial")
-    pais:      str  = Field(default="Mexico", description="Mexico | España | Argentina | Colombia | Internacional")
+    ubicacion:  str            = Field(default="", description="Ciudad o estado. Soporta alias: CDMX, GDL, MTY, NL, EdomEx, etc.")
+    modalidad:  str            = Field(default="any", description="any | remoto | hibrido | presencial")
+    pais:       str            = Field(default="Mexico", description="Mexico | España | Argentina | Colombia | Internacional")
+    min_salary: int | None     = Field(default=None, description="Salario mensual mínimo en MXN (opcional)")
+    platforms:  list[str] | None = Field(default=None, description="Plataformas: computrabajo, occ, indeed, bumeran, getonbrd, remotive, linkedin")
 
 
 class ScrapeRequest(BaseModel):
@@ -581,7 +602,7 @@ def detalle_vacante(vid: int, current_user: dict = Depends(get_current_user)):
 @app.patch("/vacantes/{vid}/status")
 def cambiar_status(vid: int, body: dict, current_user: dict = Depends(get_current_user)):
     uid = current_user["user_id"]
-    VALIDOS = {"No_Creado", "En_Proceso", "Revisado_IA", "Listo_Manual", "Requiere_Correccion"}
+    VALIDOS = {"No_Creado", "En_Proceso", "Revisado_IA", "Listo_Manual", "Requiere_Correccion", "Entrevista"}
     nuevo = body.get("status", "")
     if nuevo not in VALIDOS:
         raise HTTPException(status_code=400, detail=f"Status inválido. Usa: {VALIDOS}")
@@ -807,6 +828,21 @@ def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_current_
         conn.close()
         return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante eliminada previamente", "blacklisted": True})
     cur = conn.cursor()
+    # Strict dedup: title+company in vacantes UNION title in vacantes_eliminadas
+    _nt = body.titulo.strip().lower()
+    _ne = (body.empresa.strip() or "desconocida").lower()
+    cur.execute(
+        """SELECT 1 FROM vacantes
+           WHERE user_id=%s AND LOWER(titulo)=%s AND LOWER(empresa)=%s
+           UNION
+           SELECT 1 FROM vacantes_eliminadas
+           WHERE user_id=%s AND LOWER(titulo)=%s
+           LIMIT 1""",
+        (uid, _nt, _ne, uid, _nt)
+    )
+    if cur.fetchone():
+        cur.close(); conn.close()
+        return JSONResponse(status_code=409, content={"ok": False, "detail": "Vacante duplicada (título+empresa)", "blacklisted": False})
     # Paywall: credit-based vacante limit
     cur.execute("SELECT vacantes_limite FROM usuarios WHERE user_id=%s", (uid,))
     _lim = (cur.fetchone() or [5])[0]
@@ -1129,6 +1165,70 @@ def download_template():
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Plantilla no encontrada.")
     return FileResponse(path, filename=os.path.basename(path), media_type='text/plain')
+
+
+# ── Métricas endpoint ─────────────────────────────────────────────────────────
+
+_TECH_KEYWORDS = [
+    "Python", "JavaScript", "TypeScript", "React", "Next.js", "Node.js",
+    "FastAPI", "Flask", "Django", "Docker", "Kubernetes", "AWS", "Azure",
+    "PostgreSQL", "MySQL", "MongoDB", "Redis", "Git", "CI/CD", "REST",
+    "GraphQL", "Vue", "Angular", "SQL", "Linux", "Java", "C++", "Go",
+    "Rust", "PHP", "HTML", "CSS", "Tailwind", "Machine Learning", "AI",
+    "IoT", "ESP32", "MQTT", "SolidWorks", "MATLAB", "Arduino", "STM32",
+]
+
+
+@app.get("/metricas")
+def get_metricas(current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
+    conn = _db()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status != 'No_Creado'",
+        (uid,)
+    )
+    total_aplicadas = cur.fetchone()[0] or 0
+
+    cur.execute(
+        "SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status='Entrevista'",
+        (uid,)
+    )
+    total_entrevistas = cur.fetchone()[0] or 0
+
+    cur.execute(
+        "SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status='Listo_Manual'",
+        (uid,)
+    )
+    total_enviados = cur.fetchone()[0] or 0
+
+    cur.execute(
+        "SELECT requerimientos FROM vacantes "
+        "WHERE user_id=%s AND status='Entrevista' AND requerimientos IS NOT NULL",
+        (uid,)
+    )
+    req_rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    tasa_conversion = round((total_entrevistas / total_aplicadas) * 100, 1) if total_aplicadas > 0 else 0.0
+
+    kw_counts: dict[str, int] = {}
+    for row in req_rows:
+        text = (row[0] or "").lower()
+        for kw in _TECH_KEYWORDS:
+            if kw.lower() in text:
+                kw_counts[kw] = kw_counts.get(kw, 0) + 1
+    top_skills = sorted(kw_counts.items(), key=lambda x: -x[1])[:8]
+
+    return {
+        "total_aplicadas": total_aplicadas,
+        "total_entrevistas": total_entrevistas,
+        "total_enviados": total_enviados,
+        "tasa_conversion": tasa_conversion,
+        "top_skills_entrevistas": [{"skill": k, "count": v} for k, v in top_skills],
+    }
 
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────

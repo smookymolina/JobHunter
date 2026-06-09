@@ -14,6 +14,7 @@ import {
   ChevronUp,
   Shield,
   Sparkles,
+  BarChart2,
 } from 'lucide-react'
 import { signOut, useSession } from 'next-auth/react'
 import ThemeToggle from '@/components/ui/ThemeToggle'
@@ -85,6 +86,7 @@ function SystemStatus() {
 const nav = [
   { href: '/dashboard',  label: 'Dashboard',        icon: LayoutDashboard },
   { href: '/vacantes',   label: 'Mis Vacantes',      icon: Briefcase },
+  { href: '/metricas',   label: 'Métricas',          icon: BarChart2 },
   { href: '/archivo',    label: 'Archivadas',        icon: Archive },
   { href: '/plantillas', label: 'Plantillas LaTeX',  icon: FileCode2 },
   { href: '/perfil',     label: 'Perfil & Settings', icon: UserCircle },
