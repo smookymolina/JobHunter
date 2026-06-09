@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type ElementType, type FormEvent, type ReactNode } from 'react'
+import { useSession } from 'next-auth/react'
 import {
   AlertCircle,
   Briefcase,
@@ -154,8 +155,11 @@ export default function PerfilPage() {
   const [securityError, setSecurityError] = useState<string | null>(null)
   const [copyHint, setCopyHint] = useState<string | null>(null)
   const { setInitials } = useAvatar()
+  const { status } = useSession()
 
   useEffect(() => {
+    // Wait for NextAuth to hydrate the session so _token is set before fetching
+    if (status === 'loading') return
     let active = true
     Promise.allSettled([api.getPerfilMaestro(), api.me()]).then(([perfilRes, meRes]) => {
       if (!active) return
@@ -172,7 +176,7 @@ export default function PerfilPage() {
       setLoading(false)
     })
     return () => { active = false }
-  }, [])
+  }, [status])
 
   // Auto-dismiss toast after 4 s
   useEffect(() => {

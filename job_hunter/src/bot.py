@@ -29,7 +29,7 @@ from telegram.ext import (
 TOKEN         = os.getenv("TELEGRAM_BOT_TOKEN", "")
 ADMIN_ID      = int(os.getenv("TELEGRAM_ADMIN_ID", "0"))
 API_BASE      = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-OUTPUTS_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'outputs'))
+OUTPUTS_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'outputs', 'default_user'))
 TEMPLATES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'latex_templates'))
 CONF_FILE     = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'bot_conf.json'))
 PAGE_SIZE     = 5

@@ -1062,9 +1062,9 @@ def get_perfil_maestro(current_user: dict = Depends(get_current_user)):
     uid        = current_user["user_id"]
     user_path  = get_user_profile_path(uid)
     # Fallback: legacy perfil_maestro.json for default_user
-    path = user_path if os.path.exists(user_path) else (PERFIL_MAESTRO_PATH if uid == 'default_user' else None)
-    if not path or not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Perfil no encontrado.")
+    path = user_path if os.path.exists(user_path) else (PERFIL_MAESTRO_PATH if os.path.exists(PERFIL_MAESTRO_PATH) else None)
+    if not path:
+        return {}  # Perfil vacío — usuario nuevo, aún no guardó datos
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
