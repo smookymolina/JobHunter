@@ -1,6 +1,6 @@
 # Arquitectura y Base de Datos
 
-> Última actualización: 2026-06-07 (rev 12 — Multi-tenant Auth + Register flow)
+> Última actualización: 2026-06-09 (rev 14 — Dual-view dashboard, geo filter scraper, system prompt dinámico, sort por compatibilidad)
 
 ## Stack
 
@@ -65,7 +65,7 @@
 ## Máquina de estados
 
 ```
-No_Creado → En_Proceso → Revisado_IA → Listo_Manual (terminal)
+No_Creado → En_Proceso → Revisado_IA → Listo_Manual → Entrevista
                       ↘ Requiere_Correccion → (regenerar)
 ```
 
@@ -75,9 +75,43 @@ No_Creado → En_Proceso → Revisado_IA → Listo_Manual (terminal)
 | `En_Proceso` | Inicio de `generar_y_compilar()` | Spinner en tarjeta |
 | `Requiere_Correccion` | Inspector rechaza / pdflatex falla | |
 | `Revisado_IA` | Inspector aprueba (con PDF) | Habilita Ver PDF / Editar LaTeX |
-| `Listo_Manual` | PATCH manual / comando bot | **Terminal** — registra `fecha_postulacion` |
+| `Listo_Manual` | PATCH manual / comando bot | Registra `fecha_postulacion` |
+| `Entrevista` | PATCH manual / comando bot | Estado de entrevista activa |
 
 > **Regla del watcher**: `_sync_one` en `watcher.py` nunca sobreescribe `Listo_Manual`.
+
+## Frontend — Dashboard (`/dashboard`)
+
+Vista dual controlada por `activeFilter: Status | null`:
+
+| `activeFilter` | Vista renderizada |
+|---|---|
+| `null` | **Kanban** — columnas horizontales scrollables, columnas dinámicas ocultas si vacías |
+| `Status` activo | **Lista/Tabla** — filas planas con ID, Puesto, Empresa, Compat., Status, Fecha, Enlace |
+
+- Las **tarjetas KPI** superiores son botones: click activa el filtro (click de nuevo lo desactiva).
+- Orden en ambas vistas: favorito desc → compatibilidad desc (Alta→Media→Baja→Nula) → id desc.
+- Botón "Ver tablero completo" en la vista Lista regresa al Kanban.
+
+## Motor de CV / LLM (`gemini_engine.py`)
+
+- **`_load_profile_json(user_id)`** — helper DRY: carga JSON del usuario → fallback `perfil_maestro.json` → `None`.
+- **`_get_user_profile(user_id)`** — string detallado para el `user_msg` (nombre, título, resumen, habilidades, experiencia con logros).
+- **`_get_user_profile_structured(user_id)`** — devuelve `{nombre, resumen, skills[], experiencia_str}` para inyección dinámica en el system prompt.
+- **`generar_latex_cv(vacante_id, user_id)`** — `system_msg` maestro de 5 secciones dinámicas:
+
+| Sección | Contenido |
+|---|---|
+| PERFIL DEL CANDIDATO | `resumen` + `skills` interpolados desde BD en runtime |
+| TONO Y ESTILO | Ejecutivo, verbos de acción, sin clichés |
+| ANTI-ALUCINACIÓN | Solo habilidades/experiencias del perfil real; no copiar frases del anuncio |
+| ANTI-COPY DE TÍTULO | Sintetizar título orgánico, nunca copiar el de la vacante |
+| PROTECCIÓN LaTeX | Escapar %, &, $, #, _; sin Markdown dentro del bloque |
+
+## Scraper (`browser_agent.py`)
+
+- **`_passes_geo_filter(titulo, reqs, filtros)`** — post-validación geográfica antes de `_post_vacante`. Usa `unicodedata.normalize('NFD')` para comparación sin acentos. Pasa automáticamente si `ubicacion` está vacío o `modalidad == 'remoto'`. Activo en: Computrabajo, OCC, Indeed, Bumeran, LinkedIn. Remotive exento (plataforma 100% remota).
+- Filtros en cadena por vacante: texto/modalidad → salario → **geo** → insertar.
 
 ## Endpoints — `src/api.py` (puerto 8000)
 

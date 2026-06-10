@@ -1,13 +1,13 @@
 # AUDITORÍA DE MEJORAS — Job Hunter
-> Estado actual: v1.1.5 · Fecha auditoría: 2026-06-05
+> Estado actual: v1.2.8 · Última revisión: 2026-06-09
 > Modelo de negocio: el desarrollador no paga nada extra; el cliente desbloquea funciones premium.
 
 ---
 
 ## RESUMEN EJECUTIVO
 
-Job Hunter es un sistema local de automatización de búsqueda de empleo con un pipeline bien definido:
-`Scraping → SQLite → Kanban → IA (MCP/Claude) → LaTeX → PDF`
+Job Hunter es un sistema SaaS multi-tenant de automatización de búsqueda de empleo:
+`Scraping → PostgreSQL → Kanban/Lista → IA (Groq/MCP) → LaTeX → PDF`
 
 La app funciona end-to-end pero tiene fricción en puntos clave que frenan la autonomía total.
 Este documento clasifica cada mejora en: **Free** (incluida en la app base) o **Pro** (desbloqueable por el usuario final).
@@ -17,19 +17,23 @@ Este documento clasifica cada mejora en: **Free** (incluida en la app base) o **
 ## ESTADO ACTUAL DEL PIPELINE
 
 ```
-[Perfil maestro JSON]
+[Perfil JSON por usuario (BD)]
         ↓
-[Scraper Playwright] → Computrabajo / OCC / LinkedIn (pendiente)
+[Scraper Playwright] → Computrabajo / OCC / Indeed / Bumeran / LinkedIn ✅
+  ↳ Filtros: modalidad → salario → geo (sin acentos, aliases) ✅
         ↓
-[SQLite vacantes.db] ← blacklist de eliminadas
+[PostgreSQL vacantes] ← blacklist de eliminadas
         ↓
-[Dashboard Kanban] → polling 2 s
+[Dashboard Kanban + Vista Lista] → polling 2 s ✅
+  ↳ Sort: favorito → compatibilidad (Alta→Nula) → id desc ✅
         ↓
-[MCP Claude Desktop] → human-in-the-loop (cuello de botella)
+[IA Groq (one-click)] ← system prompt dinámico desde BD ✅
+  ↳ Anti-alucinación · Anti-copy título · Protección LaTeX ✅
+  O [MCP Claude Desktop] → human-in-the-loop
         ↓
 [LaTeX → pdflatex → PDF]
         ↓
-[Listo_Manual] → fecha_postulacion registrada
+[Listo_Manual → Entrevista] → fecha_postulacion registrada
 ```
 
 **Cuello de botella principal**: el paso MCP es manual (usuario copia prompt → pega en Claude Desktop → espera). 
@@ -245,9 +249,9 @@ async def evaluar_compatibilidad_detallada(vacante: dict, perfil: dict) -> dict:
 ---
 ### 3.2 Ranking automático de vacantes (COMPLETADO ✅)
 
-**Solución**: Ordenar Kanban por favorito y score de compatibilidad descendente.
+**Solución**: Orden en Kanban y Vista Lista: favorito desc → compatibilidad desc (Alta→Media→Baja→Nula) → id desc.
 
-**Implementación**: `KanbanBoard.tsx` implementa `sortColumn` usando un mapa de pesos para Alta, Media, Baja y Nula.
+**Implementación**: `KanbanBoard.tsx` `COMPAT_RANK` + `sortColumn`; `dashboard/page.tsx` lista filtrada usa el mismo criterio.
 
 ---
 
@@ -479,13 +483,11 @@ await notify(f"🔍 Scrape completado: {n} vacantes nuevas ({alta} Alta compatib
 
 ---
 
-### 6.3 Vista lista vs Kanban toggle
+### 6.3 Vista lista vs Kanban toggle (COMPLETADO ✅)
 
-**Problema**: el Kanban es excelente para pocos registros pero con 100+ vacantes es lento visualmente.
+**Solución**: Click en KPI card activa Vista Lista para ese status (tabla con ID, Puesto, Empresa, Compat., Status, Fecha, Enlace, estrella favorito). Click de nuevo o "Ver tablero completo" regresa al Kanban.
 
-**Solución**: toggle entre vista Kanban y vista tabla (como Mis Vacantes pero más rica).
-
-**Tier**: FREE — alternar entre dos vistas ya existentes.
+**Implementación**: `dashboard/page.tsx` renderizado condicional sobre `activeFilter: Status | null`. Sin cambios en KanbanBoard.
 
 ---
 
@@ -728,11 +730,12 @@ Token se guarda localmente, expira según tier (mensual/anual/vitalicio)
 |---|-------------|-----------|---------|
 | B1 | `refresh` en PlantillasPage redefinido dos veces tras el refactor | Media | `plantillas/page.tsx` |
 | B2 | `AvatarContext.setInitials` en dependency array de useEffect puede causar re-renders | Baja | `perfil/page.tsx` |
-| B3 | `api.uploadTemplate` usa `form.append('file', ...)` pero campo no está validado en backend que el nombre sea exactamente `file` | Baja | `api.ts` + `api.py` |
-| B4 | `watcher.py` no maneja el caso de vacante eliminada mientras el watcher corre (KeyError potencial) | Media | `watcher.py` |
-| B5 | El scraper no tiene timeout por portal — si un portal cuelga, bloquea todo el proceso | Alta | `browser_agent.py` |
-| B6 | `evaluar_compatibilidad_rapida` no tiene retry en caso de fallo de red con Groq | Media | `gemini_engine.py` |
-| B7 | Los PDFs se sirven sin caché HTTP (`Cache-Control`) — cada "Ver PDF" descarga el archivo completo | Baja | `api.py GET /pdf/{id}` |
+| B3 | `api.uploadTemplate` usa `form.append('file', ...)` pero campo no está validado en backend | Baja | `api.ts` + `api.py` |
+| B4 | `watcher.py` no maneja vacante eliminada mientras corre (KeyError potencial) | Media | `watcher.py` |
+| B5 | Scraper sin timeout por portal — si un portal cuelga, bloquea el proceso | Alta | `browser_agent.py` |
+| B6 | `evaluar_compatibilidad_rapida` sin retry en fallo de red con Groq | Media | `gemini_engine.py` |
+| B7 | PDFs sin `Cache-Control` — cada "Ver PDF" descarga el archivo completo | Baja | `api.py GET /pdf/{id}` |
+| B8 | `_passes_geo_filter` evalúa el texto de reqs, no un campo `ubicacion` estructurado — falsos negativos si el portal no menciona ciudad en el body | Media | `browser_agent.py` |
 
 ---
 
@@ -766,5 +769,4 @@ Token se guarda localmente, expira según tier (mensual/anual/vitalicio)
 
 ---
 
-*Auditoría generada con visión completa del código fuente v1.1.5 · 2026-06-05*
-*Actualizar este documento con cada sprint completado.*
+*Auditoría iniciada v1.1.5 · 2026-06-05 — Actualizada v1.2.8 · 2026-06-09*

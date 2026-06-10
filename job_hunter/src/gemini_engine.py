@@ -193,46 +193,73 @@ def _groq_client():
     return OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
 
-def _get_user_profile(user_id: str) -> str:
-    """Read profile for CV generation. Fallback chain: user JSON → perfil_maestro → mi_perfil.md → empty."""
+def _load_profile_json(user_id: str):
+    """Return raw profile dict from DB-backed JSON. None if not found."""
     import json as _json
-
-    def _fmt(pdata: dict) -> str:
-        habs   = pdata.get('habilidades', {})
-        skills = [s for v in habs.values() for s in v]
-        return (
-            f"Nombre: {pdata.get('nombre','')} {pdata.get('apellidos','')}\n"
-            f"Título: {pdata.get('titulo_profesional','')}\n"
-            f"Resumen: {pdata.get('resumen','')[:400]}\n"
-            f"Habilidades: {', '.join(skills[:40])}\n"
-            f"Experiencia: {', '.join(str(e.get('puesto','')) for e in pdata.get('experiencia',[])[:3])}\n"
-        )
-
-    # 1. User-specific JSON profile
     user_json = get_user_profile_path(user_id)
     if os.path.exists(user_json):
         with open(user_json, encoding='utf-8') as f:
-            return _fmt(_json.load(f))
-
-    # 2. default_user → legacy perfil_maestro.json
+            return _json.load(f)
     if user_id == 'default_user':
         maestro = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
         if os.path.exists(maestro):
             with open(maestro, encoding='utf-8') as f:
-                return _fmt(_json.load(f))
+                return _json.load(f)
+    return None
 
-    # 3. Legacy mi_perfil.md (any user)
+
+def _get_user_profile(user_id: str) -> str:
+    """Formatted profile string for the user_msg body (full detail)."""
+    p = _load_profile_json(user_id)
+    if p:
+        habs   = p.get('habilidades', {})
+        skills = [s for v in habs.values() for s in v]
+        exp    = p.get('experiencia', [])
+        exp_lines = '\n'.join(
+            f"  • {e.get('puesto','')} en {e.get('empresa','')} ({e.get('periodo','')}): "
+            + '; '.join(e.get('logros', [])[:2])
+            for e in exp[:4]
+        )
+        return (
+            f"Nombre: {p.get('nombre','')} {p.get('apellidos','')}\n"
+            f"Título actual: {p.get('titulo_profesional','')}\n"
+            f"Resumen: {p.get('resumen','')[:500]}\n"
+            f"Habilidades: {', '.join(skills[:50])}\n"
+            f"Experiencia relevante:\n{exp_lines}\n"
+        )
     md_path = os.path.join(CONTEXT_DIR, 'mi_perfil.md')
     if os.path.exists(md_path):
         return _read(md_path)
-
     return ""
+
+
+def _get_user_profile_structured(user_id: str) -> dict:
+    """Return structured profile fields for dynamic system-prompt injection."""
+    p = _load_profile_json(user_id)
+    if not p:
+        return {"nombre": "", "resumen": "", "skills": [], "experiencia_str": ""}
+    habs   = p.get('habilidades', {})
+    skills = [s for v in habs.values() for s in v]
+    exp    = p.get('experiencia', [])
+    exp_str = '; '.join(
+        f"{e.get('puesto','')} en {e.get('empresa','')} ({e.get('periodo','')})"
+        for e in exp[:4]
+    )
+    return {
+        "nombre":          f"{p.get('nombre','')} {p.get('apellidos','')}".strip(),
+        "resumen":         p.get('resumen', '')[:600],
+        "skills":          skills[:50],
+        "experiencia_str": exp_str,
+    }
 
 
 # ── generar_terminos_busqueda ──────────────────────────────────────────────────
 
-def generar_terminos_busqueda() -> list[str]:
-    maestro_path = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
+def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:
+    maestro_path = get_user_profile_path(user_id)
+    if not os.path.exists(maestro_path):
+        maestro_path = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
+    
     _FALLBACK = [
         "Desarrollador Full Stack", "Desarrollador Python",
         "Desarrollador React", "Desarrollador IoT",
@@ -244,6 +271,15 @@ def generar_terminos_busqueda() -> list[str]:
     import json as _json
     with open(maestro_path, encoding='utf-8') as f:
         p = _json.load(f)
+
+    # Inyección de términos exitosos (Feedback Loop)
+    winning = _get_winning_skills(user_id)
+    winning_terms = []
+    if winning:
+        for s in winning.split(", "):
+            skill = s.split(" (")[0]
+            winning_terms.append(f"Desarrollador {skill}")
+            winning_terms.append(f"Ingeniero {skill}")
 
     titulo = p.get('titulo_profesional', '')
     habs   = p.get('habilidades', {})
@@ -272,7 +308,7 @@ def generar_terminos_busqueda() -> list[str]:
     if 'SolidWorks' in mec or 'ANSYS' in mec: terms_mec.append('Ingeniero CAD CAE')
     if 'MATLAB' in mec or 'Control PID' in mec: terms_mec.append('Ingeniero Control Automático')
 
-    all_terms: list[str] = []
+    all_terms: list[str] = winning_terms[:4]
     for bucket in (terms_sw, terms_iot, terms_mec):
         all_terms.extend(bucket[:4])
 
@@ -313,26 +349,31 @@ def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
 
 # ── Motor principal ───────────────────────────────────────────────────────────
 
-def _get_entrevista_context(user_id: str) -> str:
-    """Return a brief summary of the last 3 Entrevista vacantes for feedback injection."""
+def _get_winning_skills(user_id: str) -> str:
+    """Return top 5 high-conversion skills based on previous successes."""
     try:
         conn = _db()
         cur = conn.cursor()
         cur.execute(
-            "SELECT titulo, empresa, requerimientos FROM vacantes "
-            "WHERE user_id=%s AND status='Entrevista' ORDER BY id DESC LIMIT 3",
+            "SELECT requerimientos FROM vacantes "
+            "WHERE user_id=%s AND status IN ('Entrevista', 'Listo_Manual') AND requerimientos IS NOT NULL",
             (user_id,)
         )
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        if not rows:
-            return ""
-        parts = [
-            f"- {r[0]} en {r[1] or 'empresa'}: {(r[2] or '')[:200]}"
-            for r in rows
-        ]
-        return "\n".join(parts)
+        if not rows: return ""
+        
+        counts = {}
+        # Lista simplificada para el motor IA
+        kws = ["Python", "JavaScript", "React", "Node.js", "Docker", "AWS", "FastAPI", "IoT", "Embedded"]
+        for r in rows:
+            text = r[0].lower()
+            for kw in kws:
+                if kw.lower() in text:
+                    counts[kw] = counts.get(kw, 0) + 1
+        top = sorted(counts.items(), key=lambda x: -x[1])[:5]
+        return ", ".join([f"{k} (Alta Conversión)" for k, _ in top])
     except Exception:
         return ""
 
@@ -344,24 +385,76 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
         return None
     vid, titulo, empresa, enlace, requerimientos = row
 
-    perfil        = _get_user_profile(user_id)
+    # ── Datos dinámicos del usuario (BD → JSON) ───────────────────────────────
+    prof          = _get_user_profile_structured(user_id)
+    perfil_full   = _get_user_profile(user_id)
+    user_summary  = prof["resumen"] or "(perfil no configurado — rellena tu perfil en /perfil)"
+    user_skills   = ', '.join(prof["skills"]) if prof["skills"] else "(sin habilidades registradas)"
+    user_exp      = prof["experiencia_str"] or "(sin experiencia registrada)"
+    
+    winning_skills = _get_winning_skills(user_id)
+
     instruc_path  = os.path.join(CONTEXT_DIR, 'instrucciones_sistema.md')
     instrucciones = _read(instruc_path) if os.path.exists(instruc_path) else ""
     template_code = _select_template()
 
+    # ── System prompt maestro — 100% dinámico ────────────────────────────────
     system_msg = (
-        "Eres un experto en redacción de CVs técnicos y código LaTeX. "
-        "Devuelves ÚNICAMENTE código LaTeX puro. "
-        "Sin bloques markdown, sin explicaciones. "
-        "Empieza directamente con \\documentclass."
+        "Eres un redactor ejecutivo de CVs técnicos especializado en código LaTeX. "
+        "Devuelves ÚNICAMENTE código LaTeX puro, compilable. "
+        "Sin bloques markdown, sin explicaciones. Empieza con \\documentclass.\n\n"
+
+        "=== METRICAS Y RETROALIMENTACION DE EXITO ===\n"
+        f"Tus mejores habilidades de conversion segun metricas reales: {winning_skills}\n"
+        "Si alguna de estas habilidades es requerida o util en la vacante actual, "
+        "asegurate de darle prioridad visual en el CV.\n\n"
+
+        "=== PERFIL DEL CANDIDATO (FUENTE: BASE DE DATOS) ===\n"
+        f"Resumen profesional: {user_summary}\n"
+        f"Stack técnico y habilidades clave: {user_skills}\n"
+        f"Experiencia: {user_exp}\n\n"
+
+        "=== TONO Y ESTILO ===\n"
+        "Redacta con tono ejecutivo, directo y orientado a resultados. "
+        "Elimina adjetivos vacíos y clichés corporativos ('apasionado', 'visionario', 'proactivo'). "
+        "Usa verbos de acción fuertes.\n\n"
+
+        "=== REGLA ANTI-ALUCINACIÓN ===\n"
+        "Bajo ninguna circunstancia inventes habilidades, certificaciones, tecnologías o experiencias "
+        "que no estén explícitamente en el perfil y habilidades provistas. "
+        "Resalta la experiencia REAL del candidato que hace match con la vacante. "
+        "Explica cómo su background aporta valor al rol sin copiar el título exacto ni frases literales del anuncio.\n\n"
+
+        "=== REGLA DE TÍTULO PROFESIONAL (CRÍTICA Y PENALIZABLE) ===\n"
+        f"Tienes ESTRICTAMENTE PROHIBIDO usar el string \"{titulo}\" o variaciones directas de él como título del CV. "
+        "FÓRMULA OBLIGATORIA: El título debe seguir el patrón: "
+        "'[Ingeniero Mecánico / Desarrollador Full-Stack / Maestro en Ciencias] | Especialista en [Área clave requerida]'. "
+        f"Ejemplo: Si la vacante pide \"{titulo}\", el título del CV debe derivarse del perfil real del candidato, "
+        "p.ej. 'Ingeniero Mecánico | Especialista en Sistemas Electromecánicos'. "
+        f"El perfil real del candidato indica: '{user_summary[:120]}'. "
+        "NUNCA uses 'Técnico', 'Practicante' ni copies palabras literales del anuncio como título. "
+        "SIEMPRE respeta la jerarquía académica real del usuario.\n\n"
+
+        "=== ESTRUCTURA DE CV (ATS BEST PRACTICES) ===\n"
+        "- Perfil Profesional: Máximo 4 líneas. Orientado a cómo el perfil avanzado del candidato resuelve el problema de la empresa.\n"
+        "- Experiencia: Usa el formato PAR (Problema → Acción → Resultado). "
+        "Inicia cada viñeta con un verbo de acción fuerte (Implementé, Reduje, Optimicé, Lideré). "
+        "Elimina tareas pasivas. Cuantifica resultados siempre que sea posible.\n\n"
+
+        "=== PROTECCIÓN LaTeX ===\n"
+        "Output: código LaTeX válido y compilable. "
+        "Escapa TODOS los caracteres especiales (%, &, $, #, _) en el contenido generado. "
+        "No uses sintaxis Markdown dentro del LaTeX."
     )
+
     entrevista_ctx = _get_entrevista_context(user_id)
     if entrevista_ctx:
         system_msg += (
-            "\n\nContexto de Éxito: El usuario ha logrado entrevistas para vacantes con estas descripciones/roles:\n"
+            "\n\n=== CONTEXTO DE ÉXITO (ENTREVISTAS PREVIAS) ===\n"
             f"{entrevista_ctx}\n"
-            "Prioriza resaltar habilidades y enfoques similares en este nuevo CV para maximizar la probabilidad de conversión."
+            "Prioriza resaltar habilidades y enfoques similares para maximizar la conversión."
         )
+
     user_msg = f"""Genera un CV completo en LaTeX para esta vacante.
 
 VACANTE:
@@ -371,21 +464,20 @@ VACANTE:
 - Requerimientos:
 {requerimientos or 'No especificados'}
 
-PERFIL DEL CANDIDATO:
-{perfil or '[Sin perfil configurado — usa datos de ejemplo]'}
+PERFIL COMPLETO DEL CANDIDATO:
+{perfil_full or '[Sin perfil configurado]'}
 
-INSTRUCCIONES DEL SISTEMA:
+INSTRUCCIONES ADICIONALES:
 {instrucciones}
 
 PLANTILLA BASE:
 {template_code}
 
-REGLAS:
+REGLAS DE FORMATO:
 1. Código LaTeX puro, empezando con \\documentclass.
-2. Adapta el título profesional al puesto exacto.
-3. Usa vocabulario espejo al de la vacante.
-4. Logros cuantificables cuando sea posible.
-5. Máximo 1 página para puestos junior/mid."""
+2. Usa vocabulario espejo al de la vacante (keywords de la descripción).
+3. Logros cuantificables cuando sea posible.
+4. Máximo 1 página para puestos junior/mid."""
 
     _set_status(vid, "En_Proceso", user_id)
     _log.info("[IA] Generando CV vacante #%s user=%s: %s", vid, user_id, titulo[:50])

@@ -65,11 +65,15 @@ interface Props {
 }
 
 const DYNAMIC_COLS = new Set<Status>(['En_Proceso', 'Requiere_Correccion'])
+const COMPAT_RANK: Record<string, number> = { Alta: 3, Media: 2, Baja: 1, Nula: 0 }
 
 function sortColumn(items: Vacante[]): Vacante[] {
   return [...items].sort((a, b) => {
     if (b.favorito !== a.favorito) return b.favorito - a.favorito
-    return b.id - a.id  // más reciente primero
+    const ca = COMPAT_RANK[a.compatibilidad] ?? 0
+    const cb = COMPAT_RANK[b.compatibilidad] ?? 0
+    if (cb !== ca) return cb - ca
+    return b.id - a.id
   })
 }
 

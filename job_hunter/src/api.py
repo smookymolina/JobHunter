@@ -1245,12 +1245,12 @@ def download_template():
 # ── Métricas endpoint ─────────────────────────────────────────────────────────
 
 _TECH_KEYWORDS = [
-    "Python", "JavaScript", "TypeScript", "React", "Next.js", "Node.js",
-    "FastAPI", "Flask", "Django", "Docker", "Kubernetes", "AWS", "Azure",
-    "PostgreSQL", "MySQL", "MongoDB", "Redis", "Git", "CI/CD", "REST",
-    "GraphQL", "Vue", "Angular", "SQL", "Linux", "Java", "C++", "Go",
-    "Rust", "PHP", "HTML", "CSS", "Tailwind", "Machine Learning", "AI",
-    "IoT", "ESP32", "MQTT", "SolidWorks", "MATLAB", "Arduino", "STM32",
+    "Python", "JavaScript", "TypeScript", "React", "Next.js", "Node.js", "Go", "Rust",
+    "FastAPI", "Flask", "Django", "Docker", "Kubernetes", "AWS", "Azure", "GCP",
+    "PostgreSQL", "MySQL", "MongoDB", "Redis", "Git", "CI/CD", "REST", "GraphQL",
+    "Machine Learning", "AI", "NLP", "PyTorch", "TensorFlow", "Pandas", "NumPy",
+    "IoT", "ESP32", "MQTT", "SolidWorks", "MATLAB", "Arduino", "STM32", "PLC",
+    "Linux", "Embedded", "RTOS", "Unit Testing", "Microservices", "Terraform",
 ]
 
 
@@ -1260,28 +1260,33 @@ def get_metricas(current_user: dict = Depends(get_current_user)):
     conn = _db()
     cur = conn.cursor()
 
-    cur.execute(
-        "SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status != 'No_Creado'",
-        (uid,)
-    )
+    # 1. Básicos
+    cur.execute("SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status != 'No_Creado'", (uid,))
     total_aplicadas = cur.fetchone()[0] or 0
 
-    cur.execute(
-        "SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status='Entrevista'",
-        (uid,)
-    )
+    cur.execute("SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status='Entrevista'", (uid,))
     total_entrevistas = cur.fetchone()[0] or 0
 
-    cur.execute(
-        "SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status='Listo_Manual'",
-        (uid,)
-    )
+    cur.execute("SELECT COUNT(*) FROM vacantes WHERE user_id=%s AND status='Listo_Manual'", (uid,))
     total_enviados = cur.fetchone()[0] or 0
 
+    # 2. Correlación Compatibilidad -> Éxito
     cur.execute(
-        "SELECT requerimientos FROM vacantes "
-        "WHERE user_id=%s AND status='Entrevista' AND requerimientos IS NOT NULL",
-        (uid,)
+        "SELECT compatibilidad, COUNT(*) FROM vacantes "
+        "WHERE user_id=%s AND status='Entrevista' GROUP BY compatibilidad", (uid,)
+    )
+    success_by_compat = dict(cur.fetchall())
+
+    # 3. Distribución de compatibilidad general
+    cur.execute(
+        "SELECT compatibilidad, COUNT(*) FROM vacantes WHERE user_id=%s GROUP BY compatibilidad", (uid,)
+    )
+    compat_dist = dict(cur.fetchall())
+
+    # 4. Top Skills en Entrevistas vs Aplicadas (Fuerza de conversión)
+    cur.execute(
+        "SELECT requerimientos, status FROM vacantes "
+        "WHERE user_id=%s AND status IN ('Entrevista', 'Listo_Manual') AND requerimientos IS NOT NULL", (uid,)
     )
     req_rows = cur.fetchall()
     cur.close()
@@ -1290,11 +1295,13 @@ def get_metricas(current_user: dict = Depends(get_current_user)):
     tasa_conversion = round((total_entrevistas / total_aplicadas) * 100, 1) if total_aplicadas > 0 else 0.0
 
     kw_counts: dict[str, int] = {}
-    for row in req_rows:
-        text = (row[0] or "").lower()
+    for text, status in req_rows:
+        text_lower = text.lower()
+        weight = 3 if status == 'Entrevista' else 1
         for kw in _TECH_KEYWORDS:
-            if kw.lower() in text:
-                kw_counts[kw] = kw_counts.get(kw, 0) + 1
+            if kw.lower() in text_lower:
+                kw_counts[kw] = kw_counts.get(kw, 0) + weight
+
     top_skills = sorted(kw_counts.items(), key=lambda x: -x[1])[:8]
 
     return {
@@ -1303,6 +1310,11 @@ def get_metricas(current_user: dict = Depends(get_current_user)):
         "total_enviados": total_enviados,
         "tasa_conversion": tasa_conversion,
         "top_skills_entrevistas": [{"skill": k, "count": v} for k, v in top_skills],
+        "compat_distribution": compat_dist,
+        "success_rate_by_compatibility": {
+            k: round((success_by_compat.get(k, 0) / v) * 100, 1) if v > 0 else 0
+            for k, v in compat_dist.items()
+        }
     }
 
 

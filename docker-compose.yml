@@ -34,10 +34,10 @@ services:
       - SMTP_HOST=smtp.gmail.com
       - SMTP_PORT=587
       - SMTP_USER=codeaerospace@gmail.com
-      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_PASS=${SMTP_PASS:-}
       - EMAIL_FROM=codeaerospace@gmail.com
       - EMAIL_FROM_NAME=CO.DE Aerospace
-      - WHATSAPP_BOT_NUMBER=${WHATSAPP_BOT_NUMBER}
+      - WHATSAPP_BOT_NUMBER=${WHATSAPP_BOT_NUMBER:-}
     shm_size: '256m'
     volumes:
       - ./job_hunter/db:/app/db
@@ -69,6 +69,7 @@ services:
       - AUTH_SECRET=jobhunter-nextauth-secret-CHANGE-IN-PRODUCTION
       - AUTH_URL=http://localhost:3000
       - AUTH_TRUST_HOST=true
+      - NEXT_TELEMETRY_DISABLED=1
 
 volumes:
   postgres_data:

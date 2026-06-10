@@ -35,36 +35,39 @@ El sistema **JobHunter** cumple con creces su objetivo principal: **Automatizar 
 Para transformar esta herramienta local en una plataforma de suscripción profesional, se han realizado los siguientes cambios:
 
 ### Paso 1: Cloud & Multi-tenancy (COMPLETADO)
-- **Migración de DB:** PostgreSQL implementado y funcionando en Docker.
-- **Aislamiento de Datos:** Implementado `user_id` en todas las tablas y buckets de almacenamiento local aislados.
+- **Migración de DB:** PostgreSQL funcionando en Docker.
+- **Aislamiento:** `user_id` implementado en todas las capas.
 
-### Paso 2: Autenticación y Pagos (EN PROGRESO)
-- **Auth:** Integrado `NextAuth.js` para manejo de login/registro.
-- **Suscripciones:** UI de Pricing lista. **Pendiente:** Webhooks de Stripe y lógica de facturación.
+### Paso 2: Inteligencia de Datos & Feedback Loop (COMPLETADO 🚀)
+- **Métricas V2:** Análisis de correlación compatibilidad vs. éxito.
+- **Auto-Feedback:** El motor IA prioriza habilidades de "Alta Conversión" detectadas en entrevistas previas.
+- **Discovery:** Los términos de búsqueda se auto-ajustan según el éxito histórico.
 
 ### Paso 3: IA Server-side (COMPLETADO)
-- **Agente de IA en la Nube:** Flujo de generación "One-click" vía Groq/Anthropic integrado directamente en el backend.
-- **Compilación Remota:** El microservicio Docker maneja `pdflatex` de forma autónoma.
+- **One-Click Gen:** Generación remota vía Groq/Anthropic.
+- **Remote Build:** Dockerizado `pdflatex` para consistencia total.
 
-### Paso 4: Infraestructura de Scraping (PENDIENTE)
-- **Scrapers Distribuidos:** Mover Playwright a servicios como Browserless para evitar bloqueos y escalar.
+### Paso 4: Autenticación y Pagos (EN PROGRESO)
+- **Auth:** NextAuth.js funcional.
+- **Pagos:** UI de Pricing lista. **Pendiente:** Webhooks de Stripe.
+
+### Paso 5: Infraestructura de Scraping (PENDIENTE)
+- **Scrapers Distribuidos:** Migración a Browserless/Proxies.
 
 ---
 
 ## 4. Sugerencias de Nuevas Funcionalidades
-1.  **Seguimiento de Postulaciones Automático:** Integración con Gmail/IMAP para detectar respuestas de empresas.
-2.  **Simulador de Entrevistas:** IA que genera preguntas técnicas basadas en la vacante guardada.
-3.  **Extensión de Navegador:** Para importar vacantes de LinkedIn con un click.
+1.  **Seguimiento de Postulaciones Automático:** Integración con Gmail/IMAP.
+2.  **Simulador de Entrevistas:** IA genera preguntas técnicas basadas en vacante.
+3.  **Extensión de Navegador:** Importación 1-click desde LinkedIn.
 
 ---
 
 ## 5. Conclusión y Próximos Pasos (Propuesta Actualizada)
 
-Para finalizar la profesionalización del producto:
-
-1.  **Integrar Stripe:** Habilitar el flujo de pagos real.
-2.  **Batch Generation:** Procesamiento masivo de vacantes en segundo plano.
-3.  **Cloud Storage:** Migrar de volúmenes Docker a AWS S3 o Google Cloud Storage.
+1.  **Integrar Stripe:** Habilitar flujo de pagos real.
+2.  **Batch Generation:** Procesamiento masivo en background.
+3.  **Cloud Storage:** Migrar volúmenes locales a S3/GCS.
 
 ---
-**Análisis finalizado (Rev. 2026-06-08).** El proyecto ha pasado de ser una herramienta local a una base SaaS sólida lista para la integración comercial final.
+**Análisis finalizado (Rev. 2026-06-09).** El sistema ha evolucionado hacia un motor de búsqueda inteligente con retroalimentación activa de datos.

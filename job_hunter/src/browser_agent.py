@@ -17,6 +17,7 @@ import json
 import os
 import time
 import random
+import unicodedata
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -188,6 +189,23 @@ def _passes_text_filter(titulo: str, reqs: str, filtros: dict) -> bool:
     return True
 
 
+def _strip_accents(s: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+
+
+def _passes_geo_filter(titulo: str, reqs: str, filtros: dict) -> bool:
+    """Descarta vacantes cuyo texto no mencione explícitamente la ubicación configurada."""
+    ubicacion = filtros.get("ubicacion", "").strip()
+    if not ubicacion:
+        return True
+    if filtros.get("modalidad", "any") == "remoto":
+        return True  # trabajo remoto no tiene restricción geográfica
+
+    text = _strip_accents(f"{titulo} {reqs}".lower())
+    candidates = [ubicacion] + _GEO_ALIASES.get(ubicacion.lower().strip(), [])
+    return any(_strip_accents(c.lower()) in text for c in candidates)
+
+
 # ── API helper ────────────────────────────────────────────────────────────────
 
 def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bool, str]:
@@ -327,6 +345,9 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
                     if not _passes_salary_filter(reqs, min_salary):
                         print(f"  [Filtro] Salario: {titulo[:45]}")
                         continue
+                    if not _passes_geo_filter(titulo, reqs, filtros):
+                        print(f"  [Filtro] Geo: {titulo[:45]}")
+                        continue
 
                     insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
                     if insertada:
@@ -397,6 +418,9 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
                     if not _passes_salary_filter(reqs, min_salary):
                         print(f"  [Filtro] Salario: {titulo[:45]}")
                         continue
+                    if not _passes_geo_filter(titulo, reqs, filtros):
+                        print(f"  [Filtro] Geo: {titulo[:45]}")
+                        continue
 
                     insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
                     if insertada:
@@ -460,6 +484,8 @@ def scrape_indeed_rss(term: str, counter: list, limite: int | None, filtros: dic
             if not _passes_text_filter(titulo, reqs, filtros):
                 continue
             if not _passes_salary_filter(reqs, filtros.get("min_salary")):
+                continue
+            if not _passes_geo_filter(titulo, reqs, filtros):
                 continue
 
             insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
@@ -538,6 +564,8 @@ def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, fil
                 if not _passes_text_filter(titulo, reqs, filtros):
                     continue
                 if not _passes_salary_filter(reqs, filtros.get("min_salary")):
+                    continue
+                if not _passes_geo_filter(titulo, reqs, filtros):
                     continue
 
                 insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
@@ -628,6 +656,8 @@ def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, fi
                     continue
                 if not _passes_salary_filter(reqs, min_salary):
                     continue
+                if not _passes_geo_filter(titulo, reqs, filtros):
+                    continue
 
                 insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
                 if insertada:
@@ -708,6 +738,8 @@ def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict)
                 if not _passes_text_filter(titulo, reqs, filtros):
                     continue
                 if not _passes_salary_filter(reqs, filtros.get("min_salary")):
+                    continue
+                if not _passes_geo_filter(titulo, reqs, filtros):
                     continue
 
                 insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
