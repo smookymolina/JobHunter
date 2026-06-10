@@ -1,6 +1,6 @@
 'use client'
 
-import { Inbox } from 'lucide-react'
+import { Inbox, X } from 'lucide-react'
 import { type Vacante, type Status } from '@/lib/api'
 import VacanteCard from './VacanteCard'
 
@@ -60,6 +60,8 @@ const COLUMNS: Column[] = [
 interface Props {
   vacantes: Vacante[]
   onRefresh: () => void
+  activeFilter: Status | null
+  setActiveFilter: (s: Status | null) => void
 }
 
 const DYNAMIC_COLS = new Set<Status>(['En_Proceso', 'Requiere_Correccion'])
@@ -71,34 +73,57 @@ function sortColumn(items: Vacante[]): Vacante[] {
   })
 }
 
-export default function KanbanBoard({ vacantes, onRefresh }: Props) {
+export default function KanbanBoard({ vacantes, onRefresh, activeFilter, setActiveFilter }: Props) {
   const byStatus = (status: Status) => sortColumn(vacantes.filter(v => v.status === status))
 
+  const visibleColumns = activeFilter
+    ? COLUMNS.filter(c => c.id === activeFilter)
+    : COLUMNS.filter(col => !DYNAMIC_COLS.has(col.id) || byStatus(col.id).length > 0)
+
   return (
-    <div className="flex h-full gap-3 overflow-x-auto pb-4">
-      {COLUMNS.filter(col => !DYNAMIC_COLS.has(col.id) || byStatus(col.id).length > 0).map(col => {
+    <div className={`flex h-full gap-3 ${activeFilter ? 'flex-col overflow-y-auto' : 'overflow-x-auto'} pb-4`}>
+      {visibleColumns.map(col => {
         const items = byStatus(col.id)
+        const isExpanded = activeFilter !== null
+
         return (
           <div
             key={col.id}
-            className={`flex w-[268px] shrink-0 flex-col rounded-2xl border border-t-2 border-slate-200/50 bg-slate-100/60 backdrop-blur-sm dark:border-slate-800/50 dark:bg-slate-900/50 ${col.borderAccent}`}
+            className={`flex shrink-0 flex-col rounded-2xl border border-t-2 border-slate-200/50 bg-slate-100/60 backdrop-blur-sm dark:border-slate-800/50 dark:bg-slate-900/50 ${
+              col.borderAccent
+            } ${isExpanded ? 'w-full flex-1' : 'w-[268px]'}`}
           >
             {/* Column header */}
             <div className="flex items-center justify-between px-3 pt-3 pb-2">
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${col.headerClass}`}>
-                {col.label}
-              </span>
-              <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${col.headerClass}`}>
-                {items.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${col.headerClass}`}>
+                  {col.label}
+                </span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${col.headerClass}`}>
+                  {items.length}
+                </span>
+              </div>
+              {isExpanded && (
+                <button
+                  onClick={() => setActiveFilter(null)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <X size={14} />
+                  Ver todo el tablero
+                </button>
+              )}
             </div>
 
             <div className="mx-3 mb-2 border-t border-slate-200/70 dark:border-slate-800/70" />
 
             {/* Cards */}
-            <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
+            <div className={`flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3 ${
+              isExpanded ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4' : ''
+            }`}>
               {items.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 py-8 text-center dark:border-slate-800">
+                <div className={`flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 py-8 text-center dark:border-slate-800 ${
+                  isExpanded ? 'col-span-full py-20' : ''
+                }`}>
                   <Inbox size={20} className="text-slate-200 dark:text-slate-700" />
                   <p className="max-w-[160px] text-[11px] italic leading-relaxed text-slate-300 dark:text-slate-600">
                     {col.emptyText}

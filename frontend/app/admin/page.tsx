@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { Shield, Users, Crown, User, CheckCircle, XCircle, Loader2, ChevronUp } from 'lucide-react'
+import { Shield, Users, Crown, User, CheckCircle, XCircle, Loader2, ChevronUp, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type AdminUser = {
@@ -12,6 +12,8 @@ type AdminUser = {
   tier: string
   role: string
   fecha_creacion: string | null
+  is_verified: boolean
+  verification_code: string | null
 }
 
 type Toast = { id: number; message: string; ok: boolean }
@@ -22,6 +24,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<string | null>(null)
+  const [verifying, setVerifying] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [denied, setDenied] = useState(false)
 
@@ -58,6 +61,19 @@ export default function AdminPage() {
       addToast('Error al actualizar el plan', false)
     } finally {
       setUpdating(null)
+    }
+  }
+
+  const forceVerify = async (user_id: string) => {
+    setVerifying(user_id)
+    try {
+      await api.adminVerifyUser(user_id)
+      setUsers(prev => prev.map(u => u.user_id === user_id ? { ...u, is_verified: true, verification_code: null } : u))
+      addToast('Usuario verificado manualmente', true)
+    } catch {
+      addToast('Error al verificar usuario', false)
+    } finally {
+      setVerifying(null)
     }
   }
 
@@ -123,6 +139,7 @@ export default function AdminPage() {
               <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
                 <th className="px-4 py-3 text-left font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Usuario</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Rol</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Verificación</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Registro</th>
                 <th className="px-4 py-3 text-center font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">Plan</th>
               </tr>
@@ -152,6 +169,34 @@ export default function AdminPage() {
                         <User size={10} />
                         User
                       </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3.5">
+                    {u.is_verified ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-700/40 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <ShieldCheck size={10} />
+                        Verificado
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                          <ShieldAlert size={10} />
+                          Pendiente
+                        </span>
+                        {u.verification_code && (
+                          <span className="font-mono text-[10px] text-slate-400 dark:text-slate-600 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                            {u.verification_code}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => forceVerify(u.user_id)}
+                          disabled={verifying === u.user_id}
+                          className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 dark:border-emerald-700/40 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 transition-colors"
+                        >
+                          {verifying === u.user_id ? <Loader2 size={9} className="animate-spin" /> : <ShieldCheck size={9} />}
+                          Forzar
+                        </button>
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3.5 text-slate-500 dark:text-slate-500">

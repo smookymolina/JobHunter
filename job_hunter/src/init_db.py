@@ -44,7 +44,10 @@ SCHEMA_SQL = [
         vacantes_limite          INT DEFAULT 5 NOT NULL,
         latex_limite             INT DEFAULT 3 NOT NULL,
         latex_generados          INT DEFAULT 0 NOT NULL,
-        created_at               TIMESTAMP DEFAULT NOW()
+        created_at               TIMESTAMP DEFAULT NOW(),
+        is_verified              BOOLEAN DEFAULT FALSE NOT NULL,
+        verification_code        VARCHAR(10) DEFAULT NULL,
+        phone_number             VARCHAR(20) DEFAULT NULL
     )""",
 ]
 

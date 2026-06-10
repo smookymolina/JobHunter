@@ -163,7 +163,8 @@ def heartbeat_api() -> None:
 
 STATUS_ICON = {
     "No_Creado": "⬜", "En_Proceso": "🔵",
-    "Revisado_IA": "🟡", "Listo_Manual": "🟢", "Requiere_Correccion": "🔴",
+    "Revisado_IA": "🟡", "Listo_Manual": "🟢",
+    "Requiere_Correccion": "🔴", "Entrevista": "🟣",
 }
 COMPAT_ICON = {"Alta": "🔥", "Media": "🟠", "Baja": "🔵", "Nula": "⚪"}
 
@@ -190,7 +191,8 @@ def has_pdf(vid: int) -> bool:
 def kb_main() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔍 Buscar Vacantes",   callback_data="buscar")],
-        [InlineKeyboardButton("📊 Dashboard",          callback_data="dashboard")],
+        [InlineKeyboardButton("📊 Dashboard",          callback_data="dashboard"),
+         InlineKeyboardButton("📈 Métricas",           callback_data="metricas")],
         [InlineKeyboardButton("📋 Mis Vacantes",       callback_data="vacantes:0"),
          InlineKeyboardButton("📥 Mis CVs",            callback_data="cvs:0")],
         [InlineKeyboardButton("👤 Mi Perfil",          callback_data="perfil")],
@@ -259,22 +261,26 @@ def kb_vacante_detalle(vid: int, status: str, tiene_pdf: bool = False,
         row1.append(InlineKeyboardButton("⏳ Generando…",  callback_data=f"vac:{vid}"))
     if tiene_pdf:
         row1.append(InlineKeyboardButton("📄 Descargar PDF", callback_data=f"pdf:{vid}"))
-    if status in ("Revisado_IA", "Listo_Manual"):
+    if status in ("Revisado_IA", "Listo_Manual", "Entrevista"):
         row1.append(InlineKeyboardButton("📝 Editar LaTeX",  callback_data=f"tex:{vid}"))
     if row1:
         rows.append(row1)
 
-    # Fila 2: link de postulación (URL button — abre navegador directamente)
+    # Fila 2: link de postulación
     if enlace and enlace != "—":
         rows.append([InlineKeyboardButton("🔗 Ir a la oferta / Postularse", url=enlace)])
 
-    # Fila 3: acciones de estado
-    row3 = []
-    if status != "Listo_Manual":
-        row3.append(InlineKeyboardButton("✅ CV Enviado", callback_data=f"listo:{vid}"))
-    row3.append(InlineKeyboardButton("⭐ Fav" if not favorito else "★ Quitar fav", callback_data=f"fav:{vid}"))
-    row3.append(InlineKeyboardButton("🗑️ Borrar", callback_data=f"del:{vid}"))
-    rows.append(row3)
+    # Fila 3: avanzar a Entrevista (embudo)
+    if status in ("Listo_Manual", "Revisado_IA"):
+        rows.append([InlineKeyboardButton("🎙️ Mover a Entrevista 🟣", callback_data=f"entrevista:{vid}")])
+
+    # Fila 4: acciones de estado
+    row4 = []
+    if status not in ("Listo_Manual", "Entrevista"):
+        row4.append(InlineKeyboardButton("✅ CV Enviado", callback_data=f"listo:{vid}"))
+    row4.append(InlineKeyboardButton("⭐ Fav" if not favorito else "★ Quitar fav", callback_data=f"fav:{vid}"))
+    row4.append(InlineKeyboardButton("🗑️ Borrar", callback_data=f"del:{vid}"))
+    rows.append(row4)
 
     rows.append([InlineKeyboardButton("◀️ Mis Vacantes", callback_data="vacantes:0")])
     return InlineKeyboardMarkup(rows)
@@ -364,6 +370,33 @@ async def cmd_cvs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=kb_cvs(slc, 0, total_pages),
     )
 
+@admin_only
+async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    try:
+        m = await api("GET", "/metricas")
+    except RuntimeError as e:
+        await update.message.reply_text(f"❌ Error: `{esc(str(e))}`", parse_mode="Markdown")
+        return
+    skills = m.get("top_skills_entrevistas", [])
+    skills_txt = (
+        "\n".join(f"  • `{esc(s['skill'])}` ×{s['count']}" for s in skills[:5])
+        if skills else "  _Sin datos aún_"
+    )
+    await update.message.reply_text(
+        f"📈 *Métricas — Job Hunter*\n\n"
+        f"🎯 Tasa de Conversión: *{m.get('tasa_conversion', 0)}%*\n"
+        f"📁 Aplicadas: *{m.get('total_aplicadas', 0)}*\n"
+        f"📤 CV Enviados: *{m.get('total_enviados', 0)}*\n"
+        f"🎙️ Entrevistas: *{m.get('total_entrevistas', 0)}*\n\n"
+        f"⚡ *Top Habilidades:*\n{skills_txt}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Actualizar", callback_data="metricas"),
+             InlineKeyboardButton("📊 Dashboard",  callback_data="dashboard")],
+            [InlineKeyboardButton("◀️ Menú",       callback_data="menu")],
+        ]),
+    )
+
 # ── Callback dispatcher ───────────────────────────────────────────────────────
 
 @admin_only
@@ -385,6 +418,11 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.answer()
         await _cb_dashboard(q)
 
+    # ── Métricas ───────────────────────────────────────────────────────────────
+    elif data == "metricas":
+        await q.answer()
+        await _cb_metricas(q)
+
     # ── Mi Perfil ──────────────────────────────────────────────────────────────
     elif data == "perfil":
         await q.answer()
@@ -401,6 +439,13 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data.startswith("buscar_mod:"):
+        mod = data.split(":")[1]
+        ctx.user_data["buscar_modalidad"] = mod
+        await q.answer(f"Modalidad: {mod}")
+        await q.edit_message_reply_markup(reply_markup=kb_buscar(mod))
+
+    elif data.startswith("buscar:"):
+
         mod = data.split(":")[1]
         ctx.user_data["buscar_modalidad"] = mod
         await q.answer(f"Modalidad: {mod}")
@@ -446,6 +491,10 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("listo:"):
         vid = int(data.split(":")[1])
         await _cb_marcar_listo(q, vid)
+
+    elif data.startswith("entrevista:"):
+        vid = int(data.split(":")[1])
+        await _cb_marcar_entrevista(q, vid)
 
     elif data.startswith("del:"):
         vid = int(data.split(":")[1])
@@ -527,16 +576,23 @@ async def _cb_dashboard(q):
         if has_pdf(v["id"]):
             n_pdfs += 1
 
-    pendientes = by_st.get("No_Creado", 0) + by_st.get("Requiere_Correccion", 0)
-    en_proceso = by_st.get("En_Proceso", 0)
-    revisados  = by_st.get("Revisado_IA", 0)
-    listos     = by_st.get("Listo_Manual", 0)
+    pendientes   = by_st.get("No_Creado", 0) + by_st.get("Requiere_Correccion", 0)
+    en_proceso   = by_st.get("En_Proceso", 0)
+    revisados    = by_st.get("Revisado_IA", 0)
+    listos       = by_st.get("Listo_Manual", 0)
+    entrevistas  = by_st.get("Entrevista", 0)
+    estancadas   = en_proceso + by_st.get("Requiere_Correccion", 0)
 
     scrape_txt = "🟢 Activo" if scrape.get("running") else "⚪ Inactivo"
     last       = scrape.get("last") or "—"
 
     lines_st = "\n".join(f"  {fmt_st(s)}: {c}" for s, c in sorted(by_st.items()))
     lines_co = "\n".join(f"  {fmt_co(k)}: {n}" for k, n in sorted(by_co.items()))
+
+    alert = (
+        f"\n⚠️ *Kanban alerta:* {estancadas} vacante(s) estancadas \\(En Proceso / Requiere Corrección\\)\\.\n"
+        if estancadas else ""
+    )
 
     text = (
         f"📊 *Dashboard — Job Hunter*\n\n"
@@ -545,7 +601,9 @@ async def _cb_dashboard(q):
         f"🔵 En proceso: *{en_proceso}*\n"
         f"🟡 Revisados IA: *{revisados}*\n"
         f"📤 CV Enviados: *{listos}*\n"
-        f"📄 PDFs generados: *{n_pdfs}*\n\n"
+        f"🟣 Entrevistas: *{entrevistas}*\n"
+        f"📄 PDFs generados: *{n_pdfs}*\n"
+        f"{alert}\n"
         f"🔍 Scraper: {scrape_txt}\n"
         f"   Último: _{esc(last[:80])}_\n\n"
         f"*Por status:*\n{lines_st}\n\n"
@@ -556,7 +614,55 @@ async def _cb_dashboard(q):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 Actualizar",    callback_data="dashboard"),
-             InlineKeyboardButton("📥 Mis CVs",       callback_data="cvs:0")],
+             InlineKeyboardButton("📈 Métricas",      callback_data="metricas")],
+            [InlineKeyboardButton("📥 Mis CVs",       callback_data="cvs:0"),
+             InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+        ]),
+    )
+
+# ── Métricas ──────────────────────────────────────────────────────────────────
+
+async def _cb_metricas(q):
+    try:
+        m = await api("GET", "/metricas")
+    except RuntimeError as e:
+        await q.edit_message_text(
+            f"❌ Error cargando métricas: `{esc(str(e))}`",
+            parse_mode="Markdown",
+            reply_markup=kb_back(),
+        )
+        return
+
+    skills = m.get("top_skills_entrevistas", [])
+    if skills:
+        top_count = max(s["count"] for s in skills) or 1
+        skills_txt = "\n".join(
+            f"  {'▓' * round(s['count'] / top_count * 8)}{'░' * (8 - round(s['count'] / top_count * 8))}"
+            f" `{esc(s['skill'])}` ×{s['count']}"
+            for s in skills[:5]
+        )
+    else:
+        skills_txt = "  _Sin datos\\. Mueve vacantes a 'Entrevista' para generar insights\\._"
+
+    total_ap  = m.get("total_aplicadas", 0)
+    total_env = m.get("total_enviados", 0)
+    total_ent = m.get("total_entrevistas", 0)
+    tasa      = m.get("tasa_conversion", 0)
+
+    text = (
+        f"📈 *Métricas — Job Hunter*\n\n"
+        f"🎯 *Tasa de Conversión:* `{tasa}%`\n\n"
+        f"📁 Total aplicadas: *{total_ap}*\n"
+        f"📤 CVs enviados: *{total_env}*\n"
+        f"🎙️ Entrevistas logradas: *{total_ent}*\n\n"
+        f"⚡ *Habilidades de alta conversión:*\n{skills_txt}"
+    )
+    await q.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Actualizar",     callback_data="metricas"),
+             InlineKeyboardButton("📊 Dashboard",      callback_data="dashboard")],
             [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
         ]),
     )
@@ -730,7 +836,8 @@ async def _cb_buscar(q, cantidad: int, ctx=None):
             f"✅ *{msg}*\n\n"
             f"🔎 Modalidad: {mod_txt}\n"
             f"🔑 Términos:\n{terms_txt}\n\n"
-            f"_El scraping corre en segundo plano._",
+            f"💡 _Filtros avanzados \\(plataformas múltiples, salario mínimo\\) disponibles en el dashboard web\\._\n\n"
+            f"_El scraping corre en segundo plano\\._",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📋 Mis Vacantes",    callback_data="vacantes:0"),
@@ -941,6 +1048,24 @@ async def _cb_marcar_listo(q, vid: int):
                 [InlineKeyboardButton(f"🔍 Ver vacante #{vid}", callback_data=f"vac:{vid}")],
                 *([[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"pdf:{vid}")]] if tiene else []),
                 [InlineKeyboardButton("◀️ Menú Principal", callback_data="menu")],
+            ]),
+        )
+    except RuntimeError as e:
+        await q.answer(f"❌ {str(e)[:100]}", show_alert=True)
+
+async def _cb_marcar_entrevista(q, vid: int):
+    try:
+        await api("PATCH", f"/vacantes/{vid}/status", {"status": "Entrevista"})
+        await q.answer("🎙️ ¡Entrevista registrada!")
+        await q.edit_message_text(
+            f"🎙️ *¡Entrevista confirmada\\!* — Vacante \\#{vid}\n\n"
+            "La vacante fue movida a *Entrevista*\\.\n"
+            "La IA priorizará estas habilidades en futuros CVs para maximizar conversiones\\. 🚀",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"🔍 Ver vacante #{vid}", callback_data=f"vac:{vid}")],
+                [InlineKeyboardButton("📈 Ver Métricas",        callback_data="metricas"),
+                 InlineKeyboardButton("◀️ Menú",               callback_data="menu")],
             ]),
         )
     except RuntimeError as e:
@@ -1176,9 +1301,11 @@ def main():
     app.bot_data["auto_scrape"] = conf.get("auto_scrape", False)
     app.bot_data["debug_mode"]  = conf.get("debug_mode",  False)
 
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("menu",  cmd_menu))
-    app.add_handler(CommandHandler("cvs",   cmd_cvs))
+    app.add_handler(CommandHandler("start",    cmd_start))
+    app.add_handler(CommandHandler("menu",     cmd_menu))
+    app.add_handler(CommandHandler("cvs",      cmd_cvs))
+    app.add_handler(CommandHandler("stats",    cmd_stats))
+    app.add_handler(CommandHandler("metricas", cmd_stats))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_tex_upload))
 

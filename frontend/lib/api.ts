@@ -299,13 +299,18 @@ export const api = {
     }),
 
   adminUsers: () =>
-    req<{ user_id: string; email: string; tier: string; role: string; fecha_creacion: string }[]>('/admin/users'),
+    req<{ user_id: string; email: string; tier: string; role: string; fecha_creacion: string; is_verified: boolean; verification_code: string | null }[]>('/admin/users'),
 
   adminUpdateTier: (user_id: string, tier: 'free' | 'pro') =>
     req<{ ok: boolean; user_id: string; tier: string }>(`/admin/users/${user_id}/tier`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tier }),
+    }),
+
+  adminVerifyUser: (user_id: string) =>
+    req<{ ok: boolean; msg: string }>(`/admin/users/${user_id}/verify`, {
+      method: 'PATCH',
     }),
 
   metricas: () =>

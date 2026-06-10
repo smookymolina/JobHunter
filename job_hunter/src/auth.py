@@ -6,10 +6,21 @@ import base64
 import json
 import time
 from typing import Optional
+from urllib.parse import urlparse as _urlparse
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from cryptography.fernet import Fernet
+
+
+def _auth_db():
+    import pg8000.dbapi as _pg
+    u = _urlparse(os.getenv("DATABASE_URL", ""))
+    return _pg.connect(
+        host=u.hostname, port=u.port or 5432,
+        user=u.username, password=u.password,
+        database=u.path.lstrip("/"),
+    )
 
 SECRET_KEY = os.getenv('AUTH_SECRET', 'jobhunter-dev-secret-CHANGE-IN-PRODUCTION')
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY") or Fernet.generate_key().decode()
@@ -99,7 +110,25 @@ def get_current_user(
     payload = verify_token(creds.credentials)
     if not payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")
-    return {"user_id": payload["sub"], "email": payload.get("email", "")}
+    user_id = payload["sub"]
+    try:
+        conn = _auth_db()
+        cur = conn.cursor()
+        cur.execute("SELECT is_verified, role FROM usuarios WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row:
+            is_verified, role = row
+            if not is_verified and role != "admin":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cuenta no verificada. Revisa tu correo para el código de activación.",
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # DB unavailable → let the request through (fail open, not fail closed)
+    return {"user_id": user_id, "email": payload.get("email", "")}
 
 
 def get_optional_user(

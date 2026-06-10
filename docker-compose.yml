@@ -31,6 +31,13 @@ services:
       - PLAYWRIGHT_HEADLESS=true
       - DATABASE_URL=postgresql://jobhunter:devpass@postgres:5432/jobhunter_db
       - AUTH_SECRET=jobhunter-dev-secret-CHANGE-IN-PRODUCTION
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=codeaerospace@gmail.com
+      - SMTP_PASS=${SMTP_PASS}
+      - EMAIL_FROM=codeaerospace@gmail.com
+      - EMAIL_FROM_NAME=CO.DE Aerospace
+      - WHATSAPP_BOT_NUMBER=${WHATSAPP_BOT_NUMBER}
     shm_size: '256m'
     volumes:
       - ./job_hunter/db:/app/db

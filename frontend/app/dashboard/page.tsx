@@ -71,6 +71,7 @@ export default function DashboardPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [scrapeRunning, setScrapeRunning] = useState(false)
   const [health, setHealth] = useState<SyncHealthReport | null>(null)
+  const [activeFilter, setActiveFilter] = useState<Status | null>(null)
 
   const fetchVacantes = useCallback(async (silent = false) => {
     let data: Vacante[] | null = null
@@ -223,22 +224,32 @@ export default function DashboardPage() {
       {!loading && !error && (
         <div className="shrink-0 border-b border-slate-100 px-6 py-4 dark:border-slate-800">
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-            {STAT_COLS.map(({ id, label, numberColor, icon: Icon, cardClass }) => (
-              <div
-                key={id}
-                className={`rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${cardClass}`}
-              >
-                <div className="flex items-start justify-between">
-                  <span className={`text-3xl font-bold leading-none ${numberColor}`}>
-                    {count(id)}
-                  </span>
-                  <Icon size={16} className="mt-0.5 text-slate-300 dark:text-slate-600" />
-                </div>
-                <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  {label}
-                </p>
-              </div>
-            ))}
+            {STAT_COLS.map(({ id, label, numberColor, icon: Icon, cardClass }) => {
+              const isActive = activeFilter === id
+              return (
+                <button
+                  key={id}
+                  onClick={() => setActiveFilter(isActive ? null : id)}
+                  className={`group relative flex flex-col rounded-2xl border bg-white p-4 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-md dark:bg-slate-900 ${
+                    isActive
+                      ? 'ring-2 ring-emerald-500 shadow-lg border-emerald-200 dark:border-emerald-800/60 dark:bg-slate-800'
+                      : activeFilter !== null
+                        ? 'opacity-60 border-slate-100 dark:border-slate-800'
+                        : 'border-slate-100 dark:border-slate-800'
+                  } ${cardClass}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <span className={`text-3xl font-bold leading-none ${numberColor}`}>
+                      {count(id)}
+                    </span>
+                    <Icon size={16} className={`mt-0.5 transition-colors ${isActive ? 'text-emerald-500' : 'text-slate-300 dark:text-slate-600'}`} />
+                  </div>
+                  <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    {label}
+                  </p>
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -266,7 +277,12 @@ export default function DashboardPage() {
 
         {!loading && !error && (
           <>
-            <KanbanBoard vacantes={vacantes} onRefresh={handleRefresh} />
+            <KanbanBoard
+              vacantes={vacantes}
+              onRefresh={handleRefresh}
+              activeFilter={activeFilter}
+              setActiveFilter={setActiveFilter}
+            />
 
             {/* FAB */}
             <button

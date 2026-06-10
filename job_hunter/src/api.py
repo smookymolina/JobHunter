@@ -3,6 +3,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 import json
 import logging
+import random
 import uuid
 import pg8000.dbapi as _pg8000
 from urllib.parse import urlparse as _urlparse
@@ -194,6 +195,12 @@ async def lifespan(app: FastAPI):
             _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_limite INT DEFAULT 3 NOT NULL")
         if 'latex_generados' not in _usr_cols:
             _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_generados INT DEFAULT 0 NOT NULL")
+        if 'is_verified' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN is_verified BOOLEAN DEFAULT FALSE NOT NULL")
+        if 'verification_code' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN verification_code VARCHAR(10) DEFAULT NULL")
+        if 'phone_number' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN phone_number VARCHAR(20) DEFAULT NULL")
         # Drop any legacy CHECK constraint on vacantes.status (blocks "Entrevista")
         _cur.execute("""
             DO $$
@@ -229,6 +236,11 @@ async def lifespan(app: FastAPI):
         _cur.execute(
             "UPDATE usuarios SET role='admin', vacantes_limite=9999, latex_limite=9999 "
             "WHERE email='speedysmoking@gmail.com'"
+        )
+        # All admin/default accounts are pre-verified; clear pending OTPs for them
+        _cur.execute(
+            "UPDATE usuarios SET is_verified=TRUE, verification_code=NULL "
+            "WHERE role='admin' OR user_id='default_user'"
         )
         _mc.commit()
         _cur.close()
@@ -351,36 +363,99 @@ async def login(request: Request):
 
 
 @app.post("/auth/register", status_code=201)
-async def register(request: Request):
+async def register(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="JSON inválido.")
     email    = (body.get("email") or "").strip().lower()
     password = body.get("password") or ""
+    phone    = (body.get("phone") or "").strip() or None
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email y contraseña requeridos.")
     conn = _db()
     cur  = conn.cursor()
     cur.execute("SELECT id FROM usuarios WHERE email=%s", (email,))
     if cur.fetchone():
-        cur.close()
-        conn.close()
+        cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="El correo ya está registrado.")
     user_id = uuid.uuid4().hex
+    otp = str(random.randint(100000, 999999))
     cur.execute(
-        "INSERT INTO usuarios (user_id, email, hashed_password) VALUES (%s, %s, %s)",
-        (user_id, email, hash_password(password))
+        "INSERT INTO usuarios (user_id, email, hashed_password, verification_code, phone_number) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (user_id, email, hash_password(password), otp, phone)
     )
     conn.commit()
-    cur.close()
-    conn.close()
+    cur.close(); conn.close()
     os.makedirs(_DATA_DIR, exist_ok=True)
-    profile_path = get_user_profile_path(user_id)
-    with open(profile_path, "w", encoding="utf-8") as f:
+    with open(get_user_profile_path(user_id), "w", encoding="utf-8") as f:
         json.dump({"nombre": "", "titulo": "", "skills": []}, f)
+    from notifier_agent import NotificationAgent
+    agent = NotificationAgent()
+    background_tasks.add_task(agent.send_email_otp, email, otp)
+    if phone:
+        background_tasks.add_task(agent.trigger_whatsapp_bot, phone, otp)
+    return JSONResponse(status_code=201, content={
+        "ok": True, "user_id": user_id,
+        "msg": "Cuenta creada. Revisa tu correo para el código de verificación.",
+    })
+
+
+@app.post("/auth/verify")
+async def verify_account(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido.")
+    email = (body.get("email") or "").strip().lower()
+    code  = str(body.get("code") or "").strip()
+    if not email or not code:
+        raise HTTPException(status_code=400, detail="Email y código requeridos.")
+    conn = _db()
+    cur  = conn.cursor()
+    cur.execute("SELECT user_id, verification_code FROM usuarios WHERE email=%s", (email,))
+    row = cur.fetchone()
+    if not row or row[1] != code:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=401, detail="Código incorrecto o expirado.")
+    user_id = row[0]
+    cur.execute(
+        "UPDATE usuarios SET is_verified=TRUE, verification_code=NULL WHERE user_id=%s",
+        (user_id,)
+    )
+    conn.commit()
+    cur.close(); conn.close()
     token = create_token(user_id, email)
-    return JSONResponse(status_code=201, content={"access_token": token, "token_type": "bearer", "user_id": user_id})
+    return {"ok": True, "access_token": token, "token_type": "bearer", "user_id": user_id}
+
+
+@app.post("/auth/resend")
+async def resend_otp(request: Request, background_tasks: BackgroundTasks):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido.")
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email requerido.")
+    conn = _db()
+    cur  = conn.cursor()
+    cur.execute("SELECT user_id, is_verified FROM usuarios WHERE email=%s", (email,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Email no registrado.")
+    if row[1]:
+        cur.close(); conn.close()
+        return {"ok": True, "msg": "Cuenta ya verificada."}
+    new_otp = str(random.randint(100000, 999999))
+    cur.execute("UPDATE usuarios SET verification_code=%s WHERE user_id=%s", (new_otp, row[0]))
+    conn.commit()
+    cur.close(); conn.close()
+    from notifier_agent import NotificationAgent
+    background_tasks.add_task(NotificationAgent().send_email_otp, email, new_otp)
+    return {"ok": True, "msg": "Nuevo código enviado."}
 
 
 @app.get("/auth/me")
@@ -1237,12 +1312,32 @@ def get_metricas(current_user: dict = Depends(get_current_user)):
 def admin_list_users(current_user: dict = Depends(require_admin)):
     conn = _db()
     cur = conn.cursor()
-    cur.execute("SELECT user_id, email, tier, role, created_at FROM usuarios ORDER BY created_at")
+    cur.execute(
+        "SELECT user_id, email, tier, role, created_at, is_verified, verification_code "
+        "FROM usuarios ORDER BY created_at"
+    )
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    cols = ["user_id", "email", "tier", "role", "fecha_creacion"]
+    cols = ["user_id", "email", "tier", "role", "fecha_creacion", "is_verified", "verification_code"]
     return JSONResponse(content=[_row_dict(cols, r) for r in rows], headers={"Cache-Control": "no-store"})
+
+
+@app.patch("/admin/users/{target_id}/verify")
+def admin_force_verify(target_id: str, current_user: dict = Depends(require_admin)):
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM usuarios WHERE user_id=%s", (target_id,))
+    if not cur.fetchone():
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    cur.execute(
+        "UPDATE usuarios SET is_verified=TRUE, verification_code=NULL WHERE user_id=%s",
+        (target_id,)
+    )
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "msg": f"Usuario {target_id} verificado."}
 
 
 @app.patch("/admin/users/{user_id}/tier")
