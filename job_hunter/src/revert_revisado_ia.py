@@ -44,10 +44,11 @@ def run():
         # 2. Reset status to 'No_Creado'
         cur.execute("UPDATE vacantes SET status='No_Creado' WHERE id=%s", (vid,))
         
-        # 3. Delete generated files
+        # 3. Delete generated files and auxiliary LaTeX files
         out_dir = get_user_outputs_dir(user_id)
         deleted = []
-        for ext in ("tex", "pdf"):
+        # Extended extensions to clean everything
+        for ext in ("tex", "pdf", "aux", "log", "out", "toc", "nav", "snm"):
             path = os.path.join(out_dir, f"cv_vacante_{vid}.{ext}")
             if os.path.exists(path):
                 try:
@@ -58,6 +59,17 @@ def run():
         
         deleted_str = ", ".join(deleted) if deleted else "ninguno"
         print(f"  Status -> No_Creado. Archivos borrados: {deleted_str}")
+
+    # 4. Clear __pycache__ in src
+    pycache_dir = os.path.join(BASE_DIR, 'src', '__pycache__')
+    if os.path.exists(pycache_dir):
+        print(f"\nLimpiando cache de Python: {pycache_dir}")
+        import shutil
+        try:
+            shutil.rmtree(pycache_dir)
+            print("  __pycache__ eliminado.")
+        except Exception as e:
+            print(f"  Error eliminando __pycache__: {e}")
 
     conn.commit()
     cur.close()

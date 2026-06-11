@@ -189,16 +189,48 @@ def _extract_latex(text):
     return match.group(1).strip() if match else text.strip()
 
 
+_EN_MARKERS = re.compile(
+    r'\b(experience|education|summary|skills|profile|objective|engineer|manager|willing)\b',
+    re.IGNORECASE,
+)
+_ES_MARKERS = re.compile(
+    r'\b(experiencia|educaci[oó]n|resumen|habilidades|perfil|objetivo|ingeniero|disponibilidad)\b',
+    re.IGNORECASE,
+)
+
+
+def _detect_lang(text: str) -> str:
+    """Return 'en' if the text has more English section keywords than Spanish, else 'es'."""
+    return 'en' if len(_EN_MARKERS.findall(text)) > len(_ES_MARKERS.findall(text)) else 'es'
+
+
+def _build_header(lang: str) -> str:
+    """Return the hardcoded personal header block in the requested language."""
+    if lang == 'en':
+        subtitulo = "{\\Large \\textit{Mechanical Engineer | Master in Advanced Technologies}}"
+        disponib  = "Willing to travel: Yes"
+        ciudad    = "Mexico City, Mexico"
+    else:
+        subtitulo = "{\\Large \\textit{Ingeniero Mecánico | Maestro en Tecnologías Avanzadas}}"
+        disponib  = "Disponibilidad para viajar: Sí"
+        ciudad    = "Ciudad de México, México"
+    return (
+        "\\begin{center}\n"
+        + "{\\Huge \\textbf{Jair Molina Arce}} \\\\ \\vspace{2mm}\n"
+        + subtitulo + " \\\\ \\vspace{1mm}\n"
+        + "\\small 5652646108 | ingjairmolina@gmail.com | " + ciudad + " | " + disponib + "\n"
+        + "\\end{center}\n"
+        + "\\vspace{2mm}"
+    )
+
+
 def _inject_fixed_header(latex: str, header: str) -> str:
-    """Replace everything between \\begin{document} and the first \\section{ with header."""
-    begin_doc = latex.find(r'\begin{document}')
-    if begin_doc == -1:
-        return latex
-    after = begin_doc + len(r'\begin{document}')
-    section_pos = latex.find(r'\section{', after)
-    if section_pos == -1:
-        return latex
-    return latex[:after] + '\n\n' + header + '\n\n' + latex[section_pos:]
+    """Inject the fixed header immediately after \\begin{document}.
+    The LLM is instructed to emit nothing before the first \\section, so a plain
+    string replacement on the first occurrence is sufficient and unambiguous."""
+    if r'\begin{document}' in latex:
+        return latex.replace(r'\begin{document}', r'\begin{document}' + '\n' + header, 1)
+    return latex
 
 
 def _groq_client():
@@ -493,15 +525,12 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
         f"Skills: {user_skills}\n"
         f"Experiencia: {user_exp}\n\n"
 
-        "=== REGLA DE ESTRUCTURA (CRÍTICA E INMUTABLE) ===\n"
-        "El documento DEBE comenzar EXACTAMENTE con este bloque LaTeX. "
-        "COPIA cada línea tal como aparece. PROHIBIDO alterar, parafrasear o reordenar ningún valor:\n\n"
-        f"\\begin{{center}}\n"
-        f"{{\\Huge \\textbf{{ {nombre_usuario} }}}} \\\\ \\vspace{{2mm}}\n"
-        f"{{\\Large \\textit{{ {titulo_universitario} | {titulo_posgrado} }}}} \\\\ \\vspace{{1mm}}\n"
-        f"\\small {telefono_usuario} | {correo_usuario} | {ubicacion_usuario} | Disponibilidad para viajar: {disponibilidad}\n"
-        f"\\end{{center}}\n"
-        f"\\vspace{{2mm}}\n\n"
+        "=== REGLA CRÍTICA DE INICIO ===\n"
+        "TIENES ESTRICTAMENTE PROHIBIDO generar cualquier tipo de encabezado, nombre, "
+        "título profesional, correo, teléfono o datos de contacto al inicio del documento. "
+        "Debes comenzar el contenido del CV DIRECTAMENTE con el primer comando de sección. "
+        "Ejemplo correcto: \\section{PROFESSIONAL PROFILE} o \\section{PERFIL PROFESIONAL}. "
+        "CERO texto, CERO \\begin{center}, CERO datos personales antes de la primera sección.\n\n"
 
         "=== EXACT MATCH — REQUISITOS INDISPENSABLES ===\n"
         "Identifica los requisitos marcados como INDISPENSABLE, EXCLUYENTE o REQUISITO. "
@@ -576,15 +605,9 @@ REGLAS DE FORMATO:
         _set_status(vid, "Requiere_Correccion", user_id)
         return None
 
-    fixed_header = (
-        "\\begin{center}\n"
-        f"{{\\Huge \\textbf{{ {nombre_usuario} }}}} \\\\ \\vspace{{2mm}}\n"
-        f"{{\\Large \\textit{{ {titulo_universitario} | {titulo_posgrado} }}}} \\\\ \\vspace{{1mm}}\n"
-        f"\\small {telefono_usuario} | {correo_usuario} | {ubicacion_usuario}"
-        f" | Disponibilidad para viajar: {disponibilidad}\n"
-        "\\end{center}\n"
-        "\\vspace{2mm}"
-    )
+    lang = _detect_lang(titulo + " " + latex_raw)
+    fixed_header = _build_header(lang)
+    _log.info("[IA] Idioma detectado: %s", lang)
     latex_clean = _inject_fixed_header(_extract_latex(latex_raw), fixed_header)
     if not latex_clean.startswith("\\documentclass"):
         _log.warning("[IA] Respuesta no parece LaTeX válido, guardando de todas formas...")

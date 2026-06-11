@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import urllib.request
 import urllib.error
 
@@ -12,7 +13,7 @@ from mcp.types import Tool, TextContent
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-from gemini_engine import compilar_pdf, get_user_outputs_dir
+from gemini_engine import compilar_pdf, get_user_outputs_dir, _inject_fixed_header, _detect_lang, _build_header
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -345,6 +346,11 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
             _log.info("Status vacante #%s → %s", vacante_id, new_status)
         except RuntimeError as exc:
             _log.warning("No se pudo actualizar status a %s: %s", new_status, exc)
+
+    # Candado de encabezado: detectar idioma e inyectar antes de escribir el .tex
+    _lang = _detect_lang(titulo + " " + tex_content)
+    _log.info("[MCP] Idioma detectado para vacante #%s: %s", vacante_id, _lang)
+    tex_content = _inject_fixed_header(tex_content, _build_header(_lang))
 
     # Escribir .tex en el directorio del usuario correcto
     out_dir = get_user_outputs_dir("default_user")
