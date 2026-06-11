@@ -164,8 +164,12 @@ export default function PerfilPage() {
     Promise.allSettled([api.getPerfilMaestro(), api.me()]).then(([perfilRes, meRes]) => {
       if (!active) return
       if (perfilRes.status === 'fulfilled') {
-        // Merge with EMPTY so partial profiles (from /register) never leave required fields undefined
-        const p = { ...EMPTY, ...perfilRes.value }
+        // Deep-merge habilidades so missing categories (e.g. idiomas) are always initialised
+        const p = {
+          ...EMPTY,
+          ...perfilRes.value,
+          habilidades: { ...EMPTY.habilidades, ...(perfilRes.value.habilidades ?? {}) },
+        }
         setPerfil(p)
         const ini = [p.nombre[0], p.apellidos?.[0]].filter(Boolean).join('').toUpperCase() || 'JM'
         setInitials(ini)

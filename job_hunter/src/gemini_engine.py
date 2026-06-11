@@ -189,6 +189,18 @@ def _extract_latex(text):
     return match.group(1).strip() if match else text.strip()
 
 
+def _inject_fixed_header(latex: str, header: str) -> str:
+    """Replace everything between \\begin{document} and the first \\section{ with header."""
+    begin_doc = latex.find(r'\begin{document}')
+    if begin_doc == -1:
+        return latex
+    after = begin_doc + len(r'\begin{document}')
+    section_pos = latex.find(r'\section{', after)
+    if section_pos == -1:
+        return latex
+    return latex[:after] + '\n\n' + header + '\n\n' + latex[section_pos:]
+
+
 def _groq_client():
     return OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
@@ -233,11 +245,36 @@ def _get_user_profile(user_id: str) -> str:
     return ""
 
 
+_POSGRADO_KW = ('maestría', 'maestro', 'máster', 'master', 'doctorado', 'phd', 'especialidad')
+_LICENCIA_KW = ('ingeniería', 'licenciatura')
+
+
+def _extract_titulo_academico(titulo: str) -> str:
+    """Strip parenthetical annotations and convert degree name to professional title."""
+    clean = re.sub(r'\s*\([^)]*\)\s*', '', titulo).strip()
+    rules = [
+        (r'(?i)^maestría en (.+)$',     r'Maestro en \1'),
+        (r'(?i)^maestría (.+)$',        r'Maestro en \1'),
+        (r'(?i)^ingeniería mecánica$',  r'Ingeniero Mecánico'),
+        (r'(?i)^ingeniería en (.+)$',   r'Ingeniero en \1'),
+        (r'(?i)^ingeniería (.+)$',      r'Ingeniero \1'),
+        (r'(?i)^licenciatura en (.+)$', r'Licenciado en \1'),
+        (r'(?i)^doctorado en (.+)$',    r'Doctor en \1'),
+    ]
+    for pat, rep in rules:
+        if re.match(pat, clean):
+            return re.sub(pat, rep, clean)
+    return clean
+
+
 def _get_user_profile_structured(user_id: str) -> dict:
     """Return structured profile fields for dynamic system-prompt injection."""
     p = _load_profile_json(user_id)
     if not p:
-        return {"nombre": "", "resumen": "", "skills": [], "experiencia_str": ""}
+        return {"nombre": "", "titulo_profesional": "", "titulo_universitario": "",
+                "titulo_posgrado": "", "disponibilidad": "Sí",
+                "email": "", "telefono": "", "ubicacion": "",
+                "resumen": "", "skills": [], "experiencia_str": ""}
     habs   = p.get('habilidades', {})
     skills = [s for v in habs.values() for s in v]
     exp    = p.get('experiencia', [])
@@ -245,11 +282,26 @@ def _get_user_profile_structured(user_id: str) -> dict:
         f"{e.get('puesto','')} en {e.get('empresa','')} ({e.get('periodo','')})"
         for e in exp[:4]
     )
+    titulo_universitario, titulo_posgrado = '', ''
+    for e in p.get('educacion', []):
+        t    = e.get('titulo', '')
+        tlow = t.lower()
+        if any(k in tlow for k in _POSGRADO_KW) and not titulo_posgrado:
+            titulo_posgrado = _extract_titulo_academico(t)
+        elif any(k in tlow for k in _LICENCIA_KW) and not titulo_universitario:
+            titulo_universitario = _extract_titulo_academico(t)
     return {
-        "nombre":          f"{p.get('nombre','')} {p.get('apellidos','')}".strip(),
-        "resumen":         p.get('resumen', '')[:600],
-        "skills":          skills[:50],
-        "experiencia_str": exp_str,
+        "nombre":               f"{p.get('nombre','')} {p.get('apellidos','')}".strip(),
+        "titulo_profesional":   p.get('titulo_profesional', ''),
+        "titulo_universitario": titulo_universitario,
+        "titulo_posgrado":      titulo_posgrado,
+        "disponibilidad":       p.get('disponibilidad_viajar', 'Sí'),
+        "email":                p.get('email', ''),
+        "telefono":             p.get('telefono', ''),
+        "ubicacion":            p.get('ubicacion', ''),
+        "resumen":              p.get('resumen', '')[:600],
+        "skills":               skills[:50],
+        "experiencia_str":      exp_str,
     }
 
 
@@ -349,6 +401,29 @@ def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
 
 # ── Motor principal ───────────────────────────────────────────────────────────
 
+def _get_entrevista_context(user_id: str) -> str:
+    """Return a brief summary of vacantes that led to interviews for reinforcement."""
+    try:
+        conn = _db()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT titulo, empresa, requerimientos FROM vacantes "
+            "WHERE user_id=%s AND status='Entrevista' AND requerimientos IS NOT NULL "
+            "ORDER BY fecha_registro DESC LIMIT 3",
+            (user_id,)
+        )
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        if not rows:
+            return ""
+        return '\n'.join(
+            f"• Entrevista: {r[0]} en {r[1]} — req: {(r[2] or '')[:180]}"
+            for r in rows
+        )
+    except Exception:
+        return ""
+
+
 def _get_winning_skills(user_id: str) -> str:
     """Return top 5 high-conversion skills based on previous successes."""
     try:
@@ -386,12 +461,19 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
     vid, titulo, empresa, enlace, requerimientos = row
 
     # ── Datos dinámicos del usuario (BD → JSON) ───────────────────────────────
-    prof          = _get_user_profile_structured(user_id)
-    perfil_full   = _get_user_profile(user_id)
-    user_summary  = prof["resumen"] or "(perfil no configurado — rellena tu perfil en /perfil)"
-    user_skills   = ', '.join(prof["skills"]) if prof["skills"] else "(sin habilidades registradas)"
-    user_exp      = prof["experiencia_str"] or "(sin experiencia registrada)"
-    
+    prof                 = _get_user_profile_structured(user_id)
+    perfil_full          = _get_user_profile(user_id)
+    nombre_usuario       = prof["nombre"]
+    telefono_usuario     = prof["telefono"]
+    correo_usuario       = prof["email"]
+    ubicacion_usuario    = prof["ubicacion"]
+    titulo_universitario = prof["titulo_universitario"]
+    titulo_posgrado      = prof["titulo_posgrado"]
+    disponibilidad       = prof["disponibilidad"]
+    user_summary         = prof["resumen"] or "(perfil no configurado — rellena tu perfil en /perfil)"
+    user_skills          = ', '.join(prof["skills"]) if prof["skills"] else "(sin habilidades registradas)"
+    user_exp             = prof["experiencia_str"] or "(sin experiencia registrada)"
+
     winning_skills = _get_winning_skills(user_id)
 
     instruc_path  = os.path.join(CONTEXT_DIR, 'instrucciones_sistema.md')
@@ -400,51 +482,46 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
 
     # ── System prompt maestro — 100% dinámico ────────────────────────────────
     system_msg = (
-        "Eres un redactor ejecutivo de CVs técnicos especializado en código LaTeX. "
-        "Devuelves ÚNICAMENTE código LaTeX puro, compilable. "
+        "Eres redactor ejecutivo de CVs técnicos. Devuelves ÚNICAMENTE código LaTeX compilable. "
         "Sin bloques markdown, sin explicaciones. Empieza con \\documentclass.\n\n"
 
-        "=== METRICAS Y RETROALIMENTACION DE EXITO ===\n"
-        f"Tus mejores habilidades de conversion segun metricas reales: {winning_skills}\n"
-        "Si alguna de estas habilidades es requerida o util en la vacante actual, "
-        "asegurate de darle prioridad visual en el CV.\n\n"
+        "=== MÉTRICAS DE CONVERSIÓN ===\n"
+        f"Skills alta conversión (prioriza si aplican): {winning_skills}\n\n"
 
-        "=== PERFIL DEL CANDIDATO (FUENTE: BASE DE DATOS) ===\n"
-        f"Resumen profesional: {user_summary}\n"
-        f"Stack técnico y habilidades clave: {user_skills}\n"
+        "=== PERFIL DEL CANDIDATO ===\n"
+        f"Resumen: {user_summary}\n"
+        f"Skills: {user_skills}\n"
         f"Experiencia: {user_exp}\n\n"
 
-        "=== TONO Y ESTILO ===\n"
-        "Redacta con tono ejecutivo, directo y orientado a resultados. "
-        "Elimina adjetivos vacíos y clichés corporativos ('apasionado', 'visionario', 'proactivo'). "
-        "Usa verbos de acción fuertes.\n\n"
+        "=== REGLA DE ESTRUCTURA (CRÍTICA E INMUTABLE) ===\n"
+        "El documento DEBE comenzar EXACTAMENTE con este bloque LaTeX. "
+        "COPIA cada línea tal como aparece. PROHIBIDO alterar, parafrasear o reordenar ningún valor:\n\n"
+        f"\\begin{{center}}\n"
+        f"{{\\Huge \\textbf{{ {nombre_usuario} }}}} \\\\ \\vspace{{2mm}}\n"
+        f"{{\\Large \\textit{{ {titulo_universitario} | {titulo_posgrado} }}}} \\\\ \\vspace{{1mm}}\n"
+        f"\\small {telefono_usuario} | {correo_usuario} | {ubicacion_usuario} | Disponibilidad para viajar: {disponibilidad}\n"
+        f"\\end{{center}}\n"
+        f"\\vspace{{2mm}}\n\n"
 
-        "=== REGLA ANTI-ALUCINACIÓN ===\n"
-        "Bajo ninguna circunstancia inventes habilidades, certificaciones, tecnologías o experiencias "
-        "que no estén explícitamente en el perfil y habilidades provistas. "
-        "Resalta la experiencia REAL del candidato que hace match con la vacante. "
-        "Explica cómo su background aporta valor al rol sin copiar el título exacto ni frases literales del anuncio.\n\n"
+        "=== EXACT MATCH — REQUISITOS INDISPENSABLES ===\n"
+        "Identifica los requisitos marcados como INDISPENSABLE, EXCLUYENTE o REQUISITO. "
+        "Escribe ESAS PALABRAS EXACTAS en Perfil Profesional o Habilidades. "
+        "Ejemplos: si pide 'auto estándar y camionetas Pick Up' → escribe exactamente eso, "
+        "no 'manejo de vehículo'. Si pide 'disponibilidad de rolar turnos' → escribe exactamente eso.\n\n"
 
-        "=== REGLA DE TÍTULO PROFESIONAL (CRÍTICA Y PENALIZABLE) ===\n"
-        f"Tienes ESTRICTAMENTE PROHIBIDO usar el string \"{titulo}\" o variaciones directas de él como título del CV. "
-        "FÓRMULA OBLIGATORIA: El título debe seguir el patrón: "
-        "'[Ingeniero Mecánico / Desarrollador Full-Stack / Maestro en Ciencias] | Especialista en [Área clave requerida]'. "
-        f"Ejemplo: Si la vacante pide \"{titulo}\", el título del CV debe derivarse del perfil real del candidato, "
-        "p.ej. 'Ingeniero Mecánico | Especialista en Sistemas Electromecánicos'. "
-        f"El perfil real del candidato indica: '{user_summary[:120]}'. "
-        "NUNCA uses 'Técnico', 'Practicante' ni copies palabras literales del anuncio como título. "
-        "SIEMPRE respeta la jerarquía académica real del usuario.\n\n"
+        "=== REGLAS FIJAS ===\n"
+        "1. INGLÉS: Siempre 'Inglés: Dominio Profesional Fluido (C1/C2)'. PROHIBIDO 'intermedio'.\n"
+        "2. TONO DIRECTO: PROHIBIDO iniciar el Perfil con frases genéricas ('Profesional con X años...', "
+        "'Apasionado por...', 'Orientado a...'). Ve directo a la propuesta de valor técnica "
+        "específica a los problemas operativos de ESTA empresa.\n"
+        "3. ANTI-ALUCINACIÓN: No inventes habilidades, certs ni experiencias ausentes del perfil.\n"
+        "4. PAR: Logros en formato Problema→Acción→Resultado. Cuantifica cuando sea posible.\n\n"
 
-        "=== ESTRUCTURA DE CV (ATS BEST PRACTICES) ===\n"
-        "- Perfil Profesional: Máximo 4 líneas. Orientado a cómo el perfil avanzado del candidato resuelve el problema de la empresa.\n"
-        "- Experiencia: Usa el formato PAR (Problema → Acción → Resultado). "
-        "Inicia cada viñeta con un verbo de acción fuerte (Implementé, Reduje, Optimicé, Lideré). "
-        "Elimina tareas pasivas. Cuantifica resultados siempre que sea posible.\n\n"
-
-        "=== PROTECCIÓN LaTeX ===\n"
-        "Output: código LaTeX válido y compilable. "
-        "Escapa TODOS los caracteres especiales (%, &, $, #, _) en el contenido generado. "
-        "No uses sintaxis Markdown dentro del LaTeX."
+        "=== PROTECCIÓN LATEX ===\n"
+        "- Preámbulo: incluye \\usepackage[utf8]{inputenc}, \\usepackage[spanish]{babel}.\n"
+        "- Listas: usa \\begin{itemize}/\\item. NUNCA llaves sueltas como viñetas.\n"
+        "- Escapa: \\%, \\&, \\#, \\_. No uses $ para texto regular.\n"
+        "- Sin Markdown dentro del LaTeX."
     )
 
     entrevista_ctx = _get_entrevista_context(user_id)
@@ -499,7 +576,16 @@ REGLAS DE FORMATO:
         _set_status(vid, "Requiere_Correccion", user_id)
         return None
 
-    latex_clean = _extract_latex(latex_raw)
+    fixed_header = (
+        "\\begin{center}\n"
+        f"{{\\Huge \\textbf{{ {nombre_usuario} }}}} \\\\ \\vspace{{2mm}}\n"
+        f"{{\\Large \\textit{{ {titulo_universitario} | {titulo_posgrado} }}}} \\\\ \\vspace{{1mm}}\n"
+        f"\\small {telefono_usuario} | {correo_usuario} | {ubicacion_usuario}"
+        f" | Disponibilidad para viajar: {disponibilidad}\n"
+        "\\end{center}\n"
+        "\\vspace{2mm}"
+    )
+    latex_clean = _inject_fixed_header(_extract_latex(latex_raw), fixed_header)
     if not latex_clean.startswith("\\documentclass"):
         _log.warning("[IA] Respuesta no parece LaTeX válido, guardando de todas formas...")
 

@@ -7,6 +7,7 @@
   "ubicacion": "Ciudad de México, México",
   "linkedin": "",
   "github": "",
+  "disponibilidad_viajar": "Sí",
   "resumen": "Ingeniero Mecánico con sólida experiencia en IoT, domótica, sistemas embebidos y desarrollo de software full-stack. Integra hardware y software en soluciones conectadas: desde firmware en microcontroladores (ESP32, STM32) hasta plataformas web en la nube con APIs RESTful y dashboards en tiempo real. Experiencia en redes de sensores, protocolos inalámbricos (WiFi, MQTT) y automatización de sistemas. Orientado al desarrollo de plataformas SmartCity, monitoreo remoto y control de dispositivos. CVU CONACYT: 1340773 · ORCID: 0009-0009-6732-8100.",
   "habilidades": {
     "mecanica_manufactura": [
@@ -72,7 +73,7 @@
     ],
     "idiomas": [
       "Español (nativo)",
-      "Inglés (intermedio — lectura técnica fluida)"
+      "Inglés: Dominio Profesional Fluido (C1/C2)"
     ]
   },
   "experiencia": [

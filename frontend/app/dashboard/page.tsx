@@ -75,6 +75,17 @@ function buildMcpPrompt(id: number) {
   )
 }
 
+function parseJobMeta(text: string): { sueldo?: string; modalidad?: string; ubicacion?: string } {
+  const meta: { sueldo?: string; modalidad?: string; ubicacion?: string } = {}
+  const sueldoMatch = text.match(/(?:sueldo|salario|compensaci[oó]n)[:\s]+([^\n]{3,70})/i)
+  if (sueldoMatch) meta.sueldo = sueldoMatch[1].trim()
+  const modalMatch = text.match(/(?:modalidad|esquema de trabajo|tipo de trabajo|trabajo)[:\s]+((?:remoto|presencial|h[íi]brido|home office)[^\n]{0,40})/i)
+  if (modalMatch) meta.modalidad = modalMatch[1].trim()
+  const ubiMatch = text.match(/(?:ubicaci[oó]n|lugar de trabajo|ciudad|estado)[:\s]+([^\n]{3,60})/i)
+  if (ubiMatch) meta.ubicacion = ubiMatch[1].trim()
+  return meta
+}
+
 function JobDetailsModal({ vacante, onClose }: { vacante: Vacante; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
   const [latexOpen, setLatexOpen] = useState(false)
@@ -125,11 +136,11 @@ function JobDetailsModal({ vacante, onClose }: { vacante: Vacante; onClose: () =
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative flex h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="relative flex h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-gray-200/50 bg-white shadow-2xl dark:border-slate-700/60 dark:bg-slate-900"
         onClick={e => e.stopPropagation()}
       >
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
@@ -168,6 +179,33 @@ function JobDetailsModal({ vacante, onClose }: { vacante: Vacante; onClose: () =
 
         {/* Body */}
         <div className="flex-1 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin]">
+          {(() => {
+            const meta = parseJobMeta(vacante.requerimientos ?? '')
+            if (!meta.sueldo && !meta.modalidad && !meta.ubicacion) return null
+            return (
+              <div className="flex flex-wrap gap-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-800/40">
+                {meta.sueldo && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Sueldo</p>
+                    <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">{meta.sueldo}</p>
+                  </div>
+                )}
+                {meta.modalidad && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Modalidad</p>
+                    <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">{meta.modalidad}</p>
+                  </div>
+                )}
+                {meta.ubicacion && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ubicación</p>
+                    <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">{meta.ubicacion}</p>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           <div>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Descripción / Requerimientos
@@ -238,7 +276,7 @@ function JobDetailsModal({ vacante, onClose }: { vacante: Vacante; onClose: () =
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800">
+        <div className="sticky bottom-0 flex items-center gap-2 border-t border-slate-100 bg-white/90 px-5 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
           {vacante.enlace && (
             <a
               href={vacante.enlace}

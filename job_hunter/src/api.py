@@ -1199,11 +1199,13 @@ async def save_perfil_maestro(request: Request, current_user: dict = Depends(get
     dest = get_user_profile_path(uid)
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    # Also write legacy path for default_user (watcher/scraper compatibility)
-    if uid == 'default_user':
-        with open(PERFIL_MAESTRO_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    _regenerate_mi_perfil(data)
+    # Always sync perfil_maestro.json so bot/scraper/LLM are never stale
+    with open(PERFIL_MAESTRO_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        _regenerate_mi_perfil(data)
+    except Exception as _regen_err:
+        _log.warning("POST /api/perfil → _regenerate_mi_perfil falló (perfil JSON ya guardado): %s", _regen_err)
     return {"ok": True, "mensaje": "Perfil guardado correctamente."}
 
 
