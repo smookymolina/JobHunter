@@ -307,6 +307,7 @@ class VacanteCreate(BaseModel):
     enlace: str = Field(default="", max_length=500)
     requerimientos: str = Field(default="", max_length=5000)
     compatibilidad: str = Field(default="Nula")
+    user_id: str | None = Field(default=None, description="Internal: override user (only honored with BOT_MASTER_TOKEN)")
 
 
 class VacanteBulkItem(BaseModel):
@@ -325,9 +326,10 @@ class FiltrosBusqueda(BaseModel):
 
 
 class ScrapeRequest(BaseModel):
-    cantidad: int = Field(ge=1, le=200, description="Vacantes a extraer (máximo global)")
-    terminos: list[str] | None = Field(default=None, description="Términos de búsqueda (None = usar perfil_maestro.json)")
-    filtros:  FiltrosBusqueda  = Field(default_factory=FiltrosBusqueda)
+    cantidad:   int            = Field(ge=1, le=200, description="Vacantes a extraer (máximo global)")
+    terminos:   list[str] | None = Field(default=None, description="Términos de búsqueda (None = usar perfil_maestro.json)")
+    filtros:    FiltrosBusqueda  = Field(default_factory=FiltrosBusqueda)
+    min_compat: str            = Field(default="Baja", description="Compatibilidad mínima: Alta | Media | Baja | Nula")
 
 
 class TierUpdate(BaseModel):
@@ -916,6 +918,8 @@ async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current
 @app.post("/vacantes")
 def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_current_user)):
     uid = current_user["user_id"]
+    if current_user.get("is_bot") and body.user_id:
+        uid = body.user_id
     enlace = body.enlace.strip()
     conn = _db()
     if _is_blacklisted(conn, enlace, uid):
@@ -955,7 +959,7 @@ def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_current_
     reqs   = body.requerimientos.strip()[:5000]
     compat = body.compatibilidad if body.compatibilidad in {"Alta", "Media", "Baja"} else None
     if compat is None and reqs:
-        compat = evaluar_compatibilidad_rapida(reqs)
+        compat = evaluar_compatibilidad_rapida(reqs, uid)
     compat = compat or "Nula"
 
     cur.execute(
@@ -1004,7 +1008,7 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depen
                 omitidos += 1
                 continue
             reqs_b = item.requerimientos.strip()[:5000]
-            compat_b = evaluar_compatibilidad_rapida(reqs_b) if reqs_b else "Nula"
+            compat_b = evaluar_compatibilidad_rapida(reqs_b, uid) if reqs_b else "Nula"
             cur.execute(
                 "INSERT INTO vacantes (user_id, titulo, empresa, enlace, requerimientos, compatibilidad, status) "
                 "VALUES (%s,%s,%s,%s,%s,%s,'No_Creado') ON CONFLICT (enlace) DO NOTHING RETURNING id",
@@ -1079,19 +1083,20 @@ def download_cv_secure(vid: int, current_user: dict = Depends(get_current_user))
 
 
 @app.post("/scrape")
-async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks):
+async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_optional_user)):
     if _scrape_status["running"]:
         raise HTTPException(status_code=409, detail="Ya hay un scraping en curso. Espera a que termine.")
     terms = body.terminos or generar_terminos_busqueda()
     filtros = body.filtros.model_dump()
+    user_id = current_user["user_id"]
     _scrape_status["running"] = True
     _scrape_status["last"] = None
     _scrape_status["terminos"] = terms
     _scrape_status["filtros"] = filtros
-    background_tasks.add_task(_scrape_task, body.cantidad, terms, filtros)
+    background_tasks.add_task(_scrape_task, body.cantidad, terms, filtros, user_id, body.min_compat)
     return {
         "ok": True,
-        "mensaje": f"Scraping de {body.cantidad} vacantes iniciado con {len(terms)} términos.",
+        "mensaje": f"Scraping de {body.cantidad} vacantes iniciado con {len(terms)} términos (compat ≥ {body.min_compat}).",
         "terminos": terms,
         "filtros": filtros,
     }
@@ -1417,9 +1422,9 @@ def admin_update_tier(user_id: str, body: TierUpdate, current_user: dict = Depen
 
 # ── Background tasks ──────────────────────────────────────────────────────────
 
-def _scrape_task(cantidad: int, terminos: list[str] | None = None, filtros: dict | None = None):
+def _scrape_task(cantidad: int, terminos: list[str] | None = None, filtros: dict | None = None, user_id: str = 'default_user', min_compat: str = 'Baja'):
     agent_path = os.path.join(os.path.dirname(__file__), 'browser_agent.py')
-    cmd = [sys.executable, agent_path, '--limit', str(cantidad)]
+    cmd = [sys.executable, agent_path, '--limit', str(cantidad), '--user-id', user_id, '--min-compat', min_compat]
     if terminos:
         cmd += ['--terms'] + terminos
     if filtros:

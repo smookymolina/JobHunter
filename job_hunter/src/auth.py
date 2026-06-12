@@ -106,7 +106,7 @@ def get_current_user(
     if not creds:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
     if creds.credentials == _BOT_TOKEN:
-        return {"user_id": "default_user", "email": ""}
+        return {"user_id": "default_user", "email": "", "is_bot": True}
     payload = verify_token(creds.credentials)
     if not payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")

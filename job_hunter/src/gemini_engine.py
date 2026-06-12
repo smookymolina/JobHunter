@@ -482,35 +482,33 @@ def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:
         if t and t not in seen:
             seen.add(t)
             unique.append(t)
-    return unique[:12] if unique else _FALLBACK
+    return unique[:15] if unique else _FALLBACK
 
 
 # ── Compatibilidad rápida ──────────────────────────────────────────────────────
 
-_COMPAT_PROFILE_CACHE: str | None = None
+# Keyed by user_id — each user gets their own cached compact profile
+_COMPAT_PROFILE_CACHE: dict[str, str] = {}
 
 
 def _get_profile_for_compat(user_id: str = 'default_user') -> str:
-    """Compact profile (title + skills) for fast compatibility evaluation — cached per process."""
-    global _COMPAT_PROFILE_CACHE
-    if _COMPAT_PROFILE_CACHE is not None:
-        return _COMPAT_PROFILE_CACHE
+    """Compact profile (title + top-20 skills) cached per user per process."""
+    if user_id in _COMPAT_PROFILE_CACHE:
+        return _COMPAT_PROFILE_CACHE[user_id]
     p = _load_profile_json(user_id)
     if not p:
         return ""
-    habs = p.get('habilidades', {})
-    skills = [s for v in habs.values() for s in v][:30]
-    _COMPAT_PROFILE_CACHE = (
-        f"Título: {p.get('titulo_profesional', '')}\n"
-        f"Skills: {', '.join(skills)}"
-    )
-    return _COMPAT_PROFILE_CACHE
+    habs   = p.get('habilidades', {})
+    skills = [s for v in habs.values() for s in v][:20]
+    entry  = f"Título: {p.get('titulo_profesional', '')}\nSkills: {', '.join(skills)}"
+    _COMPAT_PROFILE_CACHE[user_id] = entry
+    return entry
 
 
-def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
+def evaluar_compatibilidad_rapida(requerimientos: str, user_id: str = 'default_user') -> str:
     if not GROQ_API_KEY or not requerimientos.strip():
         return "Nula"
-    perfil = _get_profile_for_compat()
+    perfil = _get_profile_for_compat(user_id)
     if not perfil:
         return "Nula"
     try:
@@ -518,11 +516,11 @@ def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
         resp = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
-                {"role": "system", "content": "Responde ÚNICAMENTE con una de estas palabras: Alta, Media, Baja, Nula."},
-                {"role": "user",   "content": f"Vacante:\n{requerimientos[:1200]}\n\nCandidato:\n{perfil}\n\n¿Compatibilidad?"},
+                {"role": "system", "content": "Responde ÚNICAMENTE: Alta, Media, Baja o Nula."},
+                {"role": "user",   "content": f"Vacante:\n{requerimientos[:800]}\n\nCandidato:\n{perfil}\n\n¿Compatibilidad?"},
             ],
             temperature=0.1,
-            max_tokens=10,
+            max_tokens=5,
         )
         word = (resp.choices[0].message.content or "").strip().split()[0]
         return word if word in {"Alta", "Media", "Baja", "Nula"} else "Nula"

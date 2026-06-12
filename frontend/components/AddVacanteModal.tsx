@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { AlertTriangle, CheckCircle2, FileJson, Loader2, Plus, RefreshCw, Search, Upload, X } from 'lucide-react'
 import Link from 'next/link'
 import { api, ApiError, type VacanteBulkInput, type FiltrosBusqueda } from '@/lib/api'
@@ -46,6 +46,8 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
   const [suggestedTerms, setSuggestedTerms]   = useState<string[]>([])
   const [selectedTerms, setSelectedTerms]     = useState<Set<string>>(new Set())
   const [loadingTerms, setLoadingTerms]       = useState(false)
+  const [customTermInput, setCustomTermInput] = useState('')
+  const [minCompat, setMinCompat]             = useState<'Alta' | 'Media' | 'Baja' | 'Nula'>('Baja')
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(new Set(_ALL_PLATFORM_IDS))
   const [minSalary, setMinSalary]             = useState('')
   const [filtros, setFiltros] = useState<FiltrosBusqueda>({
@@ -78,6 +80,8 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       setScrapeCount('5')
       setSuggestedTerms([])
       setSelectedTerms(new Set())
+      setCustomTermInput('')
+      setMinCompat('Baja')
       setSelectedPlatforms(new Set(_ALL_PLATFORM_IDS))
       setMinSalary('')
       setFiltros({ ubicacion: '', modalidad: 'any', pais: 'Mexico' })
@@ -191,6 +195,23 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
       return next
     })
 
+  const addCustomTerms = useCallback(() => {
+    const raw = customTermInput.trim()
+    if (!raw) return
+    const newTerms = raw.split(',').map(t => t.trim()).filter(Boolean)
+    setSuggestedTerms(prev => {
+      const existing = new Set(prev)
+      const toAdd = newTerms.filter(t => !existing.has(t))
+      return toAdd.length ? [...prev, ...toAdd] : prev
+    })
+    setSelectedTerms(prev => {
+      const next = new Set(prev)
+      newTerms.forEach(t => next.add(t))
+      return next
+    })
+    setCustomTermInput('')
+  }, [customTermInput])
+
   const submitScrape = async () => {
     const n = parseInt(scrapeCount, 10)
     if (!n || n < 1 || n > 200) {
@@ -207,7 +228,7 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
         ...filtros,
         ...(minSalary ? { min_salary: parseInt(minSalary, 10) } : {}),
         platforms: Array.from(selectedPlatforms),
-      })
+      }, minCompat)
       setState('success')
       setMessage(`${res.mensaje} · Tablero se actualiza automáticamente.`)
       onSuccess()
@@ -393,6 +414,58 @@ export default function AddVacanteModal({ open, onClose, onSuccess }: Props) {
                     ))}
                   </div>
                 )}
+
+                {/* Custom terms input */}
+                <div className="mt-2 flex gap-1.5">
+                  <input
+                    value={customTermInput}
+                    onChange={e => setCustomTermInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustomTerms() } }}
+                    placeholder="Agregar términos custom (separados por coma)"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-indigo-500/40"
+                  />
+                  <button
+                    onClick={addCustomTerms}
+                    disabled={!customTermInput.trim()}
+                    className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-40 dark:border-indigo-500/40 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
+                  >
+                    <Plus size={12} /> Añadir
+                  </button>
+                </div>
+              </div>
+
+              {/* Compatibilidad mínima */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Compatibilidad mínima
+                  </span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">filtra antes de guardar</span>
+                </div>
+                <div className="flex gap-1.5">
+                  {(['Alta', 'Media', 'Baja', 'Nula'] as const).map(level => {
+                    const labels: Record<string, string> = { Alta: 'Alta', Media: 'Media', Baja: 'Baja+', Nula: 'Todas' }
+                    const colors: Record<string, string> = {
+                      Alta:  'border-green-200 bg-green-50 text-green-700 dark:border-green-500/40 dark:bg-green-950/40 dark:text-green-300',
+                      Media: 'border-yellow-200 bg-yellow-50 text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-950/40 dark:text-yellow-300',
+                      Baja:  'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-950/40 dark:text-orange-300',
+                      Nula:  'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-400',
+                    }
+                    const active = minCompat === level
+                    return (
+                      <button
+                        key={level}
+                        onClick={() => setMinCompat(level)}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors ${
+                          active ? colors[level] : 'border-slate-200 text-slate-400 hover:text-slate-600 dark:border-slate-700 dark:text-slate-500'
+                        }`}
+                      >
+                        {labels[level]}
+                        {level === 'Baja' && !active && <span className="ml-1 text-[9px] text-indigo-400">por defecto</span>}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Filtros de búsqueda */}

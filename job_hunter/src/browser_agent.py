@@ -21,19 +21,30 @@ import urllib.error
 import urllib.parse
 import re as _re
 import xml.etree.ElementTree as _ET
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser as _HTMLParser
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 from playwright.sync_api import sync_playwright, Page
-from gemini_engine import generar_terminos_busqueda
+from gemini_engine import generar_terminos_busqueda, evaluar_compatibilidad_rapida
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-API_BASE     = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-MAX_PER_TERM = 8
-HEADLESS     = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
+API_BASE       = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+MAX_PER_TERM   = 8
+HEADLESS       = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
+MAX_WORKERS    = int(os.getenv("SCRAPER_WORKERS", "3"))
+
+# Thread-safe counter and user identity/config (set in main before spawning workers)
+_counter_lock       = threading.Lock()
+_SCRAPER_USER_ID    = "default_user"
+_SCRAPER_MIN_COMPAT = "Baja"
+_COMPAT_ORDER       = {"Alta": 3, "Media": 2, "Baja": 1, "Nula": 0}
+_SCRAPER_LIMITE: int | None = None   # set in main; used by _incr to fire stop event
+_stop_event         = threading.Event()  # set when limit reached → all workers halt ASAP
 
 # FIX: usar mx.computrabajo.com (www.computrabajo.com.mx redirige a .com internacional)
 _CT_DOMINIOS: dict[str, str] = {
@@ -223,8 +234,13 @@ _GEO_ALIASES.update({
 
 
 def _expand_ubicacion(ubicacion: str) -> list[str]:
-    key = _normalize_text(ubicacion)
-    return _GEO_ALIASES.get(key, [ubicacion.strip()])[:2]
+    """Expand a (possibly comma-separated) location string to URL-ready display names."""
+    parts = [p.strip() for p in ubicacion.split(',') if p.strip()]
+    urls: list[str] = []
+    for part in parts:
+        key = _normalize_text(part)
+        urls.extend(_GEO_ALIASES.get(key, [part])[:2])
+    return list(dict.fromkeys(urls))[:4]
 
 
 # ── Salary filter ──────────────────────────────────────────────────────────────
@@ -332,19 +348,8 @@ def _passes_text_filter(titulo: str, reqs: str, filtros: dict) -> bool:
 def _passes_geo_filter(titulo: str, reqs: str, filtros: dict, jld_location: str = "") -> bool:
     """
     True  → vacante pasa el filtro geográfico.
-    False → vacante rechazada.
-
-    Lógica:
-      1. Si hay ubicación JSON-LD la usamos como texto de búsqueda (más preciso).
-         Si no, usamos título + primeros 600 chars de reqs.
-      2. Las exclusiones tienen prioridad absoluta: si aparece un término de otro
-         estado → RECHAZA, incluso si también hay términos positivos.
-      3. Si al menos un alias positivo coincide → ACEPTA.
-      4. Si ninguna señal positiva ni negativa → ACEPTA (benefit of doubt; CT/OCC
-         ya filtran por URL geográfica).
-    Diferencia "Ciudad de México" vs "Estado de México":
-      - "Estado de Mexico" es exclusión explícita del perfil CDMX → RECHAZA.
-      - "Ciudad de Mexico"/"CDMX" son aliases positivos del perfil CDMX → ACEPTA.
+    Soporta ubicaciones múltiples separadas por coma (ej. "CDMX, Estado de México").
+    Con múltiples zonas: acepta si la vacante coincide con CUALQUIERA de ellas.
     """
     ubicacion = filtros.get("ubicacion", "").strip()
     if not ubicacion:
@@ -352,39 +357,62 @@ def _passes_geo_filter(titulo: str, reqs: str, filtros: dict, jld_location: str 
     if filtros.get("modalidad", "any") == "remoto":
         return True
 
-    key = _normalize_text(ubicacion)
-    profile = _GEO_PROFILES.get(key)
-
-    # Texto a analizar: JSON-LD location si existe (más confiable), si no, título + inicio de reqs
+    # Texto a analizar: JSON-LD location (más preciso) o título + inicio de reqs
     if jld_location:
         search_text = _normalize_text(jld_location)
     else:
         search_text = _normalize_text(f"{titulo} {reqs[:600]}")
 
-    if profile:
-        # 1. Exclusiones tienen prioridad absoluta
-        for excl in profile["exclusions"]:
-            if _word_match(excl, search_text):
-                return False
-        # 2. Al menos un alias positivo → acepta
-        for alias in profile["aliases"]:
-            if _word_match(alias, search_text):
+    # Soporte para ubicaciones múltiples separadas por coma
+    parts = [p.strip() for p in ubicacion.split(',') if p.strip()]
+
+    for part in parts:
+        key     = _normalize_text(part)
+        profile = _GEO_PROFILES.get(key)
+
+        if profile:
+            # Exclusiones solo aplican si ninguna otra parte del filtro las acepta
+            excluded = any(_word_match(excl, search_text) for excl in profile["exclusions"])
+            if excluded:
+                # Antes de rechazar, verificar si otro perfil hermano acepta esta vacante
+                sibling_accepts = False
+                for other_part in parts:
+                    if other_part == part:
+                        continue
+                    other_profile = _GEO_PROFILES.get(_normalize_text(other_part))
+                    if other_profile and any(_word_match(a, search_text) for a in other_profile["aliases"]):
+                        sibling_accepts = True
+                        break
+                if sibling_accepts:
+                    return True
+                # Exclusión definitiva solo si todas las partes la rechazan
+                continue
+            # Alias positivo o sin señal (benefit of doubt)
+            if any(_word_match(a, search_text) for a in profile["aliases"]):
                 return True
-        # 3. Sin señal clara → benefit of doubt (URLs ya pre-filtran para CT/OCC)
+            # Sin señal: sigue revisando otras partes, pero marca como posible aceptación
+        else:
+            # Perfil desconocido: coincidencia literal
+            if _word_match(key, search_text):
+                return True
+
+    # Sin alias positivo en ninguna parte → benefit of doubt si hubo perfiles reconocidos
+    if any(_GEO_PROFILES.get(_normalize_text(p)) for p in parts):
         return True
-    else:
-        # Perfil desconocido: fallback a búsqueda simple con word-boundary
-        return _word_match(key, search_text)
+    return False
 
 
 # ── API helper ────────────────────────────────────────────────────────────────
 
-def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bool, str]:
+def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str, compat: str = "Nula") -> tuple[bool, str]:
+    """POST vacancy to API. `compat` pre-set → API skips Groq re-evaluation (token-free)."""
     payload = json.dumps({
-        "titulo":         titulo[:200],
-        "empresa":        (empresa or "Desconocida")[:100],
-        "enlace":         enlace,
-        "requerimientos": (reqs or "")[:5000],
+        "titulo":          titulo[:200],
+        "empresa":         (empresa or "Desconocida")[:100],
+        "enlace":          enlace,
+        "requerimientos":  (reqs or "")[:5000],
+        "compatibilidad":  compat,
+        "user_id":         _SCRAPER_USER_ID,
     }).encode("utf-8")
     req = urllib.request.Request(
         f"{API_BASE}/vacantes",
@@ -398,7 +426,7 @@ def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bo
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             result = json.loads(r.read().decode())
-            return True, result.get("compatibilidad", "Nula")
+            return True, result.get("compatibilidad", compat)
     except urllib.error.HTTPError as e:
         if e.code == 409:
             return False, ""
@@ -407,6 +435,17 @@ def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bo
     except Exception as ex:
         print(f"  [API] Error: {ex}")
         return False, ""
+
+
+def _eval_and_post(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bool, str]:
+    """Evaluate compatibility locally, filter by min threshold, post if it passes.
+    Pre-sets compat in payload → API never calls Groq (zero double-evaluation tokens).
+    """
+    compat = evaluar_compatibilidad_rapida(reqs, _SCRAPER_USER_ID) if reqs.strip() else "Nula"
+    if _COMPAT_ORDER.get(compat, 0) < _COMPAT_ORDER.get(_SCRAPER_MIN_COMPAT, 0):
+        print(f"  [Skip] Compat {compat} < {_SCRAPER_MIN_COMPAT}: {titulo[:42]}")
+        return False, compat
+    return _post_vacante(titulo, empresa, enlace, reqs, compat)
 
 
 # ── HTTP helper (sin Playwright) ──────────────────────────────────────────────
@@ -436,6 +475,13 @@ def _strip_html(html: str) -> str:
 
 def _sleep(a=1.0, b=2.5):
     time.sleep(random.uniform(a, b))
+
+
+def _incr(counter: list) -> int:
+    """Thread-safe counter increment; returns new value."""
+    with _counter_lock:
+        counter[0] += 1
+        return counter[0]
 
 
 def _scroll(page: Page, steps=4):
@@ -605,11 +651,11 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
                         print(f"  [Filtro] Geo: {titulo[:45]}")
                         continue
 
-                    insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                    insertada, compat = _eval_and_post(titulo, empresa, enlace, reqs)
                     if insertada:
-                        counter[0] += 1
+                        n = _incr(counter)
                         count += 1
-                        print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [CT]")
+                        print(f"  + [{n}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [CT]")
                 except Exception as ex:
                     print(f"  [CT-card] {ex}")
             _sleep(2, 4)
@@ -713,11 +759,11 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
                         print(f"  [Filtro] Geo: {titulo[:45]}")
                         continue
 
-                    insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                    insertada, compat = _eval_and_post(titulo, empresa, enlace, reqs)
                     if insertada:
-                        counter[0] += 1
+                        n = _incr(counter)
                         count += 1
-                        print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [OCC]")
+                        print(f"  + [{n}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [OCC]")
                 except Exception as ex:
                     print(f"  [OCC-card] {ex}")
             _sleep(2, 3)
@@ -828,11 +874,11 @@ def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, fil
                     print(f"  [Filtro] Geo: {titulo[:45]}")
                     continue
 
-                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                insertada, compat = _eval_and_post(titulo, empresa, enlace, reqs)
                 if insertada:
-                    counter[0] += 1
+                    n = _incr(counter)
                     count += 1
-                    print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [Bumeran]")
+                    print(f"  + [{n}] {titulo[:50]} | {empresa[:22]} | {compat}  [Bumeran]")
             except Exception as ex:
                 print(f"  [Bumeran-card] {ex}")
         _sleep(2, 3)
@@ -873,10 +919,10 @@ def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict)
                 continue
             if not _passes_salary_filter(reqs, filtros.get("min_salary")):
                 continue
-            insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+            insertada, compat = _eval_and_post(titulo, empresa, enlace, reqs)
             if insertada:
-                counter[0] += 1; count += 1
-                print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [Remotive]")
+                n = _incr(counter); count += 1
+                print(f"  + [{n}] {titulo[:50]} | {empresa[:22]} | {compat}  [Remotive]")
         _sleep(1.0, 2.0)
     except Exception as ex:
         print(f"  [Remotive] {term}: {ex}")
@@ -912,10 +958,10 @@ def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict)
                     continue
                 if not _passes_geo_filter(titulo, reqs, filtros):
                     continue
-                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                insertada, compat = _eval_and_post(titulo, empresa, enlace, reqs)
                 if insertada:
-                    counter[0] += 1; count += 1
-                    print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [GetOnBrd]")
+                    n = _incr(counter); count += 1
+                    print(f"  + [{n}] {titulo[:50]} | {empresa[:22]} | {compat}  [GetOnBrd]")
             except Exception as ex:
                 print(f"  [GetOnBrd-item] {ex}")
         _sleep(1.0, 2.0)
@@ -1022,10 +1068,10 @@ def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, fi
                     print(f"  [Filtro] Geo: {titulo[:45]}")
                     continue
 
-                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                insertada, compat = _eval_and_post(titulo, empresa, enlace, reqs)
                 if insertada:
-                    counter[0] += 1; count += 1
-                    print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [LinkedIn]")
+                    n = _incr(counter); count += 1
+                    print(f"  + [{n}] {titulo[:50]} | {empresa[:22]} | {compat}  [LinkedIn]")
             except Exception as ex:
                 print(f"  [LinkedIn-card] {ex}")
         _sleep(3, 5)
@@ -1034,16 +1080,101 @@ def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, fi
     return count
 
 
+# ── Browser helpers ───────────────────────────────────────────────────────────
+
+_BROWSER_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-web-security",
+    "--disable-gpu",
+    "--no-first-run",
+    "--disable-notifications",
+    "--disable-features=VizDisplayCompositor",
+    "--single-process",
+]
+
+_STEALTH_SCRIPT = """
+    Object.defineProperty(navigator,'webdriver',{get:()=>undefined});
+    Object.defineProperty(navigator,'plugins',{get:()=>[1,2,3,4,5]});
+    Object.defineProperty(navigator,'languages',{get:()=>['es-MX','es','en']});
+    window.chrome = {runtime:{},loadTimes:()=>{},csi:()=>{}};
+"""
+
+
+def _run_term(term: str, counter: list, limite: int | None, filtros: dict, platforms: set) -> int:
+    """Scrape one search term across all platforms in its own Playwright instance (thread worker)."""
+    inserted = 0
+    browser  = None
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=HEADLESS, args=_BROWSER_ARGS)
+            ua = random.choice(_USER_AGENTS)
+            ctx = browser.new_context(
+                user_agent=ua,
+                viewport={"width": random.choice([1280, 1366, 1440]), "height": 900},
+                locale="es-MX",
+                timezone_id="America/Mexico_City",
+                extra_http_headers={"Accept-Language": "es-MX,es;q=0.9,en;q=0.8"},
+            )
+            ctx.add_init_script(_STEALTH_SCRIPT)
+            page = ctx.new_page()
+
+            def _at_limit() -> bool:
+                with _counter_lock:
+                    return limite is not None and counter[0] >= limite
+
+            if "computrabajo" in platforms and not _at_limit():
+                print(f"\n[Computrabajo] '{term}'")
+                inserted += scrape_computrabajo(page, term, counter, limite, filtros)
+
+            if "occ" in platforms and not _at_limit():
+                print(f"\n[OCC] '{term}'")
+                inserted += scrape_occ(page, term, counter, limite, filtros)
+
+            if "bumeran" in platforms and not _at_limit():
+                print(f"\n[Bumeran] '{term}'")
+                inserted += scrape_bumeran(page, term, counter, limite, filtros)
+
+            if "getonbrd" in platforms and not _at_limit():
+                print(f"\n[GetOnBrd] '{term}'")
+                inserted += scrape_getonbrd(term, counter, limite, filtros)
+
+            if "remotive" in platforms and not _at_limit():
+                print(f"\n[Remotive] '{term}'")
+                inserted += scrape_remotive(term, counter, limite, filtros)
+
+            if "linkedin" in platforms and not _at_limit():
+                print(f"\n[LinkedIn] '{term}'")
+                inserted += scrape_linkedin(page, term, counter, limite, filtros)
+
+    except Exception as e:
+        print(f"\n[ERROR worker '{term}'] {e}")
+    finally:
+        if browser:
+            try: browser.close()
+            except Exception: pass
+    return inserted
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    global _SCRAPER_USER_ID, _SCRAPER_MIN_COMPAT
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--limit',   type=int,  default=None)
     parser.add_argument('--terms',   nargs='*', dest='named_terms')
     parser.add_argument('--filtros', type=str,  default='{}')
+    parser.add_argument('--user-id',    type=str, default='default_user', dest='user_id')
+    parser.add_argument('--min-compat', type=str, default='Baja',         dest='min_compat',
+                        choices=['Alta', 'Media', 'Baja', 'Nula'])
     parser.add_argument('positional_terms', nargs='*')
     args = parser.parse_args()
 
+    _SCRAPER_USER_ID    = args.user_id
+    _SCRAPER_MIN_COMPAT = args.min_compat
     limite = args.limit
     terms  = args.named_terms or args.positional_terms or generar_terminos_busqueda()
 
@@ -1053,100 +1184,41 @@ def main():
         print(f"[WARN] --filtros JSON inválido, usando defaults")
         filtros = dict(_FILTROS_DEFAULT)
 
+    platforms = set(filtros.get("platforms") or _ALL_PLATFORMS)
+    workers   = min(len(terms), MAX_WORKERS)
+
     print(f"[config] API: {API_BASE}")
-    print(f"[config] Términos: {terms}")
-    print(f"[config] Filtros: ubicacion={filtros['ubicacion']!r}  modalidad={filtros['modalidad']}  pais={filtros['pais']}")
+    print(f"[config] Usuario: {_SCRAPER_USER_ID}")
+    print(f"[config] Compatibilidad mínima: {_SCRAPER_MIN_COMPAT}")
+    print(f"[config] Términos ({len(terms)}): {terms}")
+    print(f"[config] Plataformas: {', '.join(sorted(platforms))}")
+    print(f"[config] Trabajadores paralelos: {workers}")
     if limite:
         print(f"[config] Límite: {limite}")
     if filtros.get("min_salary"):
         print(f"[config] Salario mínimo: ${filtros['min_salary']:,} MXN")
+    print(f"[config] Filtros: ubicacion={filtros['ubicacion']!r}  modalidad={filtros['modalidad']}  pais={filtros['pais']}")
 
-    counter   = [0]
-    platforms = set(filtros.get("platforms") or _ALL_PLATFORMS)
-    print(f"[config] Plataformas: {', '.join(sorted(platforms))}")
-    browser = None
+    counter = [0]
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=HEADLESS,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-web-security",
-                    "--disable-gpu",
-                    "--no-first-run",
-                    "--disable-notifications",
-                    "--disable-features=VizDisplayCompositor",
-                    "--single-process",
-                ],
-            )
-            ua = random.choice(_USER_AGENTS)
-            context = browser.new_context(
-                user_agent=ua,
-                viewport={"width": random.choice([1280, 1366, 1440]), "height": 900},
-                locale="es-MX",
-                timezone_id="America/Mexico_City",
-                extra_http_headers={
-                    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
-                },
-            )
-            # Stealth: ocultar indicadores de automatización
-            context.add_init_script("""
-                Object.defineProperty(navigator,'webdriver',{get:()=>undefined});
-                Object.defineProperty(navigator,'plugins',{get:()=>[1,2,3,4,5]});
-                Object.defineProperty(navigator,'languages',{get:()=>['es-MX','es','en']});
-                window.chrome = {runtime:{},loadTimes:()=>{},csi:()=>{}};
-            """)
-            page = context.new_page()
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures: dict = {}
+        for term in terms:
+            with _counter_lock:
+                at_limit = limite is not None and counter[0] >= limite
+            if at_limit:
+                print(f"\n[límite] Alcanzado {limite}. No se lanzan más trabajadores.")
+                break
+            fut = executor.submit(_run_term, term, counter, limite, filtros, platforms)
+            futures[fut] = term
 
-            for term in terms:
-                if limite is not None and counter[0] >= limite:
-                    print(f"\n[límite] Alcanzado {limite}. Deteniendo.")
-                    break
-
-                if "computrabajo" in platforms:
-                    print(f"\n[Computrabajo] '{term}'")
-                    scrape_computrabajo(page, term, counter, limite, filtros)
-                    if limite is not None and counter[0] >= limite: break
-
-                if "occ" in platforms:
-                    print(f"\n[OCC] '{term}'")
-                    scrape_occ(page, term, counter, limite, filtros)
-                    if limite is not None and counter[0] >= limite: break
-
-                if "bumeran" in platforms:
-                    print(f"\n[Bumeran] '{term}'")
-                    scrape_bumeran(page, term, counter, limite, filtros)
-                    if limite is not None and counter[0] >= limite: break
-
-                if "getonbrd" in platforms:
-                    print(f"\n[GetOnBrd] '{term}'")
-                    scrape_getonbrd(term, counter, limite, filtros)
-                    if limite is not None and counter[0] >= limite: break
-
-                if "remotive" in platforms:
-                    print(f"\n[Remotive] '{term}'")
-                    scrape_remotive(term, counter, limite, filtros)
-                    if limite is not None and counter[0] >= limite: break
-
-                if "linkedin" in platforms:
-                    print(f"\n[LinkedIn] '{term}'")
-                    scrape_linkedin(page, term, counter, limite, filtros)
-                    if limite is not None and counter[0] >= limite: break
-
-                _sleep(2, 4)
-
-            browser.close()
-            browser = None
-    except Exception as e:
-        print(f"\n[ERROR FATAL] {e}")
-    finally:
-        if browser:
-            try: browser.close()
-            except Exception: pass
+        for fut in as_completed(futures):
+            term = futures[fut]
+            try:
+                n = fut.result()
+                print(f"\n[✓] '{term}' → {n} vacantes insertadas")
+            except Exception as e:
+                print(f"\n[✗] '{term}' → error: {e}")
 
     print(f"\n{'='*50}")
     print(f"Total enviadas a la API: {counter[0]} vacantes nuevas")

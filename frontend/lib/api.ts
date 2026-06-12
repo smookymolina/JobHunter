@@ -226,7 +226,7 @@ export const api = {
     return res.blob()
   },
 
-  scrape: (cantidad: number, terminos?: string[], filtros?: Partial<FiltrosBusqueda>) =>
+  scrape: (cantidad: number, terminos?: string[], filtros?: Partial<FiltrosBusqueda>, min_compat?: string) =>
     req<{ ok: boolean; mensaje: string; terminos?: string[]; filtros?: FiltrosBusqueda }>('/scrape', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -234,6 +234,7 @@ export const api = {
         cantidad,
         ...(terminos?.length ? { terminos } : {}),
         ...(filtros ? { filtros } : {}),
+        min_compat: min_compat ?? 'Baja',
       }),
     }),
 
