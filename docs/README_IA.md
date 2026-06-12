@@ -1,188 +1,118 @@
-﻿# README â€” Job Hunter
+# README — Job Hunter
 
-Sistema local de automatizaciÃ³n de bÃºsqueda de empleo: scraping autÃ³nomo â†’ gestiÃ³n Kanban en tiempo real â†’ generaciÃ³n de CV via Claude Desktop (MCP) â†’ editor LaTeX + PDF local.
+Sistema local de automatización de búsqueda de empleo: scraping autónomo → gestión Kanban en tiempo real → generación de CV vía Groq (Llama 3.3 70B) + MCP → editor LaTeX + PDF local.
 
 ## Stack
 
-| Capa | TecnologÃ­a | Rol |
+| Capa | Tecnología | Rol |
 |---|---|---|
-| Scraping | Playwright + Python | Browser agent anti-bot (Computrabajo, OCC) |
-| Backend | FastAPI (puerto 8000) | API REST para datos + PDFs + LaTeX |
-| Bot | python-telegram-bot | Control via Telegram con menÃº inline (`/menu`) |
-| Frontend | Next.js + Tailwind v4 (puerto 3000) | Dashboard Kanban en tiempo real |
-| IA | Claude Desktop + MCP | EvalÃºa compatibilidad, genera `.tex` a medida |
-| MCP Server | `mcp_server.py` | 4 tools: get_vacancy_by_id, get_pending_vacancies, update_compatibility, save_latex_cv |
-| CompilaciÃ³n | `pdflatex` (MiKTeX) | `.tex` â†’ PDF local en `outputs/` |
-| Persistencia | SQLite `vacantes.db` | Ãšnica fuente de verdad |
+| Scraping | Playwright + Python | Browser agent anti-bot (Computrabajo, OCC, Indeed, Bumeran, LinkedIn, Remotive, GetOnBrd) |
+| Backend | FastAPI + Uvicorn (Python 3.13) | API REST para datos + PDFs + LaTeX (puerto 8000) |
+| Bot | python-telegram-bot | Control vía Telegram con menú inline (`/menu`) |
+| Frontend | Next.js 16 + React 19 + Tailwind 4 (TypeScript) | Dashboard Kanban en tiempo real (puerto 3000) |
+| IA | Groq API (llama-3.3-70b-versatile) | CV LaTeX, evaluación de compatibilidad |
+| MCP | `mcp_server.py` | 6 tools para Claude Desktop |
+| Compilación | `pdflatex` (MiKTeX) | `.tex` → PDF en `outputs/` |
+| Persistencia | PostgreSQL (pg8000) | Única fuente de verdad |
 
 ## Flujo macro
 
 ```
-POST /scrape (cantidad)
-  â†’ browser_agent.py --limit N â†’ vacantes.db
-      â†’ Dashboard muestra vacantes nuevas en tiempo real (polling silencioso cada 5 s)
-          â†’ "Copiar Prompt MCP" en VacanteCard
-              â†’ Claude Desktop:
-                  1) get_vacancy_by_id
-                  2) evalÃºa perfil + update_compatibility
-                  3) genera LaTeX enfocado
-                  4) save_latex_cv â†’ pdflatex â†’ Revisado_IA
-                      â†’ "Ver PDF" (modal iframe) o "Editar LaTeX" (textarea + recompila)
+POST /scrape (cantidad, términos opcionales, filtros)
+  → browser_agent.py --limit N --terms [...] --filtros {...}
+      → vacantes insertadas vía POST /vacantes (con compatibilidad Groq on-the-fly)
+          → Dashboard muestra vacantes nuevas (polling cada 2 s)
+              → "Generar CV" (one-click) o "Copiar Prompt MCP" para Claude Desktop
+                  → pdflatex → PDF disponible en "Ver PDF" / "Editar LaTeX"
 ```
 
-## Estructura
+## Estructura principal
 
 ```
-Trabajo/
-â”œâ”€â”€ docs/
-â”‚   â”œâ”€â”€ PIPELINE_IA.md       # flujo MCP + endpoints LaTeX
-â”‚   â”œâ”€â”€ README_IA.md         # este archivo
-â”‚   â””â”€â”€ ARQUITECTURA_Y_BD.md
-â”œâ”€â”€ frontend/
-â”‚   â”œâ”€â”€ app/
-â”‚   â”‚   â”œâ”€â”€ dashboard/page.tsx   # Kanban + banner scraping tiempo real
-â”‚   â”‚   â”œâ”€â”€ vacantes/page.tsx
-â”‚   â”‚   â”œâ”€â”€ plantillas/page.tsx
-â”‚   â”‚   â””â”€â”€ perfil/page.tsx
-â”‚   â”œâ”€â”€ components/
-â”‚   â”‚   â”œâ”€â”€ AddVacanteModal.tsx  # tabs: Manual | JSON | BÃºsqueda autÃ³noma
-â”‚   â”‚   â”œâ”€â”€ KanbanBoard.tsx
-â”‚   â”‚   â”œâ”€â”€ VacanteCard.tsx      # prompt MCP + modal PDF + modal editor LaTeX
-â”‚   â”‚   â””â”€â”€ StatusBadge.tsx
-â”‚   â””â”€â”€ lib/api.ts               # mÃ©todos REST + getLatex/saveLatex
-â””â”€â”€ job_hunter/
-    â”œâ”€â”€ .env                     # GROQ_API_KEY, PROFILE_BASE_DIR (opcional)
-    â”œâ”€â”€ context/                 # fallback de perfil
-    â”œâ”€â”€ db/vacantes.db
-    â”œâ”€â”€ outputs/                 # .tex y .pdf generados
-    â””â”€â”€ src/
-        â”œâ”€â”€ api.py               # FastAPI — /latex/{id}, /compatibilidad, /perfil, /pdf con CSP
-        â”œâ”€â”€ bot.py               # Telegram — /menu con InlineKeyboardMarkup
-        â”œâ”€â”€ browser_agent.py     # Playwright --limit N + evaluar_compatibilidad_rapida por vacante
-        â”œâ”€â”€ gemini_engine.py     # OUTPUTS_DIR, compilar_pdf, evaluar_compatibilidad_rapida (Groq)
-        â”œâ”€â”€ mcp_server.py        # 4 tools MCP; HTTP puro a localhost:8000, sin sqlite directo
-        â”œâ”€â”€ reset_db.py          # Hard reset: borra vacantes + outputs/ .tex/.pdf
-        â”œâ”€â”€ test_mcp_patch.py    # Valida PATCH status/compatibilidad vía urllib
-        â””â”€â”€ init_db.py / migrate_db.py
+JobHunter/
+├── docs/
+│   ├── PIPELINE_IA.md         # flujo CV + endpoints LaTeX
+│   ├── README_IA.md           # este archivo
+│   ├── ARQUITECTURA_Y_BD.md   # BD, endpoints, máquina de estados
+│   └── AUDIT_MEJORAS.md
+├── frontend/
+│   ├── app/
+│   │   ├── dashboard/page.tsx   # Kanban dual-view + banner scraping
+│   │   ├── perfil/page.tsx
+│   │   └── plantillas/page.tsx
+│   └── components/
+│       ├── AddVacanteModal.tsx  # tabs: Manual | JSON masivo | Búsqueda autónoma
+│       ├── KanbanBoard.tsx
+│       └── VacanteCard.tsx      # modal PDF + editor LaTeX + prompt MCP
+└── job_hunter/
+    ├── .env                     # GROQ_API_KEY, DATABASE_URL, API_BASE_URL
+    ├── context/mi_perfil.md     # Perfil generado desde perfil_maestro.json
+    ├── data/perfil_maestro.json # Fuente de verdad del perfil (sincronizada con BD)
+    ├── outputs/                 # .tex y .pdf por usuario
+    └── src/
+        ├── api.py               # FastAPI — endpoints REST, CV, perfil, scrape
+        ├── bot.py               # Telegram — /menu con InlineKeyboardMarkup
+        ├── browser_agent.py     # Playwright scraper — términos derivados del perfil (lazy)
+        ├── gemini_engine.py     # Groq LLM — CV LaTeX, compatibilidad rápida (caché perfil)
+        ├── mcp_server.py        # 6 tools MCP: get/list/update/reset/save_cv/save_cl
+        └── watcher.py           # DeepHealthWatcher — sync de estados cada 20 s
 ```
 
-## Arranque (3 terminales)
+## Arranque (Docker)
 
 ```powershell
-# T1 â€” API
-cd job_hunter\src; python api.py
+# Levantar todos los servicios (API + PostgreSQL)
+docker compose up -d
 
-# T2 â€” Bot (opcional)
-python bot.py
-
-# T3 â€” Frontend
-cd ..\..\frontend; npm run dev
+# Frontend (terminal separada)
+cd frontend; npm run dev
 ```
 
-El MCP server se registra en `claude_desktop_config.json`, no requiere terminal manual.
+## Variables de entorno (`job_hunter/.env`)
 
-## Variables de entorno
-
-| Archivo | Variable | Valor |
-|---|---|---|
-| `job_hunter/.env` | `GROQ_API_KEY` | Key de console.groq.com (scraper) |
-| `job_hunter/.env` | `PROFILE_BASE_DIR` | Ruta al directorio con mi_perfil.md (default: `C:\Users\GIRTEC\Desktop\Trabajo\Trabajo`) |
-| `frontend/.env.local` | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` |
-
-## GeneraciÃ³n de CV â€” paso a paso
-
-1. Vacante en **No_Creado** o **Requiere_Correccion** â†’ expandir tarjeta.
-2. Click **"Copiar Prompt MCP"** â€” el prompt ultra-minimo de 5 pasos se copia al portapapeles.
-3. Pegar en Claude Desktop y enviar.
-4. Claude usa `get_vacancy_by_id` â†’ lee reqs.
-5. Claude evalÃºa el match con el perfil y llama `update_compatibility`.
-6. Claude genera LaTeX enfocado priorizando habilidades mecÃ¡nicas y de automatizaciÃ³n.
-7. Claude llama `save_latex_cv` â†’ pdflatex â†’ status `Revisado_IA`.
-8. En la tarjeta aparecen **Ver PDF** (modal iframe) y **Editar LaTeX** (editor con recompilaciÃ³n).
-
-## Editor LaTeX
-
-- Abre el `.tex` desde `GET /latex/{id}` en un textarea de pantalla completa.
-- Al guardar hace `POST /latex/{id}` con el texto crudo.
-- El backend sobrescribe el archivo y ejecuta `pdflatex` en `outputs/`.
-- Muestra confirmaciÃ³n verde/roja segÃºn el resultado de compilaciÃ³n.
-
-## Bot de Telegram â€” MenÃº interactivo
-
-El bot expone un menÃº con `InlineKeyboardMarkup` accesible con `/menu`:
-
-| BotÃ³n | AcciÃ³n |
+| Variable | Descripción |
 |---|---|
-| ðŸ” Buscar Vacantes | Lanza `browser_agent --limit 3` en background |
-| ðŸ“‹ Ver Pendientes | Lista vacantes `No_Creado`/`Requiere_Correccion` con botones por vacante |
-| âš™ï¸ Resumen | Muestra stats de la DB (total, por status, por compatibilidad) |
+| `GROQ_API_KEY` | Key de console.groq.com |
+| `DATABASE_URL` | `postgresql://user:pass@localhost:5432/jobhunter` |
+| `API_BASE_URL` | `http://127.0.0.1:8000` (default) |
+| `BOT_MASTER_TOKEN` | Token del bot Telegram |
 
-Por cada vacante pendiente aparecen botones inline:
+## Búsqueda autónoma — comportamiento
 
-| BotÃ³n | `callback_data` | AcciÃ³n |
-|---|---|---|
-| ðŸš€ Generar | `gen_{id}` | Llama `generar_y_compilar` + audita con Inspector IA |
-| ðŸ“„ Descargar PDF | `pdf_{id}` | EnvÃ­a el archivo `outputs/cv_vacante_{id}.pdf` |
-| âœ… Marcar Listo | `listo_{id}` | PATCH status â†’ `Listo_Manual` |
+`browser_agent.py` genera los términos de búsqueda **de forma lazy** (solo si no se pasan `--terms`):
+1. La API llama `generar_terminos_busqueda()` y pasa los términos vía `--terms` al subprocess.
+2. El subprocess NO conecta a la BD en el arranque; los términos ya vienen listos.
+3. Si se lanza manualmente sin `--terms`, entonces sí deriva los términos del `perfil_maestro.json`.
 
-Los botones PDF tambiÃ©n aparecen en `/detalles <id>` si el status es `Revisado_IA`.
+Términos generados para el perfil actual (Jair Molina):
+- **SW**: Desarrollador Full Stack, Full Stack Developer, Desarrollador Python, Desarrollador React
+- **IoT**: Desarrollador IoT, Ingeniero Sistemas Embebidos, Automatización Industrial, Desarrollador Firmware IoT
+- **Mecánica**: Ingeniero Mecánico, Ingeniero Mecatrónico, Ingeniero CAD CAE, Ingeniero Control Automático
 
-## Scraping autÃ³nomo
+Plataformas: Computrabajo, OCC, Indeed (RSS), Bumeran, GetOnBrd (API), Remotive (API), LinkedIn.
 
-```powershell
-python job_hunter/src/browser_agent.py --limit 10
-curl -X POST http://localhost:8000/scrape -d "{\"cantidad\":5}" -H "Content-Type: application/json"
-```
+## Evaluación de compatibilidad — eficiencia de tokens
 
-El dashboard detecta `running: true` en `/scrape/status` y recarga las vacantes cada 5 segundos mostrando un banner animado.
+`evaluar_compatibilidad_rapida()` usa un perfil compacto (título + 30 skills, ~150 chars) en lugar del perfil completo, y trunca requerimientos a 1200 chars. El perfil se cachea en memoria por proceso → 0 lecturas de disco tras la primera llamada.
+
+## Generación de CV — paso a paso
+
+1. Vacante en **No_Creado** → click **"Generar CV"** en el dashboard.
+2. `POST /generar_cv/{id}` → Groq genera LaTeX → pdflatex compila.
+3. Estado → `Revisado_IA`, aparecen botones **Ver PDF** y **Editar LaTeX**.
+4. Para edición avanzada: copiar Prompt MCP → Claude Desktop → `save_latex_cv`.
+
+## Bot de Telegram
+
+| Botón | Acción |
+|---|---|
+| 🔍 Buscar Vacantes | Lanza `browser_agent --limit 3` en background |
+| 📋 Ver Pendientes | Lista vacantes `No_Creado` / `Requiere_Correccion` |
+| ⚙️ Resumen | Stats de la BD (total, por status, compatibilidad) |
+| 🚀 Generar | `gen_{id}` → `generar_y_compilar` + Inspector IA |
+| 📄 Descargar PDF | `pdf_{id}` → envía `outputs/cv_vacante_{id}.pdf` |
+| ✅ Marcar Listo | `listo_{id}` → PATCH status → `Listo_Manual` |
 
 ## Regla de contexto
 
-Leer `docs/` antes de proponer cambios al sistema.
-
-## Actualizacion 2026-06-04 (rev 9 — Blacklist + Postulacion + Search fix)
-
-- **Blacklist de eliminadas**: vacante borrada → enlace guardado en `vacantes_eliminadas` → el scraper nunca la vuelve a insertar. Chequeo en `POST /vacantes` y `POST /vacantes/bulk`.
-- **Listo = CV Enviado**: `PATCH status=Listo_Manual` registra `fecha_postulacion` automáticamente. La tarjeta muestra "CV enviado — esperando respuesta de la empresa" con la fecha. Columna Kanban renombrada a "CV Enviado".
-- **Watcher bugfix**: `watcher._sync_one` omite vacantes en `Listo_Manual`; antes las revertía a `Revisado_IA` al detectar el PDF generado.
-- **`generar_terminos_busqueda()` por áreas**: 4 términos por área (SW/web, IoT/embebidos, mecánica). Cubre `Desarrollador React`, `Full Stack Developer`, `Desarrollador Firmware IoT`, etc. Los términos "Ingeniero Mecánico" ya no dominan la búsqueda.
-
-## Actualizacion 2026-06-02 (rev 5 — Smart Search)
-
-- `generar_terminos_busqueda()` en `gemini_engine.py`: deriva 12 términos de búsqueda desde `perfil_maestro.json` (sin LLM). Ejemplos para Jair: "Ingeniero IoT", "Embedded Systems Engineer", "SmartCity Developer", "Automatización Industrial".
-- `browser_agent.py`: `SEARCH_TERMS` dinámico desde el perfil en tiempo de carga; `--terms` CLI para override.
-- `POST /scrape` acepta `terminos: string[]` opcional; si no se envía, usa perfil automáticamente.
-- `GET /api/search-terms`: retorna los términos actuales derivados del perfil (fuente: perfil_maestro.json).
-- `AddVacanteModal` pestaña "Búsqueda autónoma": carga términos del perfil con checkboxes; usuario selecciona/deselecciona antes de lanzar el scraper.
-- Flujo completo autogestionado: edita perfil → guarda → términos se actualizan → búsquedas mejoran.
-
-## Actualizacion 2026-06-02 (rev 4 — SSoT)
-
-- **`data/perfil_maestro.json`** es ahora la única fuente de verdad. Elimina alucinaciones en CVs.
-- `GET /api/perfil` + `POST /api/perfil`: carga/guarda el JSON maestro y regenera `mi_perfil.md`.
-- Página Perfil: formulario estructurado (datos personales, habilidades, experiencia, educación, proyectos); botón "Guardar" escribe el JSON y regenera el .md.
-- Prompt MCP de 4 pasos: apunta directamente a `data/perfil_maestro.json`.
-- `evaluar_compatibilidad_rapida`: lee perfil_maestro.json (estructura) en vez de md plano.
-- Dashboard: polling 3 s.
-
-## Actualizacion 2026-06-02 (rev 3)
-
-- Hard reset ejecutado: 0 vacantes, 0 archivos en outputs/.
-- `POST /vacantes` y `POST /vacantes/bulk`: llaman a `evaluar_compatibilidad_rapida` on-the-fly y guardan el nivel en `compatibilidad` al insertar.
-- `mcp_server._save_latex_cv`: PATCH → `En_Proceso` al inicio; PATCH → `Revisado_IA` al finalizar con PDF. Sin acceso directo a .db.
-- Dashboard: polling vacantes cada 2 s (antes 3 s).
-- `VacanteCard`: spinner `Loader2` junto al título cuando `status === 'En_Proceso'`; tarjeta se mueve sola al columna Revisado_IA con el siguiente tick de polling.
-- Prompt MCP reducido a 4 pasos: get_vacancy_by_id → update_compatibility → CV LaTeX → save_latex_cv.
-
-## Actualizacion 2026-06-02 (rev 2)
-
-- Dashboard: polling de vacantes a 3 s (antes 5 s); scraper status sigue en 3 s.
-- `VacanteCard`: prompt MCP actualizado con 5 pasos anti-alucinación (lee mi_perfil.md real, prohíbe corchetes, integra foto si hay plantilla).
-- `GET /pdf/{id}`: añadidos `X-Frame-Options: SAMEORIGIN` y `Content-Security-Policy: frame-ancestors 'self' http://localhost:3000` para corregir "refused to connect" en iframe.
-- `POST /perfil/upload` + `GET /perfil`: extrae texto de PDF (PyPDF2) o guarda .md/.txt en `CONTEXT_DIR/mi_perfil.md`.
-- `frontend/app/perfil/page.tsx`: reemplazado mock por vista real con upload y preview.
-- `gemini_engine.evaluar_compatibilidad_rapida`: evalúa match vacante-candidato con Groq (max 10 tokens).
-- `browser_agent.py`: llama a `evaluar_compatibilidad_rapida` tras cada insert exitoso y actualiza el campo `compatibilidad` antes de retornar.
-- `src/reset_db.py`: script de hard reset con diagnóstico previo (borrar vacantes + outputs/).
-- `src/test_mcp_patch.py`: test de PATCH status y compatibilidad vía urllib (sin sqlite directo).
-
+Leer `docs/` y `job_hunter/data/perfil_maestro.json` antes de proponer cambios al sistema.

@@ -1,13 +1,11 @@
 """
-Browser Agent — scraping con Playwright (headed, anti-bot evasion).
-Cada vacante encontrada se envía vía POST al API REST (localhost:8000/vacantes).
-El agente NO escribe directamente a SQLite.
+Browser Agent — scraping con Playwright (headless, anti-bot evasion).
+Cada vacante se envía vía POST al API REST.
 
 Uso:
-    python browser_agent.py
     python browser_agent.py --limit 5
     python browser_agent.py --limit 5 --terms "IoT Developer" "Backend Python"
-    python browser_agent.py --limit 10 --filtros '{"ubicacion":"Ciudad de México","modalidad":"remoto","pais":"Mexico"}'
+    python browser_agent.py --limit 10 --filtros '{"ubicacion":"Ciudad de México","modalidad":"remoto","pais":"Mexico","min_salary":16000}'
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
@@ -34,71 +32,223 @@ from gemini_engine import generar_terminos_busqueda
 # ── Config ────────────────────────────────────────────────────────────────────
 
 API_BASE     = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-SEARCH_TERMS: list[str] = generar_terminos_busqueda()
 MAX_PER_TERM = 8
 HEADLESS     = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
 
-# Dominios Computrabajo por país
+# FIX: usar mx.computrabajo.com (www.computrabajo.com.mx redirige a .com internacional)
 _CT_DOMINIOS: dict[str, str] = {
-    "Mexico":        "https://www.computrabajo.com.mx",
+    "Mexico":        "https://mx.computrabajo.com",
     "España":        "https://www.computrabajo.es",
     "Argentina":     "https://www.computrabajo.com.ar",
     "Colombia":      "https://www.computrabajo.com.co",
     "Chile":         "https://www.computrabajo.cl",
-    "Internacional": "https://www.computrabajo.com.mx",  # base; se itera multi-país
+    "Internacional": "https://mx.computrabajo.com",
 }
 
-_ALL_PLATFORMS = {"computrabajo", "occ", "indeed", "bumeran", "getonbrd", "remotive", "linkedin"}
+_ALL_PLATFORMS = {"computrabajo", "occ", "bumeran", "getonbrd", "remotive", "linkedin"}
 
 _FILTROS_DEFAULT: dict = {
     "ubicacion": "", "modalidad": "any", "pais": "Mexico",
     "min_salary": None, "platforms": list(_ALL_PLATFORMS),
 }
 
-# ── Geographic aliases ─────────────────────────────────────────────────────────
+# Rotación de User-Agents (Chrome 124–126, Windows/Mac)
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
+]
 
-_GEO_ALIASES: dict[str, list[str]] = {
-    "cdmx":              ["Ciudad de México", "CDMX"],
-    "ciudad de mexico":  ["Ciudad de México", "CDMX"],
-    "df":                ["Ciudad de México", "CDMX"],
-    "gdl":               ["Guadalajara"],
-    "guadalajara":       ["Guadalajara"],
-    "mty":               ["Monterrey"],
-    "monterrey":         ["Monterrey"],
-    "nuevo leon":        ["Monterrey", "Nuevo León"],
-    "nl":                ["Monterrey", "Nuevo León"],
-    "edomex":            ["Estado de México", "Toluca"],
-    "estado de mexico":  ["Estado de México"],
-    "pue":               ["Puebla"],
-    "puebla":            ["Puebla"],
-    "qro":               ["Querétaro"],
-    "queretaro":         ["Querétaro"],
-    "jal":               ["Guadalajara", "Jalisco"],
-    "slp":               ["San Luis Potosí"],
-    "merida":            ["Mérida"],
-    "yuc":               ["Mérida", "Yucatán"],
-    "leon":              ["León"],
-    "gto":               ["León", "Guanajuato"],
-    "bajio":             ["León", "Guanajuato"],
+# ── Text normalization ─────────────────────────────────────────────────────────
+
+_PUNCT_RE = _re.compile(r"[.,;:!?/\\()\[\]{}\"\'\-–—_]+")
+
+
+def _normalize_text(text: str) -> str:
+    """Lowercase + strip accents + replace punctuation with spaces + collapse whitespace."""
+    nfd     = unicodedata.normalize("NFD", text.lower())
+    no_acc  = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    no_pct  = _PUNCT_RE.sub(" ", no_acc)
+    return " ".join(no_pct.split())
+
+
+def _word_match(term: str, text: str) -> bool:
+    """True if `term` appears as whole words in `text` (both already normalized)."""
+    return bool(_re.search(r"(?<!\w)" + _re.escape(term) + r"(?!\w)", text))
+
+
+# ── Geographic profiles ────────────────────────────────────────────────────────
+# Each profile: {"url_names": [...], "aliases": [...positive], "exclusions": [...hard-reject]}
+# All terms stored pre-normalized (no accents, lowercase, no punctuation).
+
+_P_CDMX: dict = {
+    "url_names": ["Ciudad de México", "CDMX"],
+    "aliases": [
+        "cdmx", "ciudad de mexico", "ciudad de mx", "distrito federal", "d f",
+        # Alcaldías
+        "miguel hidalgo", "cuauhtemoc", "benito juarez", "coyoacan",
+        "iztapalapa", "tlalpan", "azcapotzalco", "alvaro obregon",
+        "iztacalco", "xochimilco", "gustavo a madero", "venustiano carranza",
+        "tlahuac", "milpa alta", "magdalena contreras",
+        # Colonias / zonas de referencia
+        "polanco", "santa fe", "condesa", "roma norte", "roma sur",
+        "del valle", "narvarte", "pedregal", "lomas chapultepec",
+        "tlatelolco", "anzures", "doctores", "centro historico",
+        # Acrónimos metropolitanos
+        "zmcm", "zmvm", "zona metropolitana ciudad de mexico",
+    ],
+    "exclusions": [
+        # Estado de México — el falso positivo más común
+        "estado de mexico", "edomex", "edo mex",
+        "ecatepec", "naucalpan", "tlalnepantla", "nezahualcoyotl", "neza",
+        "texcoco", "cuautitlan", "tultitlan", "atizapan", "coacalco",
+        "chimalhuacan", "chalco", "ixtapaluca",
+        # Toluca capital del Edomex
+        "toluca",
+        # Resto del país
+        "monterrey", "nuevo leon",
+        "guadalajara", "jalisco",
+        "puebla",
+        "queretaro",
+        "veracruz",
+        "chihuahua",
+        "tijuana", "baja california",
+        "mexicali",
+        "hermosillo", "sonora",
+        "merida", "yucatan",
+        "cancun", "quintana roo",
+        "saltillo", "coahuila",
+        "san luis potosi",
+        "aguascalientes",
+        "morelia", "michoacan",
+        "leon gto", "guanajuato",
+        "oaxaca",
+        "acapulco", "guerrero",
+        "cuernavaca", "morelos",
+        "tampico", "tamaulipas",
+        "culiacan", "sinaloa",
+        "durango",
+        "zacatecas",
+        "tuxtla gutierrez", "chiapas",
+    ],
 }
+
+_P_MTY: dict = {
+    "url_names": ["Monterrey"],
+    "aliases": [
+        "monterrey", "mty", "nuevo leon", "guadalupe nl",
+        "san pedro garza garcia", "santa catarina nl",
+        "apodaca", "escobedo", "san nicolas de los garza",
+        "garcia nl",
+    ],
+    "exclusions": [
+        "cdmx", "ciudad de mexico", "guadalajara", "puebla",
+        "queretaro", "veracruz", "tijuana",
+    ],
+}
+
+_P_GDL: dict = {
+    "url_names": ["Guadalajara"],
+    "aliases": [
+        "guadalajara", "gdl", "jalisco", "zapopan", "tlaquepaque",
+        "tonala", "tlajomulco", "zona metropolitana guadalajara",
+    ],
+    "exclusions": [
+        "cdmx", "ciudad de mexico", "monterrey", "puebla", "queretaro",
+    ],
+}
+
+_P_EDOMEX: dict = {
+    "url_names": ["Estado de México", "Toluca"],
+    "aliases": [
+        "estado de mexico", "edomex", "toluca",
+        "ecatepec", "naucalpan", "tlalnepantla", "nezahualcoyotl",
+        "texcoco", "cuautitlan", "tultitlan", "atizapan", "coacalco",
+        "chimalhuacan", "chalco", "ixtapaluca",
+    ],
+    "exclusions": [
+        "cdmx", "ciudad de mexico", "monterrey", "guadalajara",
+    ],
+}
+
+_P_PUE: dict = {
+    "url_names": ["Puebla"],
+    "aliases": ["puebla", "pue", "san andres cholula", "cuautlancingo"],
+    "exclusions": ["cdmx", "ciudad de mexico", "monterrey", "guadalajara"],
+}
+
+_P_QRO: dict = {
+    "url_names": ["Querétaro"],
+    "aliases": ["queretaro", "qro", "el marques", "corregidora"],
+    "exclusions": ["cdmx", "ciudad de mexico", "monterrey"],
+}
+
+# Map all user-input variants → their profile
+_GEO_PROFILES: dict[str, dict] = {
+    "cdmx":              _P_CDMX,
+    "ciudad de mexico":  _P_CDMX,
+    "ciudad de mx":      _P_CDMX,
+    "df":                _P_CDMX,
+    "distrito federal":  _P_CDMX,
+    "monterrey":         _P_MTY,
+    "mty":               _P_MTY,
+    "nuevo leon":        _P_MTY,
+    "nl":                _P_MTY,
+    "guadalajara":       _P_GDL,
+    "gdl":               _P_GDL,
+    "jalisco":           _P_GDL,
+    "jal":               _P_GDL,
+    "edomex":            _P_EDOMEX,
+    "estado de mexico":  _P_EDOMEX,
+    "toluca":            _P_EDOMEX,
+    "puebla":            _P_PUE,
+    "pue":               _P_PUE,
+    "queretaro":         _P_QRO,
+    "qro":               _P_QRO,
+}
+
+# Keep _GEO_ALIASES for URL builder (_expand_ubicacion) — maps input → display names
+_GEO_ALIASES: dict[str, list[str]] = {
+    k: v["url_names"] for k, v in _GEO_PROFILES.items()
+}
+_GEO_ALIASES.update({
+    "slp":    ["San Luis Potosí"],
+    "merida": ["Mérida"],
+    "yuc":    ["Mérida", "Yucatán"],
+    "leon":   ["León"],
+    "gto":    ["León", "Guanajuato"],
+    "bajio":  ["León", "Guanajuato"],
+})
 
 
 def _expand_ubicacion(ubicacion: str) -> list[str]:
-    """Expand geographic alias to canonical names (≤ 2 variants for URL building)."""
-    key = ubicacion.lower().strip()
+    key = _normalize_text(ubicacion)
     return _GEO_ALIASES.get(key, [ubicacion.strip()])[:2]
 
 
 # ── Salary filter ──────────────────────────────────────────────────────────────
 
-_SALARY_RE = _re.compile(r'(?:\$\s*|MXN\s*|USD\s*)?(\d[\d,\.]{1,8})', _re.I)
+_SALARY_RE = _re.compile(r'(?:\$\s*|MXN\s*|USD\s*)?(\d[\d,\.]{1,9})', _re.I)
+_SALARY_MIL_RE = _re.compile(r'(\d+(?:\.\d+)?)\s*mil\b', _re.I)
 
 
 def _passes_salary_filter(reqs: str, min_salary: int | None) -> bool:
-    """Return False only when salary IS mentioned and ALL found values are below min."""
+    """False solo cuando salario mencionado y TODOS los valores encontrados son < mínimo."""
     if not min_salary:
         return True
     found_any = False
+
+    for raw in _SALARY_MIL_RE.findall(reqs):
+        try:
+            val = int(float(raw) * 1000)
+            if 3_000 <= val <= 300_000:
+                found_any = True
+                if val >= min_salary:
+                    return True
+        except ValueError:
+            pass
+
     for raw in _SALARY_RE.findall(reqs):
         try:
             val = int(raw.replace(',', '').split('.')[0])
@@ -108,22 +258,21 @@ def _passes_salary_filter(reqs: str, min_salary: int | None) -> bool:
                     return True
         except ValueError:
             pass
-    return not found_any  # no salary mentioned → include
+
+    return not found_any
 
 
-# Palabras clave que indican trabajo remoto en texto de vacante
 _REMOTE_KEYWORDS = {"remoto", "home office", "teletrabajo", "remote", "trabajo remoto", "desde casa"}
-# Palabras clave que indican trabajo presencial
 _ONSITE_KEYWORDS = {"presencial", "en sitio", "on-site", "oficina"}
 
 # ── URL builders ──────────────────────────────────────────────────────────────
 
 def _slug(text: str) -> str:
-    return text.lower().strip().replace(' ', '-')
+    nfd = unicodedata.normalize('NFD', text.lower().strip())
+    return ''.join(c for c in nfd if unicodedata.category(c) != 'Mn').replace(' ', '-')
 
 
 def _computrabajo_urls(term: str, filtros: dict) -> list[str]:
-    """Genera lista de URLs de Computrabajo según filtros, expandiendo alias geográficos."""
     modalidad = filtros.get("modalidad", "any")
     ubicacion = filtros.get("ubicacion", "").strip()
     pais      = filtros.get("pais", "Mexico")
@@ -134,7 +283,6 @@ def _computrabajo_urls(term: str, filtros: dict) -> list[str]:
         bases = [_CT_DOMINIOS.get(pais, _CT_DOMINIOS["Mexico"])]
 
     ubicaciones = _expand_ubicacion(ubicacion) if ubicacion else [""]
-
     urls: list[str] = []
     for base in bases:
         t = _slug(term)
@@ -149,61 +297,84 @@ def _computrabajo_urls(term: str, filtros: dict) -> list[str]:
                     urls.append(f"{base}/trabajo-de-{t}-en-{_slug(ub)}")
                 else:
                     urls.append(f"{base}/trabajo-de-{t}")
-    return list(dict.fromkeys(urls))  # dedup, preserving order
+    return list(dict.fromkeys(urls))
 
 
 def _occ_urls(term: str, filtros: dict) -> list[str]:
-    """Genera lista de URLs de OCC, expandiendo alias geográficos. Solo México."""
     if filtros.get("pais", "Mexico") not in ("Mexico", "Internacional"):
         return []
-
     modalidad = filtros.get("modalidad", "any")
     ubicacion = filtros.get("ubicacion", "").strip()
     t = _slug(term)
-
     if modalidad == "remoto":
         return [f"https://www.occ.com.mx/empleos/de-{t}/en-home-office/"]
-
     if ubicacion and modalidad != "hibrido":
         variants = _expand_ubicacion(ubicacion)
         return [f"https://www.occ.com.mx/empleos/de-{t}/en-{_slug(ub)}/" for ub in variants]
-
     return [f"https://www.occ.com.mx/empleos/de-{t}/"]
 
 
-# ── Text filter ───────────────────────────────────────────────────────────────
+# ── Text / geo filters ─────────────────────────────────────────────────────────
 
 def _passes_text_filter(titulo: str, reqs: str, filtros: dict) -> bool:
-    """Filtro secundario sobre el texto de la vacante para coherencia con modalidad."""
     modalidad = filtros.get("modalidad", "any")
     if modalidad == "any":
         return True
-
     text = f"{titulo} {reqs}".lower()
     is_remote = any(kw in text for kw in _REMOTE_KEYWORDS)
-
     if modalidad == "presencial" and is_remote:
-        return False   # quiere presencial pero es remoto
+        return False
     if modalidad == "remoto" and any(kw in text for kw in _ONSITE_KEYWORDS) and not is_remote:
-        return False   # quiere remoto pero dice presencial
+        return False
     return True
 
 
-def _strip_accents(s: str) -> str:
-    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+def _passes_geo_filter(titulo: str, reqs: str, filtros: dict, jld_location: str = "") -> bool:
+    """
+    True  → vacante pasa el filtro geográfico.
+    False → vacante rechazada.
 
-
-def _passes_geo_filter(titulo: str, reqs: str, filtros: dict) -> bool:
-    """Descarta vacantes cuyo texto no mencione explícitamente la ubicación configurada."""
+    Lógica:
+      1. Si hay ubicación JSON-LD la usamos como texto de búsqueda (más preciso).
+         Si no, usamos título + primeros 600 chars de reqs.
+      2. Las exclusiones tienen prioridad absoluta: si aparece un término de otro
+         estado → RECHAZA, incluso si también hay términos positivos.
+      3. Si al menos un alias positivo coincide → ACEPTA.
+      4. Si ninguna señal positiva ni negativa → ACEPTA (benefit of doubt; CT/OCC
+         ya filtran por URL geográfica).
+    Diferencia "Ciudad de México" vs "Estado de México":
+      - "Estado de Mexico" es exclusión explícita del perfil CDMX → RECHAZA.
+      - "Ciudad de Mexico"/"CDMX" son aliases positivos del perfil CDMX → ACEPTA.
+    """
     ubicacion = filtros.get("ubicacion", "").strip()
     if not ubicacion:
         return True
     if filtros.get("modalidad", "any") == "remoto":
-        return True  # trabajo remoto no tiene restricción geográfica
+        return True
 
-    text = _strip_accents(f"{titulo} {reqs}".lower())
-    candidates = [ubicacion] + _GEO_ALIASES.get(ubicacion.lower().strip(), [])
-    return any(_strip_accents(c.lower()) in text for c in candidates)
+    key = _normalize_text(ubicacion)
+    profile = _GEO_PROFILES.get(key)
+
+    # Texto a analizar: JSON-LD location si existe (más confiable), si no, título + inicio de reqs
+    if jld_location:
+        search_text = _normalize_text(jld_location)
+    else:
+        search_text = _normalize_text(f"{titulo} {reqs[:600]}")
+
+    if profile:
+        # 1. Exclusiones tienen prioridad absoluta
+        for excl in profile["exclusions"]:
+            if _word_match(excl, search_text):
+                return False
+        # 2. Al menos un alias positivo → acepta
+        for alias in profile["aliases"]:
+            if _word_match(alias, search_text):
+                return True
+        # 3. Sin señal clara → benefit of doubt (URLs ya pre-filtran para CT/OCC)
+        return True
+    else:
+        # Perfil desconocido: fallback a búsqueda simple con word-boundary
+        return _word_match(key, search_text)
 
 
 # ── API helper ────────────────────────────────────────────────────────────────
@@ -238,14 +409,14 @@ def _post_vacante(titulo: str, empresa: str, enlace: str, reqs: str) -> tuple[bo
         return False, ""
 
 
-# ── HTTP helper (sin Playwright) ─────────────────────────────────────────────
+# ── HTTP helper (sin Playwright) ──────────────────────────────────────────────
 
 _HTTP_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "User-Agent": _USER_AGENTS[0],
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
 }
+
 
 def _http_get(url: str, as_json=False, timeout=15):
     req = urllib.request.Request(url, headers=_HTTP_HEADERS)
@@ -253,16 +424,19 @@ def _http_get(url: str, as_json=False, timeout=15):
         raw = r.read().decode("utf-8", errors="replace")
     return json.loads(raw) if as_json else raw
 
+
 def _strip_html(html: str) -> str:
     class _S(_HTMLParser):
         def __init__(self): super().__init__(); self.parts = []
         def handle_data(self, d): self.parts.append(d)
     p = _S(); p.feed(html); return " ".join(p.parts)
 
+
 # ── Anti-bot helpers ──────────────────────────────────────────────────────────
 
 def _sleep(a=1.0, b=2.5):
     time.sleep(random.uniform(a, b))
+
 
 def _scroll(page: Page, steps=4):
     for _ in range(steps):
@@ -270,82 +444,164 @@ def _scroll(page: Page, steps=4):
         _sleep(0.4, 0.8)
 
 
+def _is_blocked(page: Page) -> bool:
+    """Detecta páginas de CAPTCHA / bloqueo / login wall."""
+    try:
+        signals = page.title().lower() + " " + page.url.lower()
+        blockers = [
+            "captcha", "are you a robot", "access denied", "403",
+            "cloudflare", "security check", "robot check",
+            "verify you are human", "unusual traffic", "iniciar sesión",
+            "sign in to continue", "authwall",
+        ]
+        return any(b in signals for b in blockers)
+    except Exception:
+        return False
+
+
+def _jsonld_job_from_page(page: Page) -> tuple[str, str, str, str]:
+    """
+    Extrae (titulo, empresa, reqs, location) de JSON-LD JobPosting.
+    `location` es el string de addressLocality + addressRegion del schema JobPosting.
+    """
+    try:
+        scripts = page.query_selector_all('script[type="application/ld+json"]')
+        for s in scripts:
+            try:
+                data = json.loads(s.inner_text() or "{}")
+            except json.JSONDecodeError:
+                continue
+            items = data if isinstance(data, list) else data.get("@graph", [data])
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("@type") not in ("JobPosting", "jobPosting"):
+                    continue
+
+                titulo  = str(item.get("title", "")).strip()
+                org     = item.get("hiringOrganization") or {}
+                empresa = str(org.get("name", "") if isinstance(org, dict) else "").strip()
+                desc    = str(item.get("description", "")).strip()
+                reqs    = _strip_html(desc)[:3000]
+
+                # Extraer ubicación desde jobLocation → address
+                location = ""
+                job_loc = item.get("jobLocation") or {}
+                if isinstance(job_loc, list):
+                    job_loc = job_loc[0] if job_loc else {}
+                if isinstance(job_loc, dict):
+                    address = job_loc.get("address") or {}
+                    if isinstance(address, str):
+                        location = address
+                    elif isinstance(address, dict):
+                        parts = [
+                            str(address.get("addressLocality", "") or ""),
+                            str(address.get("addressRegion", "")   or ""),
+                            str(address.get("addressCountry", "")  or ""),
+                        ]
+                        location = ", ".join(p for p in parts if p.strip())
+                    # También revisar el nombre directo del lugar
+                    if not location:
+                        location = str(job_loc.get("name", "") or "")
+
+                if titulo:
+                    return titulo, empresa, reqs, location
+    except Exception:
+        pass
+    return "", "", "", ""
+
+
+def _resolve_href(href: str, base_domain: str) -> str:
+    if not href:
+        return ""
+    if href.startswith("http"):
+        return href.split("?")[0].split("#")[0]
+    if href.startswith("/"):
+        return base_domain + href.split("?")[0].split("#")[0]
+    return href
+
+
 # ── Scrapers ──────────────────────────────────────────────────────────────────
 
 def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
     count = 0
-    urls = _computrabajo_urls(term, filtros)
+    urls  = _computrabajo_urls(term, filtros)
     min_salary = filtros.get("min_salary")
+    CT_BASE = _CT_DOMINIOS.get(filtros.get("pais", "Mexico"), _CT_DOMINIOS["Mexico"])
 
     for url in urls:
         if limite is not None and counter[0] >= limite:
             break
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            page.goto(url, wait_until="domcontentloaded", timeout=22000)
             _sleep(1.5, 2.5)
+
+            if _is_blocked(page):
+                print(f"  [CT] Bloqueado en {url[:60]}")
+                continue
+
             _scroll(page)
 
             cards = page.query_selector_all("article.box_offer")[:MAX_PER_TERM]
+            if not cards:
+                print(f"  [CT] Sin tarjetas en {url[:60]}")
+                continue
+
             for card in cards:
                 if limite is not None and counter[0] >= limite:
                     break
                 try:
-                    titulo_el = card.query_selector("h2 a, h3 a")
+                    titulo_el = card.query_selector("h2 a, h3 a, a.js-o-link")
                     if not titulo_el:
                         continue
                     titulo = titulo_el.inner_text().strip()
                     href   = titulo_el.get_attribute("href") or ""
-                    enlace = ("https://www.computrabajo.com.mx" + href) if href.startswith("/") else href
+                    enlace = _resolve_href(href, CT_BASE)
+                    if not enlace:
+                        continue
 
-                    emp_el  = card.query_selector("p.fs16, p.dcolor, a.dcolor")
+                    emp_el  = card.query_selector("p.dcolor, a.dcolor, span[class*='company']")
                     empresa = emp_el.inner_text().strip() if emp_el else ""
 
                     reqs = ""
+                    jld_location = ""
                     if enlace:
+                        detail = None
                         try:
                             detail = page.context.new_page()
                             detail.goto(enlace, wait_until="domcontentloaded", timeout=15000)
                             _sleep(0.8, 1.5)
 
-                            if not empresa:
-                                jld_raw = detail.evaluate("""
-                                    () => {
-                                        const s = document.querySelector('script[type="application/ld+json"]');
-                                        return s ? s.textContent : '';
-                                    }
-                                """)
-                                if jld_raw:
-                                    try:
-                                        jld = json.loads(jld_raw)
-                                        items = jld if isinstance(jld, list) else [jld]
-                                        for item in items:
-                                            if item.get("@type") == "JobPosting":
-                                                h = item.get("hiringOrganization", {})
-                                                empresa = h.get("name") if isinstance(h, dict) else ""
-                                    except Exception:
-                                        pass
-
-                            req_el = detail.query_selector(
-                                "div[div-link='oferta'], section.description, div.job-description"
-                            )
-                            if req_el:
-                                reqs = req_el.inner_text()[:3000]
-                            detail.close()
-                            _sleep(0.5, 1.0)
+                            t2, e2, r2, loc2 = _jsonld_job_from_page(detail)
+                            jld_location = loc2
+                            if r2:
+                                reqs = r2
+                                if not empresa and e2:
+                                    empresa = e2
+                            else:
+                                req_el = detail.query_selector(
+                                    "div.description_offer, div[class*='description_offer'], "
+                                    "section[class*='description'], div[id*='description']"
+                                )
+                                if req_el:
+                                    reqs = req_el.inner_text()[:3000]
                         except Exception as ex:
                             print(f"    [detail] {ex}")
+                        finally:
+                            if detail:
+                                try: detail.close()
+                                except Exception: pass
+                            _sleep(0.5, 1.0)
 
                     if len(reqs.strip()) < 50:
                         print(f"  [Skip] Sin reqs: {titulo[:45]}")
                         continue
-
                     if not _passes_text_filter(titulo, reqs, filtros):
-                        print(f"  [Filtro] Modalidad: {titulo[:45]}")
                         continue
                     if not _passes_salary_filter(reqs, min_salary):
                         print(f"  [Filtro] Salario: {titulo[:45]}")
                         continue
-                    if not _passes_geo_filter(titulo, reqs, filtros):
+                    if not _passes_geo_filter(titulo, reqs, filtros, jld_location):
                         print(f"  [Filtro] Geo: {titulo[:45]}")
                         continue
 
@@ -355,7 +611,7 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
                         count += 1
                         print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [CT]")
                 except Exception as ex:
-                    print(f"  [card] {ex}")
+                    print(f"  [CT-card] {ex}")
             _sleep(2, 4)
         except Exception as ex:
             print(f"  [computrabajo] {term} @ {url[:60]}: {ex}")
@@ -364,7 +620,7 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
 
 def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
     count = 0
-    urls = _occ_urls(term, filtros)
+    urls  = _occ_urls(term, filtros)
     if not urls:
         return 0
     min_salary = filtros.get("min_salary")
@@ -373,52 +629,87 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
         if limite is not None and counter[0] >= limite:
             break
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            _sleep(1.5, 2.5)
+            page.goto(url, wait_until="domcontentloaded", timeout=22000)
+            # OCC usa React SSR — esperar hidratación de tarjetas
+            try:
+                page.wait_for_selector(
+                    "a[data-testid='job-card-title-link'], div.card-job-offer",
+                    timeout=8000,
+                )
+            except Exception:
+                pass
+            _sleep(1.0, 2.0)
+
+            if _is_blocked(page):
+                print(f"  [OCC] Bloqueado en {url[:60]}")
+                continue
+
             _scroll(page)
 
-            links = page.query_selector_all("a[data-testid='job-card-title-link']")[:MAX_PER_TERM]
+            links = page.query_selector_all(
+                "a[data-testid='job-card-title-link'], div.card-job-offer a[href*='/vacante/']"
+            )[:MAX_PER_TERM]
+
             for link in links:
                 if limite is not None and counter[0] >= limite:
                     break
                 try:
                     titulo = link.inner_text().strip()
+                    if not titulo or len(titulo) < 4:
+                        continue
                     href   = link.get_attribute("href") or ""
                     enlace = ("https://www.occ.com.mx" + href) if href.startswith("/") else href
 
                     empresa = ""
-                    parent  = link.evaluate_handle("el => el.closest('article, div[data-testid]')")
-                    emp_el  = parent.as_element() and parent.as_element().query_selector(
-                        "[data-testid='company-name'], p.company"
-                    )
-                    if emp_el:
-                        empresa = emp_el.inner_text().strip()
+                    try:
+                        parent    = link.evaluate_handle("el => el.closest('article, div[class*=card]')")
+                        parent_el = parent.as_element()
+                        if parent_el:
+                            emp_el = parent_el.query_selector(
+                                "[data-testid='company-name'], p.company, span[class*='company']"
+                            )
+                            if emp_el:
+                                empresa = emp_el.inner_text().strip()
+                    except Exception:
+                        pass
 
                     reqs = ""
+                    jld_location = ""
                     if enlace:
+                        detail = None
                         try:
                             detail = page.context.new_page()
                             detail.goto(enlace, wait_until="domcontentloaded", timeout=15000)
                             _sleep(0.8, 1.5)
-                            req_el = detail.query_selector(
-                                "div.job-description, section[class*='description']"
-                            )
-                            if req_el:
-                                reqs = req_el.inner_text()[:3000]
-                            detail.close()
+                            _, e2, r2, loc2 = _jsonld_job_from_page(detail)
+                            jld_location = loc2
+                            if r2:
+                                reqs = r2
+                                if not empresa and e2:
+                                    empresa = e2
+                            else:
+                                req_el = detail.query_selector(
+                                    "div.job-description, section[class*='description'], "
+                                    "div[data-cy='jobDescription'], div[class*='description']"
+                                )
+                                if req_el:
+                                    reqs = req_el.inner_text()[:3000]
                         except Exception:
                             pass
+                        finally:
+                            if detail:
+                                try: detail.close()
+                                except Exception: pass
 
                     if len(reqs.strip()) < 50:
                         print(f"  [Skip] Sin reqs: {titulo[:45]}")
                         continue
                     if not _passes_text_filter(titulo, reqs, filtros):
-                        print(f"  [Filtro] Modalidad: {titulo[:45]}")
                         continue
                     if not _passes_salary_filter(reqs, min_salary):
                         print(f"  [Filtro] Salario: {titulo[:45]}")
                         continue
-                    if not _passes_geo_filter(titulo, reqs, filtros):
+                    if not _passes_geo_filter(titulo, reqs, filtros, jld_location):
                         print(f"  [Filtro] Geo: {titulo[:45]}")
                         continue
 
@@ -428,80 +719,15 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
                         count += 1
                         print(f"  + [{counter[0]}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [OCC]")
                 except Exception as ex:
-                    print(f"  [occ-card] {ex}")
+                    print(f"  [OCC-card] {ex}")
             _sleep(2, 3)
         except Exception as ex:
-            print(f"  [occ] {term} @ {url[:60]}: {ex}")
+            print(f"  [OCC] {term} @ {url[:60]}: {ex}")
     return count
 
-
-# ── Indeed RSS ────────────────────────────────────────────────────────────────
-
-_INDEED_DOMAINS = {
-    "Mexico":        "mx.indeed.com",
-    "España":        "es.indeed.com",
-    "Argentina":     "ar.indeed.com",
-    "Colombia":      "co.indeed.com",
-    "Chile":         "cl.indeed.com",
-    "Internacional": "www.indeed.com",
-}
-
-def scrape_indeed_rss(term: str, counter: list, limite: int | None, filtros: dict) -> int:
-    """Scrape Indeed via RSS — sin Playwright, rápido y estable."""
-    if limite is not None and counter[0] >= limite:
-        return 0
-
-    pais      = filtros.get("pais", "Mexico")
-    modalidad = filtros.get("modalidad", "any")
-    ubicacion = filtros.get("ubicacion", "").strip()
-    domain    = _INDEED_DOMAINS.get(pais, "mx.indeed.com")
-
-    q = urllib.parse.quote_plus(term)
-    if modalidad == "remoto":
-        q = urllib.parse.quote_plus(f"{term} remoto")
-    l_param = ""
-    if ubicacion and modalidad != "remoto":
-        l_param = f"&l={urllib.parse.quote_plus(ubicacion)}"
-
-    url   = f"https://{domain}/rss?q={q}&sort=date{l_param}"
-    count = 0
-    try:
-        raw  = _http_get(url)
-        root = _ET.fromstring(raw)
-        ns   = {"": ""}
-        items = root.findall("./channel/item")[:MAX_PER_TERM]
-        for item in items:
-            if limite is not None and counter[0] >= limite:
-                break
-            titulo  = (item.findtext("title") or "").strip()
-            enlace  = (item.findtext("link")  or "").strip()
-            empresa = (item.findtext("source") or "Desconocida").strip()
-            desc_raw = item.findtext("description") or ""
-            reqs    = _strip_html(desc_raw)[:3000]
-
-            if not titulo or len(reqs.strip()) < 50:
-                continue
-            if not _passes_text_filter(titulo, reqs, filtros):
-                continue
-            if not _passes_salary_filter(reqs, filtros.get("min_salary")):
-                continue
-            if not _passes_geo_filter(titulo, reqs, filtros):
-                continue
-
-            insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
-            if insertada:
-                counter[0] += 1; count += 1
-                print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [Indeed]")
-        _sleep(0.8, 1.5)
-    except Exception as ex:
-        print(f"  [Indeed RSS] {term}: {ex}")
-    return count
-
-
-# ── Bumeran ────────────────────────────────────────────────────────────────────
 
 def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
-    """Scrape Bumeran (MX/Latam) via Playwright."""
+    """Scrape Bumeran MX vía Playwright (JS-rendered)."""
     pais = filtros.get("pais", "Mexico")
     if pais not in ("Mexico", "Internacional"):
         return 0
@@ -521,165 +747,115 @@ def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, fil
 
     count = 0
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        page.goto(url, wait_until="domcontentloaded", timeout=22000)
+        # Esperar a que React renderice las tarjetas
+        try:
+            page.wait_for_selector("a[href*='/empleo/']", timeout=8000)
+        except Exception:
+            pass
         _sleep(1.5, 2.5)
+
+        if _is_blocked(page):
+            print(f"  [Bumeran] Bloqueado")
+            return 0
+
         _scroll(page)
 
-        # Bumeran usa <a> con href que contiene /empleo/
-        links = page.query_selector_all("a[href*='/empleo/']")[:MAX_PER_TERM]
+        links = page.query_selector_all("a[href*='/empleo/']")[:MAX_PER_TERM * 3]
         seen  = set()
+        processed = 0
         for link in links:
             if limite is not None and counter[0] >= limite:
+                break
+            if processed >= MAX_PER_TERM:
                 break
             try:
                 href   = link.get_attribute("href") or ""
                 enlace = ("https://www.bumeran.com.mx" + href) if href.startswith("/") else href
-                if enlace in seen:
+                if enlace in seen or not enlace:
                     continue
+
+                titulo = link.inner_text().strip()[:200]
+                if not titulo or len(titulo) < 6:
+                    continue
+                # Excluir links de navegación genérica
+                skip_words = ["ver más", "ver todos", "inicio", "búsqueda", "empresa", "candidatos"]
+                if any(sw in titulo.lower() for sw in skip_words):
+                    continue
+
                 seen.add(enlace)
+                processed += 1
 
-                titulo  = link.inner_text().strip()[:200]
-                if not titulo or len(titulo) < 5:
-                    continue
-
+                empresa = "Desconocida"
                 reqs = ""
+                jld_location = ""
+                detail = None
                 try:
                     detail = page.context.new_page()
                     detail.goto(enlace, wait_until="domcontentloaded", timeout=15000)
                     _sleep(0.8, 1.5)
-                    req_el = detail.query_selector(
-                        "div[class*='description'], section[class*='detail'], div[id*='description']"
-                    )
-                    if req_el:
-                        reqs = req_el.inner_text()[:3000]
-                    empresa_el = detail.query_selector("a[href*='/empresa/'], span[class*='company']")
-                    empresa = empresa_el.inner_text().strip() if empresa_el else "Desconocida"
-                    detail.close()
-                    _sleep(0.5, 1.0)
+                    _, e2, r2, loc2 = _jsonld_job_from_page(detail)
+                    jld_location = loc2
+                    if r2:
+                        reqs = r2
+                        if e2:
+                            empresa = e2
+                    else:
+                        req_el = detail.query_selector(
+                            "div[class*='description'], section[class*='detail'], div[id*='description']"
+                        )
+                        if req_el:
+                            reqs = req_el.inner_text()[:3000]
+                        emp_el = detail.query_selector("a[href*='/empresa/'], span[class*='company']")
+                        if emp_el:
+                            empresa = emp_el.inner_text().strip()
                 except Exception:
-                    empresa = "Desconocida"
+                    pass
+                finally:
+                    if detail:
+                        try: detail.close()
+                        except Exception: pass
+                    _sleep(0.5, 1.0)
 
                 if len(reqs.strip()) < 50:
                     continue
                 if not _passes_text_filter(titulo, reqs, filtros):
                     continue
                 if not _passes_salary_filter(reqs, filtros.get("min_salary")):
+                    print(f"  [Filtro] Salario: {titulo[:45]}")
                     continue
-                if not _passes_geo_filter(titulo, reqs, filtros):
+                if not _passes_geo_filter(titulo, reqs, filtros, jld_location):
+                    print(f"  [Filtro] Geo: {titulo[:45]}")
                     continue
 
                 insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
                 if insertada:
-                    counter[0] += 1; count += 1
+                    counter[0] += 1
+                    count += 1
                     print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [Bumeran]")
             except Exception as ex:
-                print(f"  [bumeran-card] {ex}")
+                print(f"  [Bumeran-card] {ex}")
         _sleep(2, 3)
     except Exception as ex:
         print(f"  [Bumeran] {term}: {ex}")
     return count
 
 
-# ── LinkedIn (Playwright — anti-bot evasion, public job search) ───────────────
+# ── Indeed RSS — DEPRECADO (404 desde 2024) ────────────────────────────────────
 
-def _linkedin_url(term: str, filtros: dict) -> str:
-    q   = urllib.parse.quote_plus(term)
-    ub  = filtros.get("ubicacion", "").strip()
-    if ub:
-        variants = _expand_ubicacion(ub)
-        loc = urllib.parse.quote_plus(variants[0] if variants else ub)
-    else:
-        pais = filtros.get("pais", "Mexico")
-        loc  = urllib.parse.quote_plus({"Mexico": "Mexico", "España": "Spain", "Argentina": "Argentina",
-                                        "Colombia": "Colombia", "Chile": "Chile"}.get(pais, "Mexico"))
-    return f"https://www.linkedin.com/jobs/search/?keywords={q}&location={loc}&f_TP=1&sortBy=DD"
-
-
-def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
-    """LinkedIn public job search — no login required for listings."""
-    if limite is not None and counter[0] >= limite:
-        return 0
-
-    url        = _linkedin_url(term, filtros)
-    min_salary = filtros.get("min_salary")
-    count      = 0
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=25000)
-        _sleep(2.5, 4.0)
-        _scroll(page, steps=3)
-
-        cards = page.query_selector_all(
-            "div.base-card, div.job-search-card, li.jobs-search-results__list-item"
-        )[:MAX_PER_TERM]
-
-        for card in cards:
-            if limite is not None and counter[0] >= limite:
-                break
-            try:
-                title_el = card.query_selector(
-                    "h3.base-search-card__title, h3.job-card-list__title"
-                )
-                if not title_el:
-                    continue
-                titulo = title_el.inner_text().strip()
-
-                company_el = card.query_selector(
-                    "h4.base-search-card__subtitle, span.job-card-container__company-name"
-                )
-                empresa = company_el.inner_text().strip() if company_el else "Desconocida"
-
-                link_el = card.query_selector("a.base-card__full-link, a[data-tracking-control-name]")
-                href    = link_el.get_attribute("href") if link_el else ""
-                enlace  = href.split("?")[0] if href else ""
-
-                reqs = ""
-                if enlace:
-                    try:
-                        detail = page.context.new_page()
-                        detail.goto(enlace, wait_until="domcontentloaded", timeout=20000)
-                        _sleep(1.5, 3.0)
-                        req_el = detail.query_selector(
-                            "div.description__text, div.show-more-less-html__markup, "
-                            "div[class*='description-content']"
-                        )
-                        if req_el:
-                            reqs = req_el.inner_text()[:3000]
-                        detail.close()
-                        _sleep(1.0, 2.0)
-                    except Exception:
-                        pass
-
-                if len(reqs.strip()) < 50:
-                    print(f"  [Skip] LinkedIn sin reqs: {titulo[:45]}")
-                    continue
-                if not _passes_text_filter(titulo, reqs, filtros):
-                    continue
-                if not _passes_salary_filter(reqs, min_salary):
-                    continue
-                if not _passes_geo_filter(titulo, reqs, filtros):
-                    continue
-
-                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
-                if insertada:
-                    counter[0] += 1; count += 1
-                    print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [LinkedIn]")
-            except Exception as ex:
-                print(f"  [linkedin-card] {ex}")
-        _sleep(3, 5)
-    except Exception as ex:
-        print(f"  [LinkedIn] {term}: {ex}")
-    return count
+def scrape_indeed_rss(term: str, counter: list, limite: int | None, filtros: dict) -> int:
+    """Indeed RSS endpoint retorna 404 desde 2024 — desactivado."""
+    print(f"  [Indeed] Omitido (RSS deprecado)")
+    return 0
 
 
 # ── Remotive (API JSON — solo remoto / tech global) ────────────────────────────
 
 def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict) -> int:
-    """Scrape Remotive API — trabajos remotos tech a nivel global."""
     if filtros.get("modalidad", "any") not in ("remoto", "any"):
         return 0
     if limite is not None and counter[0] >= limite:
         return 0
-
     count = 0
     try:
         q   = urllib.parse.quote_plus(term)
@@ -693,12 +869,10 @@ def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict)
             empresa = (job.get("company_name") or "Desconocida").strip()
             enlace  = (job.get("url") or "").strip()
             reqs    = _strip_html(job.get("description") or "")[:3000]
-
             if not titulo or len(reqs.strip()) < 50:
                 continue
             if not _passes_salary_filter(reqs, filtros.get("min_salary")):
                 continue
-
             insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
             if insertada:
                 counter[0] += 1; count += 1
@@ -712,10 +886,8 @@ def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict)
 # ── GetOnBrd (API JSON — tech Latam) ──────────────────────────────────────────
 
 def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict) -> int:
-    """Scrape GetOnBrd API — tech Latam (remoto + presencial)."""
     if limite is not None and counter[0] >= limite:
         return 0
-
     count = 0
     try:
         q   = urllib.parse.quote_plus(term)
@@ -732,7 +904,6 @@ def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict)
                 enlace  = (attr.get("application_link") or
                            f"https://www.getonbrd.com/jobs/{job.get('id','')}").strip()
                 reqs    = _strip_html(attr.get("description") or "")[:3000]
-
                 if not titulo or len(reqs.strip()) < 50:
                     continue
                 if not _passes_text_filter(titulo, reqs, filtros):
@@ -741,36 +912,145 @@ def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict)
                     continue
                 if not _passes_geo_filter(titulo, reqs, filtros):
                     continue
-
                 insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
                 if insertada:
                     counter[0] += 1; count += 1
                     print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [GetOnBrd]")
             except Exception as ex:
-                print(f"  [getonbrd-item] {ex}")
+                print(f"  [GetOnBrd-item] {ex}")
         _sleep(1.0, 2.0)
     except Exception as ex:
         print(f"  [GetOnBrd] {term}: {ex}")
     return count
 
 
+# ── LinkedIn (Playwright — bloqueo frecuente en headless) ─────────────────────
+
+def _linkedin_url(term: str, filtros: dict) -> str:
+    q   = urllib.parse.quote_plus(term)
+    ub  = filtros.get("ubicacion", "").strip()
+    if ub:
+        loc = urllib.parse.quote_plus(_expand_ubicacion(ub)[0] if _expand_ubicacion(ub) else ub)
+    else:
+        loc = urllib.parse.quote_plus({"Mexico": "Mexico", "España": "Spain",
+                                       "Argentina": "Argentina", "Colombia": "Colombia",
+                                       "Chile": "Chile"}.get(filtros.get("pais","Mexico"), "Mexico"))
+    return f"https://www.linkedin.com/jobs/search/?keywords={q}&location={loc}&f_TP=1&sortBy=DD"
+
+
+def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
+    if limite is not None and counter[0] >= limite:
+        return 0
+
+    url        = _linkedin_url(term, filtros)
+    min_salary = filtros.get("min_salary")
+    count      = 0
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        _sleep(2.5, 4.0)
+
+        if _is_blocked(page):
+            print(f"  [LinkedIn] Bloqueado / requiere login — saltando")
+            return 0
+
+        _scroll(page, steps=3)
+
+        cards = page.query_selector_all(
+            "div.base-card, div.job-search-card, li.jobs-search-results__list-item"
+        )[:MAX_PER_TERM]
+
+        for card in cards:
+            if limite is not None and counter[0] >= limite:
+                break
+            try:
+                title_el = card.query_selector(
+                    "h3.base-search-card__title, h3.job-card-list__title, "
+                    "span[class*='title'], a[class*='title']"
+                )
+                if not title_el:
+                    continue
+                titulo = title_el.inner_text().strip()
+
+                company_el = card.query_selector(
+                    "h4.base-search-card__subtitle, span.job-card-container__company-name, "
+                    "a[class*='company']"
+                )
+                empresa = company_el.inner_text().strip() if company_el else "Desconocida"
+
+                link_el = card.query_selector("a.base-card__full-link, a[data-tracking-control-name]")
+                href    = link_el.get_attribute("href") if link_el else ""
+                enlace  = href.split("?")[0] if href else ""
+
+                reqs = ""
+                jld_location = ""
+                if enlace:
+                    detail = None
+                    try:
+                        detail = page.context.new_page()
+                        detail.goto(enlace, wait_until="domcontentloaded", timeout=20000)
+                        _sleep(1.5, 3.0)
+                        if _is_blocked(detail):
+                            detail.close()
+                            continue
+                        # LinkedIn expone JSON-LD en algunas páginas de job
+                        _, _, r_jld, loc_jld = _jsonld_job_from_page(detail)
+                        jld_location = loc_jld
+                        if r_jld:
+                            reqs = r_jld
+                        else:
+                            req_el = detail.query_selector(
+                                "div.description__text, div.show-more-less-html__markup, "
+                                "div[class*='description-content'], section.description"
+                            )
+                            if req_el:
+                                reqs = req_el.inner_text()[:3000]
+                    except Exception:
+                        pass
+                    finally:
+                        if detail:
+                            try: detail.close()
+                            except Exception: pass
+                        _sleep(1.0, 2.0)
+
+                if len(reqs.strip()) < 50:
+                    continue
+                if not _passes_text_filter(titulo, reqs, filtros):
+                    continue
+                if not _passes_salary_filter(reqs, min_salary):
+                    continue
+                if not _passes_geo_filter(titulo, reqs, filtros, jld_location):
+                    print(f"  [Filtro] Geo: {titulo[:45]}")
+                    continue
+
+                insertada, compat = _post_vacante(titulo, empresa, enlace, reqs)
+                if insertada:
+                    counter[0] += 1; count += 1
+                    print(f"  + [{counter[0]}] {titulo[:50]} | {empresa[:22]} | {compat}  [LinkedIn]")
+            except Exception as ex:
+                print(f"  [LinkedIn-card] {ex}")
+        _sleep(3, 5)
+    except Exception as ex:
+        print(f"  [LinkedIn] {term}: {ex}")
+    return count
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Browser Agent — scraping de vacantes vía API")
-    parser.add_argument('--limit',   type=int,  default=None,   help="Máximo de vacantes a insertar (global)")
-    parser.add_argument('--terms',   nargs='*', dest='named_terms', help="Términos de búsqueda")
-    parser.add_argument('--filtros', type=str,  default='{}',   help='JSON de filtros: {"ubicacion":"...","modalidad":"...","pais":"..."}')
-    parser.add_argument('positional_terms', nargs='*', help="Términos posicionales (legado)")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--limit',   type=int,  default=None)
+    parser.add_argument('--terms',   nargs='*', dest='named_terms')
+    parser.add_argument('--filtros', type=str,  default='{}')
+    parser.add_argument('positional_terms', nargs='*')
     args = parser.parse_args()
 
     limite = args.limit
-    terms  = args.named_terms or args.positional_terms or SEARCH_TERMS
+    terms  = args.named_terms or args.positional_terms or generar_terminos_busqueda()
 
     try:
         filtros = {**_FILTROS_DEFAULT, **json.loads(args.filtros)}
     except json.JSONDecodeError:
-        print(f"[WARN] --filtros JSON inválido, usando defaults: {args.filtros}")
+        print(f"[WARN] --filtros JSON inválido, usando defaults")
         filtros = dict(_FILTROS_DEFAULT)
 
     print(f"[config] API: {API_BASE}")
@@ -778,13 +1058,13 @@ def main():
     print(f"[config] Filtros: ubicacion={filtros['ubicacion']!r}  modalidad={filtros['modalidad']}  pais={filtros['pais']}")
     if limite:
         print(f"[config] Límite: {limite}")
+    if filtros.get("min_salary"):
+        print(f"[config] Salario mínimo: ${filtros['min_salary']:,} MXN")
 
     counter   = [0]
     platforms = set(filtros.get("platforms") or _ALL_PLATFORMS)
-    browser   = None
     print(f"[config] Plataformas: {', '.join(sorted(platforms))}")
-    if filtros.get("min_salary"):
-        print(f"[config] Salario mínimo: ${filtros['min_salary']:,} MXN")
+    browser = None
 
     try:
         with sync_playwright() as p:
@@ -793,24 +1073,33 @@ def main():
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
-                    "--disable-web-security",
+                    "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
+                    "--disable-web-security",
                     "--disable-gpu",
+                    "--no-first-run",
+                    "--disable-notifications",
+                    "--disable-features=VizDisplayCompositor",
                     "--single-process",
-                ]
+                ],
             )
+            ua = random.choice(_USER_AGENTS)
             context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 900},
+                user_agent=ua,
+                viewport={"width": random.choice([1280, 1366, 1440]), "height": 900},
                 locale="es-MX",
+                timezone_id="America/Mexico_City",
+                extra_http_headers={
+                    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
+                },
             )
-            context.add_init_script(
-                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
-            )
+            # Stealth: ocultar indicadores de automatización
+            context.add_init_script("""
+                Object.defineProperty(navigator,'webdriver',{get:()=>undefined});
+                Object.defineProperty(navigator,'plugins',{get:()=>[1,2,3,4,5]});
+                Object.defineProperty(navigator,'languages',{get:()=>['es-MX','es','en']});
+                window.chrome = {runtime:{},loadTimes:()=>{},csi:()=>{}};
+            """)
             page = context.new_page()
 
             for term in terms:
@@ -826,11 +1115,6 @@ def main():
                 if "occ" in platforms:
                     print(f"\n[OCC] '{term}'")
                     scrape_occ(page, term, counter, limite, filtros)
-                    if limite is not None and counter[0] >= limite: break
-
-                if "indeed" in platforms:
-                    print(f"\n[Indeed] '{term}'")
-                    scrape_indeed_rss(term, counter, limite, filtros)
                     if limite is not None and counter[0] >= limite: break
 
                 if "bumeran" in platforms:
@@ -858,13 +1142,11 @@ def main():
             browser.close()
             browser = None
     except Exception as e:
-        print(f"\n[ERROR] {e}")
+        print(f"\n[ERROR FATAL] {e}")
     finally:
         if browser:
-            try:
-                browser.close()
-            except Exception:
-                pass
+            try: browser.close()
+            except Exception: pass
 
     print(f"\n{'='*50}")
     print(f"Total enviadas a la API: {counter[0]} vacantes nuevas")

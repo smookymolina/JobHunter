@@ -1,16 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useSession } from 'next-auth/react'
 import {
-  AlertCircle, Bot, Clipboard, ClipboardCheck, Clock, ExternalLink,
-  Loader2, MessageCircle, Plus, Radio, RefreshCw, Send, Sparkles,
-  Star, WifiOff, X,
+  AlertCircle, Bot, Clock, ExternalLink, Loader2,
+  MessageCircle, Plus, Radio, RefreshCw, Send, Sparkles, Star, WifiOff, X,
 } from 'lucide-react'
 import Loader from '@/components/ui/Loader'
 import { api, type Status, type SyncHealthReport, type Vacante } from '@/lib/api'
 import AddVacanteModal from '@/components/AddVacanteModal'
+import JobDetailsModal from '@/components/JobDetailsModal'
 import KanbanBoard from '@/components/KanbanBoard'
 import StatusBadge, { compatBadge } from '@/components/StatusBadge'
 
@@ -65,251 +64,6 @@ const STAT_COLS: {
   },
 ]
 
-const _MAESTRO = String.raw`C:\Users\GIRTEC\Desktop\Trabajo\job_hunter\data\perfil_maestro.json`
-function buildMcpPrompt(id: number) {
-  return (
-    `1. Usa 'get_vacancy_by_id' (${id}). ` +
-    `2. Lee '${_MAESTRO}' para extraer mis datos personales exactos (NOMBRE, APELLIDOS, CONTACTO). ` +
-    `3. Genera CV LaTeX profesional usando esos datos. ` +
-    `4. Usa 'save_latex_cv' (${id}, tex_content: <CÓDIGO>).`
-  )
-}
-
-function parseJobMeta(text: string): { sueldo?: string; modalidad?: string; ubicacion?: string } {
-  const meta: { sueldo?: string; modalidad?: string; ubicacion?: string } = {}
-  const sueldoMatch = text.match(/(?:sueldo|salario|compensaci[oó]n)[:\s]+([^\n]{3,70})/i)
-  if (sueldoMatch) meta.sueldo = sueldoMatch[1].trim()
-  const modalMatch = text.match(/(?:modalidad|esquema de trabajo|tipo de trabajo|trabajo)[:\s]+((?:remoto|presencial|h[íi]brido|home office)[^\n]{0,40})/i)
-  if (modalMatch) meta.modalidad = modalMatch[1].trim()
-  const ubiMatch = text.match(/(?:ubicaci[oó]n|lugar de trabajo|ciudad|estado)[:\s]+([^\n]{3,60})/i)
-  if (ubiMatch) meta.ubicacion = ubiMatch[1].trim()
-  return meta
-}
-
-function JobDetailsModal({ vacante, onClose }: { vacante: Vacante; onClose: () => void }) {
-  const [copied, setCopied] = useState(false)
-  const [latexOpen, setLatexOpen] = useState(false)
-  const [latexContent, setLatexContent] = useState<string | null>(null)
-  const [latexLoading, setLatexLoading] = useState(false)
-  const [latexCopied, setLatexCopied] = useState(false)
-  const prompt = buildMcpPrompt(vacante.id)
-
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
-
-  const handleToggleLatex = async () => {
-    if (!latexOpen && latexContent === null) {
-      setLatexLoading(true)
-      try {
-        const tex = await api.getLatex(vacante.id)
-        setLatexContent(tex)
-      } catch {
-        setLatexContent('(No hay contenido LaTeX generado aún para esta vacante.)')
-      } finally {
-        setLatexLoading(false)
-      }
-    }
-    setLatexOpen(prev => !prev)
-  }
-
-  const handleCopyLatex = async () => {
-    if (!latexContent) return
-    try {
-      await navigator.clipboard.writeText(latexContent)
-      setLatexCopied(true)
-      setTimeout(() => setLatexCopied(false), 2500)
-    } catch { /* silent */ }
-  }
-
-  if (typeof document === 'undefined') return null
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(prompt)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2500)
-    } catch { /* silent */ }
-  }
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-gray-200/50 bg-white shadow-2xl dark:border-slate-700/60 dark:bg-slate-900"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
-
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-          <div className="min-w-0 flex-1 pr-4">
-            <h2 className="text-[17px] font-semibold leading-snug text-slate-900 dark:text-slate-100">
-              {vacante.titulo}
-            </h2>
-            <p className="mt-1 text-[13px] font-medium text-slate-500 dark:text-slate-400">{vacante.empresa}</p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <StatusBadge status={vacante.status} />
-              <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${compatBadge(vacante.compatibilidad)}`}>
-                {vacante.compatibilidad}
-              </span>
-              {vacante.fecha_registro && (
-                <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  {vacante.fecha_registro.slice(0, 10)}
-                </span>
-              )}
-              {vacante.fecha_postulacion && (
-                <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                  Postulada {vacante.fecha_postulacion.slice(0, 10)}
-                </span>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin]">
-          {(() => {
-            const meta = parseJobMeta(vacante.requerimientos ?? '')
-            if (!meta.sueldo && !meta.modalidad && !meta.ubicacion) return null
-            return (
-              <div className="flex flex-wrap gap-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-800/40">
-                {meta.sueldo && (
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Sueldo</p>
-                    <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">{meta.sueldo}</p>
-                  </div>
-                )}
-                {meta.modalidad && (
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Modalidad</p>
-                    <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">{meta.modalidad}</p>
-                  </div>
-                )}
-                {meta.ubicacion && (
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ubicación</p>
-                    <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">{meta.ubicacion}</p>
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-
-          <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Descripción / Requerimientos
-            </p>
-            <div className="whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50 p-4 text-[13px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
-              {(vacante.requerimientos ?? '').trim() || 'Sin descripción capturada.'}
-            </div>
-          </div>
-
-          <div>
-            <button
-              onClick={handleToggleLatex}
-              className="mb-2 flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-500 dark:hover:bg-slate-800/50"
-            >
-              <span>Contenido LaTeX Generado</span>
-              <span className="text-[10px] normal-case tracking-normal">
-                {latexOpen ? '▲ ocultar' : '▼ expandir'}
-              </span>
-            </button>
-            {latexOpen && (
-              <div className="relative">
-                {latexLoading ? (
-                  <div className="flex items-center justify-center rounded-xl border border-slate-100 bg-slate-50 py-6 dark:border-slate-700 dark:bg-slate-800/50">
-                    <Loader2 size={16} className="animate-spin text-slate-400" />
-                  </div>
-                ) : (
-                  <>
-                    <textarea
-                      readOnly
-                      value={latexContent ?? ''}
-                      rows={12}
-                      className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 p-4 pr-10 font-mono text-[11px] leading-relaxed text-slate-600 focus:outline-none dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400"
-                    />
-                    <button
-                      onClick={handleCopyLatex}
-                      title={latexCopied ? 'Copiado' : 'Copiar LaTeX'}
-                      className="absolute right-2 top-2 rounded-lg border border-slate-200 p-1.5 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-                    >
-                      {latexCopied
-                        ? <ClipboardCheck size={13} className="text-emerald-500" />
-                        : <Clipboard size={13} className="text-slate-400" />}
-                    </button>
-                    {latexCopied && <p className="mt-1 text-[11px] text-emerald-500">¡LaTeX copiado!</p>}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Prompt MCP — CV Generator
-            </p>
-            <div className="relative rounded-xl border border-slate-200 bg-slate-50 p-4 pr-10 font-mono text-[11px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-400">
-              {prompt}
-              <button
-                onClick={handleCopy}
-                title={copied ? 'Copiado' : 'Copiar prompt'}
-                className="absolute right-2 top-2 rounded-lg border border-slate-200 p-1.5 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-              >
-                {copied
-                  ? <ClipboardCheck size={13} className="text-emerald-500" />
-                  : <Clipboard size={13} className="text-slate-400" />}
-              </button>
-            </div>
-            {copied && <p className="mt-1 text-[11px] text-emerald-500">¡Copiado al portapapeles!</p>}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="sticky bottom-0 flex items-center gap-2 border-t border-slate-100 bg-white/90 px-5 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
-          {vacante.enlace && (
-            <a
-              href={vacante.enlace}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-[12px] text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
-            >
-              <ExternalLink size={12} /> Ver original
-            </a>
-          )}
-          <button
-            onClick={handleCopy}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[12px] font-semibold transition-colors ${
-              copied
-                ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/30 dark:bg-emerald-950/30 dark:text-emerald-300'
-                : 'bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100'
-            }`}
-          >
-            {copied ? <ClipboardCheck size={12} /> : <Clipboard size={12} />}
-            {copied ? 'Copiado' : 'Copiar Prompt CV'}
-          </button>
-          <button
-            onClick={onClose}
-            className="ml-auto text-[12px] text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
-          >
-            Cerrar
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
 
 export default function DashboardPage() {
   const { status } = useSession()
@@ -658,6 +412,7 @@ export default function DashboardPage() {
         <JobDetailsModal
           vacante={selectedJob}
           onClose={() => setSelectedJob(null)}
+          onRefresh={() => { void fetchVacantes(true) }}
         />
       )}
     </div>

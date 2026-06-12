@@ -315,4 +315,9 @@ export const api = {
 
   metricas: () =>
     req<MetricasData>('/metricas'),
+
+  generateCv: (id: number) =>
+    req<{ ok: boolean; tex_path?: string; pdf_path?: string; error?: string }>(`/generar_cv/${id}`, {
+      method: 'POST',
+    }),
 }

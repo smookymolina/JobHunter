@@ -22,19 +22,7 @@ import {
 } from 'lucide-react'
 import { api, type Vacante, type Status } from '@/lib/api'
 import StatusBadge, { compatBadge } from './StatusBadge'
-
-const PROFILE_DIR = String.raw`C:\Users\GIRTEC\Desktop\Trabajo\Trabajo`
-
-const MAESTRO_PATH = String.raw`C:\Users\GIRTEC\Desktop\Trabajo\job_hunter\data\perfil_maestro.json`
-
-function buildMcpPrompt(id: number): string {
-  return (
-    `1. Usa 'get_vacancy_by_id' (${id}). ` +
-    `2. Lee '${MAESTRO_PATH}' para extraer mis datos personales exactos (NOMBRE, APELLIDOS, CONTACTO). ` +
-    `3. Genera CV LaTeX profesional usando esos datos. ` +
-    `4. Usa 'save_latex_cv' (${id}, tex_content: <CÓDIGO>).`
-  )
-}
+import JobDetailsModal from './JobDetailsModal'
 
 // ── Modales ───────────────────────────────────────────────────────────────────
 
@@ -220,121 +208,6 @@ function LatexModal({
   )
 }
 
-function VacanteDetailModal({
-  vacante,
-  onClose,
-  onCopyPrompt,
-  onViewPdf,
-}: {
-  vacante: Vacante
-  onClose: () => void
-  onCopyPrompt: () => void
-  onViewPdf: () => void
-}) {
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
-
-  if (typeof document === 'undefined') return null
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
-
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-          <div className="min-w-0 flex-1 pr-4">
-            <h2 className="text-[17px] font-semibold leading-snug text-slate-900 dark:text-slate-100">
-              {vacante.titulo}
-            </h2>
-            <p className="mt-1 text-[13px] font-medium text-slate-500 dark:text-slate-400">{vacante.empresa}</p>
-            {/* Metadata badges */}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <StatusBadge status={vacante.status} />
-              <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${compatBadge(vacante.compatibilidad)}`}>
-                {vacante.compatibilidad}
-              </span>
-              {vacante.fecha_registro && (
-                <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  📅 {vacante.fecha_registro.slice(0, 10)}
-                </span>
-              )}
-              {vacante.fecha_postulacion && (
-                <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                  📤 Postulada {vacante.fecha_postulacion.slice(0, 10)}
-                </span>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-            Descripción / Requerimientos
-          </p>
-          <div className="whitespace-pre-wrap rounded-xl border border-slate-100 bg-slate-50 p-6 text-sm leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300 [scrollbar-width:thin]">
-            {(vacante.requerimientos ?? '').trim() || 'Sin descripción capturada.'}
-          </div>
-        </div>
-
-        {/* Footer actions */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800">
-          {/* Secondary: URL */}
-          {vacante.enlace && (
-            <a
-              href={vacante.enlace}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-[12px] text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
-            >
-              <ExternalLink size={12} /> URL Original
-            </a>
-          )}
-          {/* Secondary: Ver PDF */}
-          {['Revisado_IA', 'Listo_Manual', 'Entrevista'].includes(vacante.status) && (
-            <button
-              onClick={() => { onClose(); onViewPdf() }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700/30 dark:bg-amber-950/30 dark:text-amber-300"
-            >
-              <FileText size={12} /> Ver PDF
-            </button>
-          )}
-          {/* Primary CTA */}
-          <button
-            onClick={() => { onClose(); onCopyPrompt() }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-emerald-700"
-          >
-            <Clipboard size={12} /> Copiar Prompt CV
-          </button>
-          {/* Ghost close */}
-          <button
-            onClick={onClose}
-            className="ml-auto text-[12px] text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-300"
-          >
-            Minimizar
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
 
 function UndoToast({
   newLabel,
@@ -410,7 +283,15 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
 
   const handleCopiarPrompt = async () => {
     try {
-      await navigator.clipboard.writeText(buildMcpPrompt(vacante.id))
+      let path = '[ruta del perfil maestro]'
+      try { path = (await api.perfil()).ruta } catch { /* use placeholder */ }
+      const prompt = (
+        `1. Usa 'get_vacancy_by_id' (${vacante.id}). ` +
+        `2. Lee '${path}' para extraer mis datos personales exactos (NOMBRE, APELLIDOS, CONTACTO). ` +
+        `3. Genera CV LaTeX profesional. ` +
+        `4. Usa 'save_latex_cv' (${vacante.id}, tex_content: <CÓDIGO>).`
+      )
+      await navigator.clipboard.writeText(prompt)
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     } catch {
@@ -670,11 +551,10 @@ export default function VacanteCard({ vacante, onStatusChange }: Props) {
         />
       )}
       {detailOpen && (
-        <VacanteDetailModal
+        <JobDetailsModal
           vacante={vacante}
           onClose={() => setDetailOpen(false)}
-          onCopyPrompt={handleCopiarPrompt}
-          onViewPdf={() => { setDetailOpen(false); setPdfOpen(true) }}
+          onRefresh={onStatusChange}
         />
       )}
       {toast && (

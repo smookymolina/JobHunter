@@ -1,6 +1,6 @@
 # Arquitectura y Base de Datos
 
-> Última actualización: 2026-06-09 (rev 14 — Dual-view dashboard, geo filter scraper, system prompt dinámico, sort por compatibilidad)
+> Última actualización: 2026-06-11 (rev 15 — lazy search terms, compact compat profile cache)
 
 ## Stack
 
@@ -110,8 +110,15 @@ Vista dual controlada por `activeFilter: Status | null`:
 
 ## Scraper (`browser_agent.py`)
 
+- **Términos lazy**: `generar_terminos_busqueda()` ya NO se llama a nivel de módulo. Se evalúa dentro de `main()` solo si no se reciben `--terms` por CLI. Cuando la API lanza el subprocess, siempre pasa los términos calculados, evitando la conexión a BD en el arranque del subprocess.
 - **`_passes_geo_filter(titulo, reqs, filtros)`** — post-validación geográfica antes de `_post_vacante`. Usa `unicodedata.normalize('NFD')` para comparación sin acentos. Pasa automáticamente si `ubicacion` está vacío o `modalidad == 'remoto'`. Activo en: Computrabajo, OCC, Indeed, Bumeran, LinkedIn. Remotive exento (plataforma 100% remota).
 - Filtros en cadena por vacante: texto/modalidad → salario → **geo** → insertar.
+
+## Motor de compatibilidad (`evaluar_compatibilidad_rapida`)
+
+- Usa perfil compacto: título profesional + primeros 30 skills (~150 chars) en lugar del perfil completo (~1000 chars).
+- Perfil cacheado como variable de módulo (`_COMPAT_PROFILE_CACHE`) → 0 lecturas de disco tras la primera llamada en el proceso de la API.
+- Requerimientos truncados a 1200 chars (antes 2000). Ahorro aprox. 290 tokens por evaluación.
 
 ## Endpoints — `src/api.py` (puerto 8000)
 

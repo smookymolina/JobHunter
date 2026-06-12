@@ -221,6 +221,27 @@ async def list_tools() -> list[Tool]:
                 "required": ["vacante_id", "tex_content"],
             },
         ),
+        Tool(
+            name="save_latex_cl",
+            description=(
+                "[REQUIERE api.py corriendo en 127.0.0.1:8000] "
+                "Guarda el código LaTeX de una Carta de Presentación (Cover Letter), "
+                "lo compila con pdflatex. "
+                "SOLO código LaTeX puro (sin bloques markdown). "
+                "La carta debe estar personalizada para la vacante y la empresa."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "vacante_id": {"type": "integer", "description": "ID de la vacante"},
+                    "tex_content": {
+                        "type": "string",
+                        "description": "Código LaTeX completo (debe empezar con \\documentclass)"
+                    },
+                },
+                "required": ["vacante_id", "tex_content"],
+            },
+        ),
     ]
 
 @server.call_tool()
@@ -236,6 +257,8 @@ async def call_tool(name: str, arguments: dict):
         return await _reset_vacancy(int(arguments["vacante_id"]))
     if name == "save_latex_cv":
         return await _save_latex_cv(int(arguments["vacante_id"]), str(arguments["tex_content"]))
+    if name == "save_latex_cl":
+        return await _save_latex_cl(int(arguments["vacante_id"]), str(arguments["tex_content"]))
     return [TextContent(type="text", text=f"Tool desconocida: {name}")]
 
 # ── Implementaciones ──────────────────────────────────────────────────────────
@@ -397,6 +420,51 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
                 f"  Revisa la sintaxis LaTeX e intenta de nuevo."
             )
         )]
+
+
+async def _save_latex_cl(vacante_id: int, tex_content: str):
+    """Guarda y compila la Carta de Presentación."""
+    if not _api_health():
+        return [TextContent(type="text", text=_STOP_API_DOWN)]
+
+    try:
+        vacante = _http_get(f"/vacantes/{vacante_id}")
+        titulo = vacante.get("titulo", f"#{vacante_id}")
+    except RuntimeError as e:
+        return [TextContent(type="text", text=f"ERROR verificando vacante: {e}")]
+
+    # Inyección de encabezado
+    _lang = _detect_lang(titulo + " " + tex_content)
+    tex_content = _inject_fixed_header(tex_content, _build_header(_lang))
+
+    out_dir = get_user_outputs_dir("default_user")
+    tex_path = os.path.join(out_dir, f"cl_vacante_{vacante_id}.tex")
+    try:
+        with open(tex_path, "w", encoding="utf-8") as f:
+            f.write(tex_content)
+    except OSError as e:
+        return [TextContent(type="text", text=f"ERROR escribiendo .tex: {e}")]
+
+    # Compilar PDF
+    pdf_path = None
+    try:
+        pdf_path = compilar_pdf(tex_path)
+    except Exception as e:
+        error_detail = str(e)
+        return [TextContent(type="text", text=f"⚠ .tex guardado pero PDF no compiló: {error_detail}")]
+
+    if pdf_path and os.path.exists(pdf_path):
+        return [TextContent(
+            type="text",
+            text=(
+                f"✓ Carta de Presentación guardada y compilada.\n"
+                f"  Vacante : #{vacante_id} — {titulo}\n"
+                f"  .tex    : {tex_path}\n"
+                f"  PDF     : {pdf_path}"
+            )
+        )]
+    return [TextContent(type="text", text="ERROR: pdflatex no generó el archivo.")]
+
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 

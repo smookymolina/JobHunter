@@ -39,5 +39,14 @@ Para vacantes en estado `Revisado_IA`, el frontend ofrece:
 - **Ver PDF**: Previsualización instantánea en un modal.
 - **Editar LaTeX**: Editor de código en vivo. Al guardar, el servidor recompila el PDF en milisegundos para reflejar los cambios manuales.
 
+## 5. Búsqueda Autónoma (`browser_agent.py`)
+
+Los términos de búsqueda se derivan **de forma lazy** del perfil:
+- La API llama `generar_terminos_busqueda()` antes de lanzar el subprocess y pasa los términos vía `--terms`.
+- El subprocess NO ejecuta `generar_terminos_busqueda()` al importar el módulo (evita conexión DB redundante al arranque).
+- Solo conecta a la BD para `_get_winning_skills` cuando se lanza **sin** `--terms` (ejecución manual).
+
+Orden de evaluación por vacante: texto/modalidad → salario → geo → `POST /vacantes` → compatibilidad Groq.
+
 ---
-*Documento actualizado: 2026-06-08 (Versión multi-usuario)*
+*Documento actualizado: 2026-06-11 (rev 15 — lazy search terms, compact compat profile)*

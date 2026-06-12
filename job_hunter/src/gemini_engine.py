@@ -36,6 +36,7 @@ CONTEXT_DIR = (_PROFILE_CANDIDATE if _PROFILE_CANDIDATE and os.path.isdir(_PROFI
 
 TEMPLATE_CUSTOM  = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
 TEMPLATE_DEFAULT = os.path.join(TEMPLATES_DIR, 'default_template.tex')
+TEMPLATE_CL      = os.path.join(TEMPLATES_DIR, 'carta_presentacion.tex')
 
 DEFAULT_TEMPLATE_CONTENT = """% ============================================================
 %  JOB HUNTER - Plantilla Base de CV
@@ -180,6 +181,14 @@ def _select_template():
         return _read(TEMPLATE_CUSTOM)
     _log.debug("[template] usando default_template.tex")
     return _read(TEMPLATE_DEFAULT)
+
+
+def _select_cl_template():
+    _ensure_runtime_paths()
+    if os.path.exists(TEMPLATE_CL):
+        _log.debug("[template] usando carta_presentacion.tex")
+        return _read(TEMPLATE_CL)
+    return ""  # Fallback si no existe
 
 
 def _extract_latex(text):
@@ -407,11 +416,31 @@ def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:
 
 # ── Compatibilidad rápida ──────────────────────────────────────────────────────
 
+_COMPAT_PROFILE_CACHE: str | None = None
+
+
+def _get_profile_for_compat(user_id: str = 'default_user') -> str:
+    """Compact profile (title + skills) for fast compatibility evaluation — cached per process."""
+    global _COMPAT_PROFILE_CACHE
+    if _COMPAT_PROFILE_CACHE is not None:
+        return _COMPAT_PROFILE_CACHE
+    p = _load_profile_json(user_id)
+    if not p:
+        return ""
+    habs = p.get('habilidades', {})
+    skills = [s for v in habs.values() for s in v][:30]
+    _COMPAT_PROFILE_CACHE = (
+        f"Título: {p.get('titulo_profesional', '')}\n"
+        f"Skills: {', '.join(skills)}"
+    )
+    return _COMPAT_PROFILE_CACHE
+
+
 def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
     if not GROQ_API_KEY or not requerimientos.strip():
         return "Nula"
-    perfil = _get_user_profile('default_user')
-    if not perfil.strip():
+    perfil = _get_profile_for_compat()
+    if not perfil:
         return "Nula"
     try:
         client = _groq_client()
@@ -419,7 +448,7 @@ def evaluar_compatibilidad_rapida(requerimientos: str) -> str:
             model=GROQ_MODEL,
             messages=[
                 {"role": "system", "content": "Responde ÚNICAMENTE con una de estas palabras: Alta, Media, Baja, Nula."},
-                {"role": "user",   "content": f"Vacante:\n{requerimientos[:2000]}\n\nCandidato:\n{perfil[:1000]}\n\n¿Compatibilidad?"},
+                {"role": "user",   "content": f"Vacante:\n{requerimientos[:1200]}\n\nCandidato:\n{perfil}\n\n¿Compatibilidad?"},
             ],
             temperature=0.1,
             max_tokens=10,
@@ -620,6 +649,89 @@ REGLAS DE FORMATO:
     return tex_path
 
 
+def generar_latex_cl(vacante_id: int, user_id: str = 'default_user') -> str | None:
+    row = _get_vacante(vacante_id, user_id)
+    if not row:
+        _log.error("Vacante #%s no encontrada para user %s.", vacante_id, user_id)
+        return None
+    vid, titulo, empresa, enlace, requerimientos = row
+
+    prof          = _get_user_profile_structured(user_id)
+    perfil_full   = _get_user_profile(user_id)
+    template_code = _select_cl_template()
+
+    system_msg = (
+        "Eres un experto redactor de cartas de presentación (Cover Letters) de alto impacto. "
+        "Devuelves ÚNICAMENTE código LaTeX compilable. Sin markdown, sin explicaciones.\n\n"
+
+        "=== REGLA CRÍTICA DE INICIO ===\n"
+        "TIENES ESTRICTAMENTE PROHIBIDO generar el encabezado personal (nombre, contacto). "
+        "Empieza directamente con la fecha o el destinatario. "
+        "EL ENCABEZADO SERÁ INYECTADO POR EL SISTEMA.\n\n"
+
+        "=== ESTRUCTURA DE LA CARTA ===\n"
+        "1. GANCHO: Menciona el puesto específico y por qué te entusiasma.\n"
+        "2. POR QUÉ YO: Conecta tus logros específicos (especialmente IoT, Full-Stack, Mecánica) con los dolores de la empresa.\n"
+        "3. POR QUÉ USTEDES: Demuestra conocimiento de la empresa/industria.\n"
+        "4. CALL TO ACTION: Pide una entrevista de forma profesional.\n\n"
+
+        "=== TONO ===\n"
+        "Profesional, seguro de sí mismo pero humilde, y extremadamente personalizado. "
+        "USA VOCABULARIO ESPEJO de la vacante.\n\n"
+
+        "=== PROTECCIÓN LATEX ===\n"
+        "- Usa la plantilla proporcionada.\n"
+        "- Escapa caracteres especiales (\\%, \\&).\n"
+        "- NO uses paquetes externos no definidos en la plantilla."
+    )
+
+    user_msg = f"""Genera una Carta de Presentación en LaTeX para esta vacante.
+
+VACANTE:
+- Título: {titulo}
+- Empresa: {empresa}
+- Requerimientos: {requerimientos or 'No especificados'}
+
+PERFIL COMPLETO:
+{perfil_full}
+
+PLANTILLA:
+{template_code}
+
+REGLAS:
+1. Reemplaza los marcadores {{{{FECHA}}}}, {{{{EMPRESA}}}}, {{{{UBICACION_EMPRESA}}}}, {{{{SALUDO}}}}, {{{{CUERPO_CARTA}}}} con contenido real.
+2. La fecha debe ser la de hoy (11 de junio de 2026).
+3. Idioma: Detecta el idioma de la vacante y escribe la carta en ese mismo idioma (Inglés o Español).
+"""
+
+    try:
+        client = _groq_client()
+        resp = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user",   "content": user_msg},
+            ],
+            temperature=0.5,
+            max_tokens=2048,
+        )
+        latex_raw = resp.choices[0].message.content or ""
+    except Exception as e:
+        _log.error("[CL IA ERROR] %s", e)
+        return None
+
+    lang = _detect_lang(titulo + " " + latex_raw)
+    fixed_header = _build_header(lang)
+    latex_clean = _inject_fixed_header(_extract_latex(latex_raw), fixed_header)
+
+    out_dir  = get_user_outputs_dir(user_id)
+    tex_path = os.path.join(out_dir, f"cl_vacante_{vid}.tex")
+    with open(tex_path, 'w', encoding='utf-8') as f:
+        f.write(latex_clean)
+    _log.info("[cl tex] Guardado: %s", tex_path)
+    return tex_path
+
+
 def compilar_pdf(tex_path: str) -> str | None:
     if not os.path.exists(tex_path):
         _log.error("[pdflatex ERROR] No encontrado: %s", tex_path)
@@ -682,6 +794,20 @@ def generar_y_compilar(vacante_id: int, user_id: str = 'default_user') -> tuple[
         _set_status(vacante_id, "Revisado_IA", user_id)
     else:
         _set_status(vacante_id, "Requiere_Correccion", user_id)
+    return tex_path, pdf_path
+
+
+def generar_cl_y_compilar(vacante_id: int, user_id: str = 'default_user') -> tuple[str | None, str | None]:
+    if not GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY no configurada.")
+    tex_path = generar_latex_cl(vacante_id, user_id)
+    if not tex_path:
+        return None, None
+    try:
+        pdf_path = compilar_pdf(tex_path)
+    except Exception as e:
+        _log.error("[generar_cl_y_compilar] Error compilando PDF: %s", e)
+        return tex_path, None
     return tex_path, pdf_path
 
 
