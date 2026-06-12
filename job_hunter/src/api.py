@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI):
     _mc = _db()
     try:
         _cur = _mc.cursor()
+        _log.info("Iniciando validación de esquema de base de datos...")
         _cur.execute("""
             CREATE TABLE IF NOT EXISTS vacantes (
                 id                SERIAL PRIMARY KEY,
@@ -159,10 +160,13 @@ async def lifespan(app: FastAPI):
         """)
         existing_cols = {r[0] for r in _cur.fetchall()}
         if 'fecha_postulacion' not in existing_cols:
+            _log.info("Migración: Añadiendo columna fecha_postulacion a vacantes")
             _cur.execute("ALTER TABLE vacantes ADD COLUMN fecha_postulacion TIMESTAMP")
         if 'favorito' not in existing_cols:
+            _log.info("Migración: Añadiendo columna favorito a vacantes")
             _cur.execute("ALTER TABLE vacantes ADD COLUMN favorito INTEGER DEFAULT 0")
         if 'user_id' not in existing_cols:
+            _log.info("Migración: Añadiendo columna user_id a vacantes")
             _cur.execute("ALTER TABLE vacantes ADD COLUMN user_id VARCHAR(50) NOT NULL DEFAULT 'default_user'")
         # usuarios table
         _cur.execute("""
@@ -223,6 +227,7 @@ async def lifespan(app: FastAPI):
         # Seed default_user — keeps link to the 33 migrated vacantes
         _cur.execute("SELECT id FROM usuarios WHERE user_id='default_user'")
         if not _cur.fetchone():
+            _log.info("Sembrando usuario por defecto (default_user)")
             _cur.execute(
                 "INSERT INTO usuarios (user_id, email, hashed_password) VALUES ('default_user', %s, %s)",
                 ('test@jobhunter.com', hash_password('jobhunter123'))
@@ -244,6 +249,11 @@ async def lifespan(app: FastAPI):
         )
         _mc.commit()
         _cur.close()
+        _log.info("Validación de esquema completada exitosamente.")
+    except Exception as e:
+        _log.error("Fallo crítico durante la inicialización de la DB: %s", e)
+        # We don't raise here to allow the API to start even with DB issues, 
+        # but subsequent requests will fail gracefully via _db() retries.
     finally:
         _mc.close()
     app.state.health_watcher = DeepHealthWatcher(interval_seconds=20, dry_run=False)
@@ -1108,6 +1118,11 @@ def borrar_vacante(vid: int, current_user: dict = Depends(get_current_user)):
 @app.post("/perfil/upload")
 async def upload_perfil(files: list[UploadFile] = File(...)):
     import io as _io
+    # Security: Limit total upload size to prevent memory exhaustion
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB per file
+    MAX_TOTAL_SIZE = 15 * 1024 * 1024 # 15MB total
+    total_received = 0
+
     os.makedirs(CONTEXT_DIR, exist_ok=True)
     profile_md = os.path.join(CONTEXT_DIR, "mi_perfil.md")
     sections: list[str] = []
@@ -1115,8 +1130,19 @@ async def upload_perfil(files: list[UploadFile] = File(...)):
 
     for file in files:
         fname = file.filename or "archivo"
+        # Security: Basic filename sanitization
+        fname = "".join(c for c in fname if c.isalnum() or c in "._-").strip()
+        if not fname: fname = "file_" + uuid.uuid4().hex[:8]
+
         ext   = os.path.splitext(fname)[1].lower()
         data  = await file.read()
+        
+        file_size = len(data)
+        total_received += file_size
+        
+        if file_size > MAX_FILE_SIZE or total_received > MAX_TOTAL_SIZE:
+             _log.warning("Upload bloqueado: archivo demasiado grande (%s, %d bytes)", fname, file_size)
+             raise HTTPException(status_code=413, detail="El archivo o el total de carga excede el límite permitido.")
 
         dest = os.path.join(CONTEXT_DIR, fname)
         with open(dest, "wb") as out:

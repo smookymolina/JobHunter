@@ -46,11 +46,12 @@ const INPUT = [
 ].join(' ')
 
 function Field({
-  label, value, onChange, textarea = false, rows = 3,
+  label, value, onChange, onBlur, textarea = false, rows = 3,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
+  onBlur?: () => void
   textarea?: boolean
   rows?: number
 }) {
@@ -60,9 +61,46 @@ function Field({
         {label}
       </label>
       {textarea
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={rows} className={`${INPUT} resize-none`} />
-        : <input value={value} onChange={e => onChange(e.target.value)} className={INPUT} />}
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur} rows={rows} className={`${INPUT} resize-none`} />
+        : <input value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur} className={INPUT} />}
     </div>
+  )
+}
+
+/**
+ * CsvField — wraps Field for comma-separated array values.
+ * Buffers the raw string locally so toArr() is NOT called on every
+ * keystroke (which strips trailing spaces/commas mid-typing).
+ * The array is only committed to parent state on blur.
+ */
+function CsvField({
+  label, valueArr, onChangeArr, textarea = false, rows = 2,
+}: {
+  label: string
+  valueArr: string[]
+  onChangeArr: (arr: string[]) => void
+  textarea?: boolean
+  rows?: number
+}) {
+  const externalCsv = toCSV(valueArr)
+  const [raw, setRaw] = useState(externalCsv)
+  const [lastExternal, setLastExternal] = useState(externalCsv)
+
+  // Sync when parent data changes (API load, reset) — not during local editing
+  if (externalCsv !== lastExternal) {
+    setLastExternal(externalCsv)
+    setRaw(externalCsv)
+  }
+
+  return (
+    <Field
+      label={label}
+      value={raw}
+      onChange={setRaw}
+      onBlur={() => onChangeArr(toArr(raw))}
+      textarea={textarea}
+      rows={rows}
+    />
   )
 }
 
@@ -198,8 +236,8 @@ export default function PerfilPage() {
   const set = (key: keyof PerfilMaestro, val: unknown) =>
     setPerfil(p => ({ ...p, [key]: val }))
 
-  const setHab = (cat: keyof PerfilMaestro['habilidades'], csv: string) =>
-    setPerfil(p => ({ ...p, habilidades: { ...p.habilidades, [cat]: toArr(csv) } }))
+  const setHab = (cat: keyof PerfilMaestro['habilidades'], arr: string[]) =>
+    setPerfil(p => ({ ...p, habilidades: { ...p.habilidades, [cat]: arr } }))
 
   const addExp = () => set('experiencia', [...perfil.experiencia, { puesto: '', empresa: '', periodo: '', logros: [] }])
   const delExp = (i: number) => set('experiencia', perfil.experiencia.filter((_, j) => j !== i))
@@ -443,11 +481,11 @@ export default function PerfilPage() {
           <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">Valores separados por coma</p>
           <div className="space-y-3">
             {(Object.keys(perfil.habilidades) as (keyof PerfilMaestro['habilidades'])[]).map(cat => (
-              <Field
+              <CsvField
                 key={cat}
                 label={cat.replace(/_/g, ' ')}
-                value={toCSV(perfil.habilidades[cat])}
-                onChange={v => setHab(cat, v)}
+                valueArr={perfil.habilidades[cat]}
+                onChangeArr={arr => setHab(cat, arr)}
               />
             ))}
           </div>
@@ -462,7 +500,13 @@ export default function PerfilPage() {
                   <Field label="Empresa" value={e.empresa} onChange={v => setExp(i, 'empresa', v)} />
                   <Field label="Periodo" value={e.periodo} onChange={v => setExp(i, 'periodo', v)} />
                 </div>
-                <Field label="Logros (separados por coma)" value={toCSV(e.logros)} onChange={v => setExp(i, 'logros', v)} textarea />
+                <CsvField
+                  label="Logros (separados por coma)"
+                  valueArr={e.logros}
+                  onChangeArr={arr => set('experiencia', perfil.experiencia.map((ex, j) => j === i ? { ...ex, logros: arr } : ex))}
+                  textarea
+                  rows={3}
+                />
                 <button onClick={() => delExp(i)} className={delBtn}><Trash2 size={13} /></button>
               </div>
             ))}
@@ -490,7 +534,11 @@ export default function PerfilPage() {
               <div key={i} className={subCard}>
                 <Field label="Nombre" value={p.nombre} onChange={v => setProj(i, 'nombre', v)} />
                 <Field label="Descripcion" value={p.descripcion} onChange={v => setProj(i, 'descripcion', v)} textarea />
-                <Field label="Tecnologias (coma)" value={toCSV(p.tecnologias)} onChange={v => setProj(i, 'tecnologias', v)} />
+                <CsvField
+                  label="Tecnologias (coma)"
+                  valueArr={p.tecnologias}
+                  onChangeArr={arr => set('proyectos', perfil.proyectos.map((pr, j) => j === i ? { ...pr, tecnologias: arr } : pr))}
+                />
                 <button onClick={() => delProj(i)} className={delBtn}><Trash2 size={13} /></button>
               </div>
             ))}

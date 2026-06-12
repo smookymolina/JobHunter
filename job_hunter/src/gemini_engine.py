@@ -47,12 +47,13 @@ DEFAULT_TEMPLATE_CONTENT = """% ================================================
 \\usepackage[utf8]{inputenc}
 \\usepackage[spanish]{babel}
 \\usepackage[margin=2cm, top=1.8cm, bottom=1.8cm]{geometry}
+\\setlength{\\footskip}{4.5pt}
+\\usepackage{bookmark}
 \\usepackage{enumitem}
 \\usepackage{titlesec}
 \\usepackage{hyperref}
 \\usepackage{xcolor}
 \\usepackage{parskip}
-\\usepackage{fontawesome5}
 
 \\definecolor{accentcolor}{RGB}{30, 80, 160}
 
@@ -213,33 +214,84 @@ def _detect_lang(text: str) -> str:
     return 'en' if len(_EN_MARKERS.findall(text)) > len(_ES_MARKERS.findall(text)) else 'es'
 
 
-def _build_header(lang: str) -> str:
-    """Return the hardcoded personal header block in the requested language."""
+def _build_header(lang: str, user_id: str = 'default_user') -> str:
+    """
+    Build the personal header block dynamically from the user's profile JSON.
+    Includes LinkedIn and GitHub as \\href links when present in the profile.
+    Fallback to empty strings if a field is absent — never hardcodes personal data.
+    """
+    p = _load_profile_json(user_id) or {}
+
+    nombre   = f"{p.get('nombre','')} {p.get('apellidos','')}".strip() or "Nombre Apellido"
+    titulo   = p.get('titulo_profesional', '')
+    email    = p.get('email', '')
+    telefono = p.get('telefono', '')
+    linkedin = p.get('linkedin', '').strip()
+    github   = p.get('github', '').strip()
+    ciudad   = p.get('ubicacion', '')
+    disp_raw = p.get('disponibilidad_viajar', 'Sí')
+
     if lang == 'en':
-        subtitulo = "{\\Large \\textit{Mechanical Engineer | Master in Advanced Technologies}}"
-        disponib  = "Willing to travel: Yes"
-        ciudad    = "Mexico City, Mexico"
+        titulo_hdr = titulo or 'Professional'
+        disponib   = f"Willing to travel: {disp_raw}"
+        ciudad_hdr = ciudad or 'Mexico City, Mexico'
     else:
-        subtitulo = "{\\Large \\textit{Ingeniero Mecánico | Maestro en Tecnologías Avanzadas}}"
-        disponib  = "Disponibilidad para viajar: Sí"
-        ciudad    = "Ciudad de México, México"
+        titulo_hdr = titulo or 'Profesional'
+        disponib   = f"Disponibilidad para viajar: {disp_raw}"
+        ciudad_hdr = ciudad or 'Ciudad de México, México'
+
+    # Build contact-line parts dynamically; skip empty fields
+    parts: list[str] = []
+    if telefono:
+        parts.append(telefono)
+    if email:
+        parts.append(f"\\href{{mailto:{email}}}{{{email}}}")
+    if linkedin:
+        # Display just "linkedin.com/in/slug" without https://www. prefix
+        ln_display = re.sub(r'^https?://(www\.)?', '', linkedin).rstrip('/')
+        parts.append(f"\\href{{{linkedin}}}{{{ln_display}}}")
+    if github:
+        gh_display = re.sub(r'^https?://(www\.)?', '', github).rstrip('/')
+        parts.append(f"\\href{{{github}}}{{{gh_display}}}")
+    if ciudad_hdr:
+        parts.append(ciudad_hdr)
+    if disponib:
+        parts.append(disponib)
+
+    contact_line = " $|$ ".join(parts)
+
     return (
         "\\begin{center}\n"
-        + "{\\Huge \\textbf{Jair Molina Arce}} \\\\ \\vspace{2mm}\n"
-        + subtitulo + " \\\\ \\vspace{1mm}\n"
-        + "\\small 5652646108 | ingjairmolina@gmail.com | " + ciudad + " | " + disponib + "\n"
-        + "\\end{center}\n"
-        + "\\vspace{2mm}"
+        f"{{\\Huge \\textbf{{{nombre}}}}} \\\\ \\vspace{{2mm}}\n"
+        f"{{\\large \\textit{{{titulo_hdr}}}}} \\\\ \\vspace{{1mm}}\n"
+        f"\\small {contact_line}\n"
+        "\\end{center}\n"
+        "\\vspace{2mm}"
     )
 
 
 def _inject_fixed_header(latex: str, header: str) -> str:
-    """Inject the fixed header immediately after \\begin{document}.
-    The LLM is instructed to emit nothing before the first \\section, so a plain
-    string replacement on the first occurrence is sufficient and unambiguous."""
-    if r'\begin{document}' in latex:
-        return latex.replace(r'\begin{document}', r'\begin{document}' + '\n' + header, 1)
-    return latex
+    """
+    Predator injector — destroys EVERYTHING between \\begin{document} and the
+    first \\section (or \\section*), then injects the canonical fixed header.
+
+    Regex logic:
+      \\begin{document}  — anchor
+      .*?                — consume greedily-minimal (any LLM-generated header garbage)
+      (?=\\section)      — lookahead: stop just before the first section command
+    flags=DOTALL so '.' matches newlines; IGNORECASE for \\Section variants.
+    Uses a lambda replacement to prevent Python from interpreting backslashes
+    in the header string as regex backreferences.
+    """
+    if r'\begin{document}' not in latex:
+        return latex
+    return re.sub(
+        r'\\begin\{document\}.*?(?=\\section[\s{*])',
+        lambda _: r'\begin{document}' + '\n' + header + '\n',
+        latex,
+        count=1,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
 
 def _groq_client():
@@ -290,9 +342,28 @@ _POSGRADO_KW = ('maestría', 'maestro', 'máster', 'master', 'doctorado', 'phd',
 _LICENCIA_KW = ('ingeniería', 'licenciatura')
 
 
+_TITULO_LLM_CORRECTIONS = [
+    # LLM invents "Mastería" / "Masteria" / "Masterìa" — force correct spelling
+    (re.compile(r'\bmaster[ií]a\b', re.IGNORECASE), 'maestría'),
+    (re.compile(r'\bmaestria\b',    re.IGNORECASE), 'maestría'),
+    # Common STEM degree words written without accents by LLMs / OCR
+    (re.compile(r'\bingenieria\b',  re.IGNORECASE), 'ingeniería'),
+    (re.compile(r'\bmecanica\b',    re.IGNORECASE), 'mecánica'),
+    (re.compile(r'\belectronica\b', re.IGNORECASE), 'electrónica'),
+    (re.compile(r'\binformatica\b', re.IGNORECASE), 'informática'),
+    (re.compile(r'\bmatematicas\b', re.IGNORECASE), 'matemáticas'),
+    (re.compile(r'\bfisica\b',      re.IGNORECASE), 'física'),
+    (re.compile(r'\bquimica\b',     re.IGNORECASE), 'química'),
+]
+
+
 def _extract_titulo_academico(titulo: str) -> str:
-    """Strip parenthetical annotations and convert degree name to professional title."""
+    """Strip parenthetical annotations, correct LLM spelling errors,
+    and convert degree name to professional title."""
     clean = re.sub(r'\s*\([^)]*\)\s*', '', titulo).strip()
+    # Correct common LLM spelling errors BEFORE applying transformation rules
+    for pattern, replacement in _TITULO_LLM_CORRECTIONS:
+        clean = pattern.sub(replacement, clean)
     rules = [
         (r'(?i)^maestría en (.+)$',     r'Maestro en \1'),
         (r'(?i)^maestría (.+)$',        r'Maestro en \1'),
@@ -554,12 +625,16 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
         f"Skills: {user_skills}\n"
         f"Experiencia: {user_exp}\n\n"
 
-        "=== REGLA CRÍTICA DE INICIO ===\n"
-        "TIENES ESTRICTAMENTE PROHIBIDO generar cualquier tipo de encabezado, nombre, "
-        "título profesional, correo, teléfono o datos de contacto al inicio del documento. "
-        "Debes comenzar el contenido del CV DIRECTAMENTE con el primer comando de sección. "
-        "Ejemplo correcto: \\section{PROFESSIONAL PROFILE} o \\section{PERFIL PROFESIONAL}. "
-        "CERO texto, CERO \\begin{center}, CERO datos personales antes de la primera sección.\n\n"
+        "=== REGLA CRÍTICA DE INICIO — ESQUELETO OBLIGATORIO ===\n"
+        "El código LaTeX generado DEBE comenzar EXACTAMENTE con \\begin{document} "
+        "seguido del comentario % [START_CONTENT] y luego INMEDIATAMENTE el primer "
+        "comando \\section. Ejemplo ÚNICO válido:\n"
+        "  \\begin{document}\n"
+        "  % [START_CONTENT]\n"
+        "  \\section{PERFIL PROFESIONAL}\n"
+        "Tienes ESTRICTAMENTE PROHIBIDO colocar código, variables, nombres, bloques "
+        "\\begin{center}, macros de cabecera o datos de contacto ANTES del primer "
+        "\\section. El encabezado personal es INYECTADO AUTOMÁTICAMENTE por el sistema.\n\n"
 
         "=== EXACT MATCH — REQUISITOS INDISPENSABLES ===\n"
         "Identifica los requisitos marcados como INDISPENSABLE, EXCLUYENTE o REQUISITO. "
@@ -576,9 +651,13 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
         "4. PAR: Logros en formato Problema→Acción→Resultado. Cuantifica cuando sea posible.\n\n"
 
         "=== PROTECCIÓN LATEX ===\n"
-        "- Preámbulo: incluye \\usepackage[utf8]{inputenc}, \\usepackage[spanish]{babel}.\n"
+        "- Preámbulo: incluye \\usepackage[utf8]{inputenc}, \\usepackage[spanish]{babel}, "
+        "\\usepackage{bookmark}. Añade \\setlength{\\footskip}{4.5pt} tras \\usepackage{geometry}.\n"
         "- Listas: usa \\begin{itemize}/\\item. NUNCA llaves sueltas como viñetas.\n"
+        "- Saltos en \\item: TIENES ESTRICTAMENTE PROHIBIDO usar \\\\\\ dentro de \\item. "
+        "Usa \\newline obligatoriamente para saltos de línea dentro de entornos \\item.\n"
         "- Escapa: \\%, \\&, \\#, \\_. No uses $ para texto regular.\n"
+        "- PROHIBIDO \\usepackage{fontawesome5} — causa conflictos en el sistema.\n"
         "- Sin Markdown dentro del LaTeX."
     )
 
@@ -635,7 +714,7 @@ REGLAS DE FORMATO:
         return None
 
     lang = _detect_lang(titulo + " " + latex_raw)
-    fixed_header = _build_header(lang)
+    fixed_header = _build_header(lang, user_id)
     _log.info("[IA] Idioma detectado: %s", lang)
     latex_clean = _inject_fixed_header(_extract_latex(latex_raw), fixed_header)
     if not latex_clean.startswith("\\documentclass"):
@@ -721,7 +800,7 @@ REGLAS:
         return None
 
     lang = _detect_lang(titulo + " " + latex_raw)
-    fixed_header = _build_header(lang)
+    fixed_header = _build_header(lang, user_id)
     latex_clean = _inject_fixed_header(_extract_latex(latex_raw), fixed_header)
 
     out_dir  = get_user_outputs_dir(user_id)
@@ -751,7 +830,7 @@ def compilar_pdf(tex_path: str) -> str | None:
     _log.info("[pdflatex] Compilando %s", os.path.basename(tex_path))
     try:
         result = subprocess.run(
-            ["pdflatex", "-interaction=nonstopmode",
+            ["pdflatex", "-interaction=nonstopmode", "-no-shell-escape",
              f"-output-directory={abs_out_dir}", abs_tex],
             capture_output=True, text=True, timeout=60
         )
