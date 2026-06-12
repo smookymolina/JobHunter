@@ -34,7 +34,7 @@ from gemini_engine import generar_terminos_busqueda, evaluar_compatibilidad_rapi
 # ── Config ────────────────────────────────────────────────────────────────────
 
 API_BASE       = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-MAX_PER_TERM   = 8
+MAX_PER_TERM   = 5
 HEADLESS       = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
 MAX_WORKERS    = int(os.getenv("SCRAPER_WORKERS", "3"))
 
@@ -478,10 +478,13 @@ def _sleep(a=1.0, b=2.5):
 
 
 def _incr(counter: list) -> int:
-    """Thread-safe counter increment; returns new value."""
+    """Thread-safe counter increment; fires stop event when global limit is reached."""
     with _counter_lock:
         counter[0] += 1
-        return counter[0]
+        n = counter[0]
+    if _SCRAPER_LIMITE is not None and n >= _SCRAPER_LIMITE:
+        _stop_event.set()
+    return n
 
 
 def _scroll(page: Page, steps=4):
@@ -576,7 +579,7 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
     CT_BASE = _CT_DOMINIOS.get(filtros.get("pais", "Mexico"), _CT_DOMINIOS["Mexico"])
 
     for url in urls:
-        if limite is not None and counter[0] >= limite:
+        if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
             break
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=22000)
@@ -594,7 +597,7 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
                 continue
 
             for card in cards:
-                if limite is not None and counter[0] >= limite:
+                if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
                     break
                 try:
                     titulo_el = card.query_selector("h2 a, h3 a, a.js-o-link")
@@ -658,7 +661,7 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
                         print(f"  + [{n}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [CT]")
                 except Exception as ex:
                     print(f"  [CT-card] {ex}")
-            _sleep(2, 4)
+            _sleep(1.0, 2.0)
         except Exception as ex:
             print(f"  [computrabajo] {term} @ {url[:60]}: {ex}")
     return count
@@ -672,7 +675,7 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
     min_salary = filtros.get("min_salary")
 
     for url in urls:
-        if limite is not None and counter[0] >= limite:
+        if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
             break
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=22000)
@@ -697,7 +700,7 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
             )[:MAX_PER_TERM]
 
             for link in links:
-                if limite is not None and counter[0] >= limite:
+                if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
                     break
                 try:
                     titulo = link.inner_text().strip()
@@ -766,7 +769,7 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
                         print(f"  + [{n}] {titulo[:50]} | {(empresa or 'Desconocida')[:22]} | {compat}  [OCC]")
                 except Exception as ex:
                     print(f"  [OCC-card] {ex}")
-            _sleep(2, 3)
+            _sleep(1.0, 1.5)
         except Exception as ex:
             print(f"  [OCC] {term} @ {url[:60]}: {ex}")
     return count
@@ -777,7 +780,7 @@ def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, fil
     pais = filtros.get("pais", "Mexico")
     if pais not in ("Mexico", "Internacional"):
         return 0
-    if limite is not None and counter[0] >= limite:
+    if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
         return 0
 
     modalidad = filtros.get("modalidad", "any")
@@ -811,7 +814,7 @@ def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, fil
         seen  = set()
         processed = 0
         for link in links:
-            if limite is not None and counter[0] >= limite:
+            if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
                 break
             if processed >= MAX_PER_TERM:
                 break
@@ -881,7 +884,7 @@ def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, fil
                     print(f"  + [{n}] {titulo[:50]} | {empresa[:22]} | {compat}  [Bumeran]")
             except Exception as ex:
                 print(f"  [Bumeran-card] {ex}")
-        _sleep(2, 3)
+        _sleep(1.0, 1.5)
     except Exception as ex:
         print(f"  [Bumeran] {term}: {ex}")
     return count
@@ -900,7 +903,7 @@ def scrape_indeed_rss(term: str, counter: list, limite: int | None, filtros: dic
 def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict) -> int:
     if filtros.get("modalidad", "any") not in ("remoto", "any"):
         return 0
-    if limite is not None and counter[0] >= limite:
+    if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
         return 0
     count = 0
     try:
@@ -909,7 +912,7 @@ def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict)
         data = _http_get(url, as_json=True)
         jobs = data.get("jobs", [])[:MAX_PER_TERM]
         for job in jobs:
-            if limite is not None and counter[0] >= limite:
+            if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
                 break
             titulo  = (job.get("title") or "").strip()
             empresa = (job.get("company_name") or "Desconocida").strip()
@@ -932,7 +935,7 @@ def scrape_remotive(term: str, counter: list, limite: int | None, filtros: dict)
 # ── GetOnBrd (API JSON — tech Latam) ──────────────────────────────────────────
 
 def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict) -> int:
-    if limite is not None and counter[0] >= limite:
+    if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
         return 0
     count = 0
     try:
@@ -941,7 +944,7 @@ def scrape_getonbrd(term: str, counter: list, limite: int | None, filtros: dict)
         data = _http_get(url, as_json=True)
         jobs = (data.get("data") or [])[:MAX_PER_TERM]
         for job in jobs:
-            if limite is not None and counter[0] >= limite:
+            if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
                 break
             try:
                 attr    = job.get("attributes", {})
@@ -985,7 +988,7 @@ def _linkedin_url(term: str, filtros: dict) -> str:
 
 
 def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, filtros: dict) -> int:
-    if limite is not None and counter[0] >= limite:
+    if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
         return 0
 
     url        = _linkedin_url(term, filtros)
@@ -993,7 +996,7 @@ def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, fi
     count      = 0
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=25000)
-        _sleep(2.5, 4.0)
+        _sleep(1.5, 2.5)
 
         if _is_blocked(page):
             print(f"  [LinkedIn] Bloqueado / requiere login — saltando")
@@ -1006,7 +1009,7 @@ def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, fi
         )[:MAX_PER_TERM]
 
         for card in cards:
-            if limite is not None and counter[0] >= limite:
+            if _stop_event.is_set() or (limite is not None and counter[0] >= limite):
                 break
             try:
                 title_el = card.query_selector(
@@ -1034,7 +1037,7 @@ def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, fi
                     try:
                         detail = page.context.new_page()
                         detail.goto(enlace, wait_until="domcontentloaded", timeout=20000)
-                        _sleep(1.5, 3.0)
+                        _sleep(1.0, 2.0)
                         if _is_blocked(detail):
                             detail.close()
                             continue
@@ -1074,7 +1077,7 @@ def scrape_linkedin(page: Page, term: str, counter: list, limite: int | None, fi
                     print(f"  + [{n}] {titulo[:50]} | {empresa[:22]} | {compat}  [LinkedIn]")
             except Exception as ex:
                 print(f"  [LinkedIn-card] {ex}")
-        _sleep(3, 5)
+        _sleep(2.0, 3.0)
     except Exception as ex:
         print(f"  [LinkedIn] {term}: {ex}")
     return count
@@ -1092,7 +1095,6 @@ _BROWSER_ARGS = [
     "--no-first-run",
     "--disable-notifications",
     "--disable-features=VizDisplayCompositor",
-    "--single-process",
 ]
 
 _STEALTH_SCRIPT = """
@@ -1123,7 +1125,7 @@ def _run_term(term: str, counter: list, limite: int | None, filtros: dict, platf
 
             def _at_limit() -> bool:
                 with _counter_lock:
-                    return limite is not None and counter[0] >= limite
+                    return _stop_event.is_set() or (limite is not None and counter[0] >= limite)
 
             if "computrabajo" in platforms and not _at_limit():
                 print(f"\n[Computrabajo] '{term}'")
@@ -1161,7 +1163,7 @@ def _run_term(term: str, counter: list, limite: int | None, filtros: dict, platf
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    global _SCRAPER_USER_ID, _SCRAPER_MIN_COMPAT
+    global _SCRAPER_USER_ID, _SCRAPER_MIN_COMPAT, _SCRAPER_LIMITE
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--limit',   type=int,  default=None)
@@ -1176,6 +1178,8 @@ def main():
     _SCRAPER_USER_ID    = args.user_id
     _SCRAPER_MIN_COMPAT = args.min_compat
     limite = args.limit
+    _SCRAPER_LIMITE = limite
+    _stop_event.clear()
     terms  = args.named_terms or args.positional_terms or generar_terminos_busqueda()
 
     try:
@@ -1205,7 +1209,7 @@ def main():
         futures: dict = {}
         for term in terms:
             with _counter_lock:
-                at_limit = limite is not None and counter[0] >= limite
+                at_limit = _stop_event.is_set() or (limite is not None and counter[0] >= limite)
             if at_limit:
                 print(f"\n[límite] Alcanzado {limite}. No se lanzan más trabajadores.")
                 break

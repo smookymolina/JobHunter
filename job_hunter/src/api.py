@@ -34,6 +34,7 @@ from gemini_engine import (
     TEMPLATES_DIR, DB_PATH, OUTPUTS_DIR, CONTEXT_DIR,
     get_user_outputs_dir, get_user_profile_path,
     compilar_pdf, evaluar_compatibilidad_rapida, generar_terminos_busqueda,
+    clear_compat_cache,
 )
 from watcher import DeepHealthWatcher, deep_health_check
 
@@ -1235,13 +1236,14 @@ async def save_perfil_maestro(request: Request, current_user: dict = Depends(get
     missing = required - set(data.keys())
     if missing:
         raise HTTPException(status_code=400, detail=f"Campos requeridos: {sorted(missing)}")
-    os.makedirs(_DATA_DIR, exist_ok=True)
     dest = get_user_profile_path(uid)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     # Always sync perfil_maestro.json so bot/scraper/LLM are never stale
     with open(PERFIL_MAESTRO_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    clear_compat_cache(uid)
     try:
         _regenerate_mi_perfil(data)
     except Exception as _regen_err:

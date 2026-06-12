@@ -259,9 +259,11 @@ export default function PerfilPage() {
     )))
 
   const handleSave = async () => {
+    // Flush any uncommitted CsvField buffer: blur active element, wait one tick
+    ;(document.activeElement as HTMLElement)?.blur()
+    await new Promise(r => setTimeout(r, 0))
     setSaving(true)
     setMsg(null)
-    console.log('Guardando perfil...', perfil)
     try {
       const r = await api.savePerfilMaestro(perfil)
       console.log('Perfil guardado con éxito:', r)

@@ -22,7 +22,11 @@
       "MATLAB/Simulink",
       "Control PID",
       "Metrología dimensional",
-      "Lectura de planos"
+      "Lectura de planos",
+      "Impresión 3D (FDM)",
+      "Motores a pasos (NEMA 17)",
+      "Drivers A4988",
+      "Finales de carrera"
     ],
     "iot_embebidos": [
       "ESP32",
@@ -119,6 +123,26 @@
         "Impartición de curso 'Impacto de las Tecnologías de Realidad Virtual y Realidad Aumentada' a nivel posgrado",
         "Diseño de contenido sobre VR/AR aplicada a gestión de información y capacitación inmersiva"
       ]
+    },
+    {
+      "puesto": "Instructor — Curso de Excel Avanzado",
+      "empresa": "Profuturo",
+      "periodo": "Marzo 2026 (2 semanas)",
+      "logros": [
+        "Diseño e impartición de curso intensivo de Excel Avanzado dirigido a personal corporativo",
+        "Temas: tablas dinámicas, fórmulas avanzadas, automatización con macros (VBA), análisis de datos y dashboards",
+        "Capacitación presencial/en sitio durante dos semanas consecutivas"
+      ]
+    },
+    {
+      "puesto": "Docente — Ingeniería Térmica y Modelización de Sistemas Aeroespaciales",
+      "empresa": "Universidad Internacional de Innovación (en línea)",
+      "periodo": "2024 – Presente",
+      "logros": [
+        "Impartición de Ingeniería Térmica: transferencia de calor, termodinámica aplicada y análisis energético de sistemas",
+        "Impartición de Modelización de Sistemas Aeroespaciales: dinámica de vuelo, simulación numérica y modelos matemáticos",
+        "Diseño y entrega de material didáctico, evaluaciones y proyectos en modalidad 100% en línea"
+      ]
     }
   ],
   "educacion": [
@@ -166,6 +190,19 @@
         "VR/AR",
         "Unity",
         "Capacitación técnica"
+      ]
+    },
+    {
+      "nombre": "Impresora 3D Casera (DIY)",
+      "descripcion": "Diseño, construcción y programación de impresora 3D desde cero: estructura mecánica, sistema cinemático, electrónica con Arduino Mega + CNC Shield + drivers A4988, motores NEMA 17, finales de carrera (endstops). Simulación de movimiento y análisis estructural del chasis.",
+      "tecnologias": [
+        "Arduino",
+        "A4988",
+        "NEMA 17",
+        "CNC Shield",
+        "SolidWorks",
+        "MATLAB/Simulink",
+        "Impresión 3D"
       ]
     }
   ]

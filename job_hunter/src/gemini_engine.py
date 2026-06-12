@@ -491,6 +491,14 @@ def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:
 _COMPAT_PROFILE_CACHE: dict[str, str] = {}
 
 
+def clear_compat_cache(user_id: str | None = None) -> None:
+    """Evict one user (or all) from the compat profile cache after a profile save."""
+    if user_id is None:
+        _COMPAT_PROFILE_CACHE.clear()
+    else:
+        _COMPAT_PROFILE_CACHE.pop(user_id, None)
+
+
 def _get_profile_for_compat(user_id: str = 'default_user') -> str:
     """Compact profile (title + top-20 skills) cached per user per process."""
     if user_id in _COMPAT_PROFILE_CACHE:
@@ -498,9 +506,12 @@ def _get_profile_for_compat(user_id: str = 'default_user') -> str:
     p = _load_profile_json(user_id)
     if not p:
         return ""
-    habs   = p.get('habilidades', {})
-    skills = [s for v in habs.values() for s in v][:20]
-    entry  = f"Título: {p.get('titulo_profesional', '')}\nSkills: {', '.join(skills)}"
+    habs = p.get('habilidades', {})
+    # Sample up to 5 skills per category so all areas are represented (not just the first category)
+    skills: list[str] = []
+    for v in habs.values():
+        skills.extend(v[:5])
+    entry = f"Título: {p.get('titulo_profesional', '')}\nSkills: {', '.join(skills[:20])}"
     _COMPAT_PROFILE_CACHE[user_id] = entry
     return entry
 
