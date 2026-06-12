@@ -591,7 +591,12 @@ def scrape_computrabajo(page: Page, term: str, counter: list, limite: int | None
 
             _scroll(page)
 
-            cards = page.query_selector_all("article.box_offer")[:MAX_PER_TERM]
+            cards = (
+                page.query_selector_all("article.box_offer") or
+                page.query_selector_all("article[class*='offer']") or
+                page.query_selector_all("div.offerList article") or
+                page.query_selector_all("li[class*='offer'], div[class*='job-item']")
+            )[:MAX_PER_TERM]
             if not cards:
                 print(f"  [CT] Sin tarjetas en {url[:60]}")
                 continue
@@ -682,8 +687,8 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
             # OCC usa React SSR — esperar hidratación de tarjetas
             try:
                 page.wait_for_selector(
-                    "a[data-testid='job-card-title-link'], div.card-job-offer",
-                    timeout=8000,
+                    "a[data-testid='job-card-title-link'], div.card-job-offer, a[href*='/vacante/']",
+                    timeout=5000,
                 )
             except Exception:
                 pass
@@ -695,8 +700,10 @@ def scrape_occ(page: Page, term: str, counter: list, limite: int | None, filtros
 
             _scroll(page)
 
-            links = page.query_selector_all(
-                "a[data-testid='job-card-title-link'], div.card-job-offer a[href*='/vacante/']"
+            links = (
+                page.query_selector_all("a[data-testid='job-card-title-link']") or
+                page.query_selector_all("div.card-job-offer a[href*='/vacante/']") or
+                page.query_selector_all("a[href*='/empleo-'], a[href*='/vacante/']")
             )[:MAX_PER_TERM]
 
             for link in links:
@@ -790,7 +797,10 @@ def scrape_bumeran(page: Page, term: str, counter: list, limite: int | None, fil
     if modalidad == "remoto":
         url = f"https://www.bumeran.com.mx/empleos-trabajo-desde-casa-{t}.html"
     elif ubicacion:
-        url = f"https://www.bumeran.com.mx/empleos-{t}-en-{_slug(ubicacion)}.html"
+        # Use the first expanded location — Bumeran only supports one location in the URL
+        ub_parts = _expand_ubicacion(ubicacion)
+        ub = _slug(ub_parts[0]) if ub_parts else _slug(ubicacion.split(',')[0].strip())
+        url = f"https://www.bumeran.com.mx/empleos-{t}-en-{ub}.html"
     else:
         url = f"https://www.bumeran.com.mx/empleos-{t}.html"
 
@@ -1121,6 +1131,24 @@ def _run_term(term: str, counter: list, limite: int | None, filtros: dict, platf
                 extra_http_headers={"Accept-Language": "es-MX,es;q=0.9,en;q=0.8"},
             )
             ctx.add_init_script(_STEALTH_SCRIPT)
+
+            # Block heavy resources — images, fonts, media, trackers (3-5× page load speedup)
+            def _abort_heavy(route, request):
+                rt = request.resource_type
+                if rt in ("image", "media", "font", "other"):
+                    route.abort()
+                    return
+                url_l = request.url.lower()
+                if any(x in url_l for x in (
+                    "google-analytics", "googletagmanager", "doubleclick", "facebook.net",
+                    "clarity.ms", "hotjar", "amplitude", "segment.io", "mixpanel",
+                    "cdn.cookielaw", "adservice",
+                )):
+                    route.abort()
+                    return
+                route.continue_()
+
+            ctx.route("**/*", _abort_heavy)
             page = ctx.new_page()
 
             def _at_limit() -> bool:
