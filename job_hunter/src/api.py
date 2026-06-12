@@ -155,6 +155,28 @@ async def lifespan(app: FastAPI):
             )
         """)
         _cur.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id            UUID PRIMARY KEY,
+                type              VARCHAR(50) NOT NULL,
+                user_id           VARCHAR(50) NOT NULL,
+                payload           JSONB NOT NULL,
+                status            VARCHAR(50) NOT NULL,
+                priority          INTEGER DEFAULT 1,
+                retries_current   INTEGER DEFAULT 0,
+                retries_max       INTEGER DEFAULT 3,
+                idempotency_key   VARCHAR(255) UNIQUE,
+                correlation_id    VARCHAR(255),
+                created_at        TIMESTAMP DEFAULT NOW(),
+                dispatched_at     TIMESTAMP,
+                started_at        TIMESTAMP,
+                finished_at       TIMESTAMP,
+                failed_at         TIMESTAMP,
+                error_context     JSONB
+            )
+        """)
+        _cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+        _cur.execute("CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(user_id)")
+        _cur.execute("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'vacantes'
         """)
@@ -745,19 +767,6 @@ def debug_sync_health():
     snapshot["watcher"] = watcher_snapshot
     snapshot["bot_active"] = (time.time() - bot_last) < 45
     snapshot["mcp_active"] = (time.time() - mcp_last) < 45
-    return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
-
-
-@app.post("/debug/sync-health")
-def debug_sync_health_apply():
-    snapshot = deep_health_check(dry_run=False)
-    watcher = getattr(app.state, "health_watcher", None)
-    if watcher:
-        watcher._last_snapshot = snapshot
-    snapshot["watcher"] = (
-        watcher.snapshot() if watcher
-        else {"running": False, "interval_seconds": None, "last_error": None, "last_snapshot": snapshot}
-    )
     return JSONResponse(content=snapshot, headers={"Cache-Control": "no-store"})
 
 
