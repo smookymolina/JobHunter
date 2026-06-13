@@ -34,7 +34,7 @@ from gemini_engine import generar_terminos_busqueda, evaluar_compatibilidad_rapi
 # ── Config ────────────────────────────────────────────────────────────────────
 
 API_BASE       = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-MAX_PER_TERM   = 5
+MAX_PER_TERM   = 8
 HEADLESS       = os.getenv("PLAYWRIGHT_HEADLESS", "true").lower() != "false"
 MAX_WORKERS    = int(os.getenv("SCRAPER_WORKERS", "3"))
 
@@ -1208,7 +1208,7 @@ def main():
     limite = args.limit
     _SCRAPER_LIMITE = limite
     _stop_event.clear()
-    terms  = args.named_terms or args.positional_terms or generar_terminos_busqueda()
+    terms  = args.named_terms or args.positional_terms or generar_terminos_busqueda(_SCRAPER_USER_ID)
 
     try:
         filtros = {**_FILTROS_DEFAULT, **json.loads(args.filtros)}

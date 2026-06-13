@@ -136,7 +136,7 @@ async def lifespan(app: FastAPI):
                 user_id           VARCHAR(50) NOT NULL DEFAULT 'default_user',
                 titulo            TEXT NOT NULL,
                 empresa           TEXT,
-                enlace            TEXT UNIQUE,
+                enlace            TEXT,
                 requerimientos    TEXT,
                 compatibilidad    TEXT DEFAULT 'Nula',
                 status            TEXT DEFAULT 'No_Creado',
@@ -330,7 +330,7 @@ class ScrapeRequest(BaseModel):
     cantidad:   int            = Field(ge=1, le=200, description="Vacantes a extraer (máximo global)")
     terminos:   list[str] | None = Field(default=None, description="Términos de búsqueda (None = usar perfil_maestro.json)")
     filtros:    FiltrosBusqueda  = Field(default_factory=FiltrosBusqueda)
-    min_compat: str            = Field(default="Baja", description="Compatibilidad mínima: Alta | Media | Baja | Nula")
+    min_compat: str            = Field(default="Media", description="Compatibilidad mínima: Alta | Media | Baja | Nula")
 
 
 class TierUpdate(BaseModel):
@@ -893,7 +893,7 @@ async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current
     if not tex_path:
         raise HTTPException(status_code=500, detail="Falló la generación del LaTeX.")
 
-    auditoria = await loop.run_in_executor(None, evaluar_cv, vid, tex_path)
+    auditoria = await loop.run_in_executor(None, evaluar_cv, vid, tex_path, uid)
     tiene_pdf = bool(pdf_path and os.path.exists(pdf_path))
 
     # Increment LaTeX counter
@@ -1012,7 +1012,7 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depen
             compat_b = evaluar_compatibilidad_rapida(reqs_b, uid) if reqs_b else "Nula"
             cur.execute(
                 "INSERT INTO vacantes (user_id, titulo, empresa, enlace, requerimientos, compatibilidad, status) "
-                "VALUES (%s,%s,%s,%s,%s,%s,'No_Creado') ON CONFLICT (enlace) DO NOTHING RETURNING id",
+                "VALUES (%s,%s,%s,%s,%s,%s,'No_Creado') ON CONFLICT (user_id, enlace) DO NOTHING RETURNING id",
                 (
                     uid,
                     item.titulo.strip()[:200],
@@ -1087,9 +1087,9 @@ def download_cv_secure(vid: int, current_user: dict = Depends(get_current_user))
 async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_optional_user)):
     if _scrape_status["running"]:
         raise HTTPException(status_code=409, detail="Ya hay un scraping en curso. Espera a que termine.")
-    terms = body.terminos or generar_terminos_busqueda()
-    filtros = body.filtros.model_dump()
     user_id = current_user["user_id"]
+    terms = body.terminos or generar_terminos_busqueda(user_id)
+    filtros = body.filtros.model_dump()
     _scrape_status["running"] = True
     _scrape_status["last"] = None
     _scrape_status["terminos"] = terms
@@ -1204,21 +1204,24 @@ def get_perfil():
 
 
 @app.get("/api/search-terms")
-def get_search_terms():
-    terms = generar_terminos_busqueda()
-    return {"terminos": terms, "fuente": "perfil_maestro.json" if os.path.exists(PERFIL_MAESTRO_PATH) else "fallback"}
+def get_search_terms(current_user: dict = Depends(get_current_user)):
+    uid = current_user["user_id"]
+    terms = generar_terminos_busqueda(uid)
+    return {"terminos": terms, "user_id": uid}
 
 
 @app.get("/api/perfil")
 def get_perfil_maestro(current_user: dict = Depends(get_current_user)):
     uid        = current_user["user_id"]
     user_path  = get_user_profile_path(uid)
-    # Fallback: legacy perfil_maestro.json for default_user
-    path = user_path if os.path.exists(user_path) else (PERFIL_MAESTRO_PATH if os.path.exists(PERFIL_MAESTRO_PATH) else None)
-    if not path:
-        return {}  # Perfil vacío — usuario nuevo, aún no guardó datos
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    if os.path.exists(user_path):
+        with open(user_path, encoding="utf-8") as f:
+            return json.load(f)
+    # Legacy fallback only for default_user
+    if uid == 'default_user' and os.path.exists(PERFIL_MAESTRO_PATH):
+        with open(PERFIL_MAESTRO_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}  # New user — no profile yet, frontend handles empty state
 
 
 @app.post("/api/perfil")
@@ -1424,7 +1427,7 @@ def admin_update_tier(user_id: str, body: TierUpdate, current_user: dict = Depen
 
 # ── Background tasks ──────────────────────────────────────────────────────────
 
-def _scrape_task(cantidad: int, terminos: list[str] | None = None, filtros: dict | None = None, user_id: str = 'default_user', min_compat: str = 'Baja'):
+def _scrape_task(cantidad: int, terminos: list[str] | None = None, filtros: dict | None = None, user_id: str = 'default_user', min_compat: str = 'Media'):
     agent_path = os.path.join(os.path.dirname(__file__), 'browser_agent.py')
     cmd = [sys.executable, agent_path, '--limit', str(cantidad), '--user-id', user_id, '--min-compat', min_compat]
     if terminos:

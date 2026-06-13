@@ -17,9 +17,10 @@ from gemini_engine import compilar_pdf, get_user_outputs_dir, _inject_fixed_head
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-API_BASE   = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-_MCP_EMAIL = os.getenv("MCP_API_EMAIL", "test@jobhunter.com")
-_MCP_PASS  = os.getenv("MCP_API_PASSWORD", "jobhunter123")
+API_BASE      = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+_MCP_EMAIL    = os.getenv("MCP_API_EMAIL", "test@jobhunter.com")
+_MCP_PASS     = os.getenv("MCP_API_PASSWORD", "jobhunter123")
+_MCP_USER_ID  = os.getenv("MCP_USER_ID", "default_user")
 _TOKEN     = ""          # populated by _login() at startup
 
 # Debug logger — escribe en job_hunter/mcp_debug.log
@@ -322,7 +323,7 @@ async def _reset_vacancy(vacante_id: int):
         return [TextContent(type="text", text=f"ERROR reseteando status: {e}")]
 
     # Borrar archivos CV del disco
-    out_dir = get_user_outputs_dir("default_user")
+    out_dir = get_user_outputs_dir(_MCP_USER_ID)
     deleted = []
     for ext in ("tex", "pdf"):
         path = os.path.join(out_dir, f"cv_vacante_{vacante_id}.{ext}")
@@ -376,7 +377,7 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
     tex_content = _inject_fixed_header(tex_content, _build_header(_lang))
 
     # Escribir .tex en el directorio del usuario correcto
-    out_dir = get_user_outputs_dir("default_user")
+    out_dir = get_user_outputs_dir(_MCP_USER_ID)
     os.makedirs(out_dir, exist_ok=True)
     tex_path = os.path.join(out_dir, f"cv_vacante_{vacante_id}.tex")
     try:
@@ -437,7 +438,7 @@ async def _save_latex_cl(vacante_id: int, tex_content: str):
     _lang = _detect_lang(titulo + " " + tex_content)
     tex_content = _inject_fixed_header(tex_content, _build_header(_lang))
 
-    out_dir = get_user_outputs_dir("default_user")
+    out_dir = get_user_outputs_dir(_MCP_USER_ID)
     tex_path = os.path.join(out_dir, f"cl_vacante_{vacante_id}.tex")
     try:
         with open(tex_path, "w", encoding="utf-8") as f:

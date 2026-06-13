@@ -15,12 +15,12 @@ def _db():
     return _pg8000.connect(host=_u.hostname, port=_u.port or 5432, user=_u.username, password=_u.password, database=_u.path.lstrip('/'))
 
 
-def _get_vacante(vid):
+def _get_vacante(vid, user_id='default_user'):
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT titulo, empresa, requerimientos FROM vacantes WHERE id=%s AND user_id='default_user'",
-        (vid,)
+        "SELECT titulo, empresa, requerimientos FROM vacantes WHERE id=%s AND user_id=%s",
+        (vid, user_id)
     )
     row = cur.fetchone()
     cur.close()
@@ -50,12 +50,12 @@ def _parse_json(text: str) -> dict:
     return {}
 
 
-def evaluar_cv(vacante_id: int, tex_path: str) -> dict:
+def evaluar_cv(vacante_id: int, tex_path: str, user_id: str = 'default_user') -> dict:
     """
     Evalua el .tex generado contra la vacante usando IA como reclutador.
     Retorna: {"aprobado": bool, "comentarios": str}
     """
-    row = _get_vacante(vacante_id)
+    row = _get_vacante(vacante_id, user_id)
     if not row:
         return {"aprobado": False, "comentarios": f"Vacante #{vacante_id} no encontrada."}
 
@@ -114,10 +114,11 @@ Responde SOLO con JSON:
 if __name__ == '__main__':
     import sys as _sys
     if len(_sys.argv) < 2:
-        print("Uso: python inspector.py <vacante_id>")
+        print("Uso: python inspector.py <vacante_id> [user_id]")
         _sys.exit(1)
     vid = int(_sys.argv[1])
+    uid = _sys.argv[2] if len(_sys.argv) > 2 else 'default_user'
     tex = os.path.join(OUTPUTS_DIR, f"cv_vacante_{vid}.tex")
-    r = evaluar_cv(vid, tex)
+    r = evaluar_cv(vid, tex, uid)
     print(f"Aprobado:    {r['aprobado']}")
     print(f"Comentarios: {r['comentarios']}")

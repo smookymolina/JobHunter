@@ -16,7 +16,7 @@ SCHEMA_SQL = [
         user_id           VARCHAR(50) NOT NULL DEFAULT 'default_user',
         titulo            TEXT NOT NULL,
         empresa           TEXT,
-        enlace            TEXT UNIQUE,
+        enlace            TEXT,
         requerimientos    TEXT,
         compatibilidad    TEXT CHECK(compatibilidad IN ('Alta','Media','Baja','Nula')) DEFAULT 'Nula',
         status            TEXT CHECK(status IN ('No_Creado','En_Proceso','Revisado_IA','Requiere_Correccion','Listo_Manual')) DEFAULT 'No_Creado',
@@ -25,6 +25,7 @@ SCHEMA_SQL = [
         favorito          INTEGER DEFAULT 0
     )""",
     "CREATE INDEX IF NOT EXISTS idx_vacantes_user ON vacantes(user_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS vacantes_user_enlace_unique ON vacantes(user_id, enlace)",
     """CREATE TABLE vacantes_eliminadas (
         id                SERIAL PRIMARY KEY,
         user_id           VARCHAR(50) NOT NULL DEFAULT 'default_user',

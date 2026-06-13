@@ -1,6 +1,8 @@
 import os
 import re
 import subprocess
+import threading
+import time
 import pg8000.dbapi as _pg8000
 from urllib.parse import urlparse as _urlparse
 
@@ -10,7 +12,7 @@ from logging.handlers import RotatingFileHandler as _RotatingFileHandler
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError as _RateLimitError
 
 _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'mcp_debug.log')
 _log = _logging.getLogger("gemini_engine")
@@ -294,6 +296,8 @@ def _inject_fixed_header(latex: str, header: str) -> str:
     )
 
 
+_GROQ_SEM = threading.Semaphore(2)  # max 2 concurrent Groq calls to avoid burst rate-limit
+
 def _groq_client():
     return OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
@@ -425,9 +429,8 @@ def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:
         maestro_path = os.path.join(BASE_DIR, 'data', 'perfil_maestro.json')
     
     _FALLBACK = [
-        "Desarrollador Full Stack", "Desarrollador Python",
-        "Desarrollador React", "Desarrollador IoT",
-        "Ingeniero Sistemas Embebidos", "Ingeniero Mecánico",
+        "Ingeniero", "Desarrollador", "Analista",
+        "Técnico", "Especialista", "Coordinador",
     ]
     if not os.path.exists(maestro_path):
         return _FALLBACK
@@ -469,12 +472,19 @@ def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:
     terms_mec: list[str] = []
     if 'Mecán' in titulo or 'Mecanic' in titulo:
         terms_mec += ['Ingeniero Mecánico', 'Ingeniero Mecatrónico']
-    if 'SolidWorks' in mec or 'ANSYS' in mec: terms_mec.append('Ingeniero CAD CAE')
-    if 'MATLAB' in mec or 'Control PID' in mec: terms_mec.append('Ingeniero Control Automático')
+    if 'SolidWorks' in mec or 'ANSYS' in mec:
+        terms_mec += ['Diseñador Mecánico', 'Ingeniero CAD CAE']
+    if 'MATLAB' in mec or 'Control PID' in mec:
+        terms_mec.append('Ingeniero Control Automático')
+    if 'Instrumentación' in mec or 'DAQ' in mec:
+        terms_mec.append('Ingeniero de Manufactura')
+    if 'Análisis térmico' in mec or 'Térmic' in titulo:
+        terms_mec.append('Ingeniero Térmico')
 
+    # Priority: winning → mec → IoT → software (mec first since profile is primarily mechanical)
     all_terms: list[str] = winning_terms[:4]
-    for bucket in (terms_sw, terms_iot, terms_mec):
-        all_terms.extend(bucket[:4])
+    for bucket in (terms_mec, terms_iot, terms_sw):
+        all_terms.extend(bucket[:6])
 
     seen: set[str] = set()
     unique: list[str] = []
@@ -482,7 +492,7 @@ def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:
         if t and t not in seen:
             seen.add(t)
             unique.append(t)
-    return unique[:15] if unique else _FALLBACK
+    return unique[:20] if unique else _FALLBACK
 
 
 # ── Compatibilidad rápida ──────────────────────────────────────────────────────
@@ -522,22 +532,31 @@ def evaluar_compatibilidad_rapida(requerimientos: str, user_id: str = 'default_u
     perfil = _get_profile_for_compat(user_id)
     if not perfil:
         return "Nula"
-    try:
-        client = _groq_client()
-        resp = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": "Responde ÚNICAMENTE: Alta, Media, Baja o Nula."},
-                {"role": "user",   "content": f"Vacante:\n{requerimientos[:800]}\n\nCandidato:\n{perfil}\n\n¿Compatibilidad?"},
-            ],
-            temperature=0.1,
-            max_tokens=5,
-        )
-        word = (resp.choices[0].message.content or "").strip().split()[0]
-        return word if word in {"Alta", "Media", "Baja", "Nula"} else "Nula"
-    except Exception as e:
-        _log.warning("[compat] %s", e)
-        return "Nula"
+    msgs = [
+        {"role": "system", "content": "Responde ÚNICAMENTE con una de estas palabras: Alta, Media, Baja o Nula."},
+        {"role": "user",   "content": f"Vacante:\n{requerimientos[:800]}\n\nCandidato:\n{perfil}\n\n¿Compatibilidad?"},
+    ]
+    for attempt in range(3):
+        try:
+            with _GROQ_SEM:
+                client = _groq_client()
+                resp = client.chat.completions.create(
+                    model=GROQ_MODEL,
+                    messages=msgs,
+                    temperature=0.0,
+                    max_tokens=10,
+                )
+            word = (resp.choices[0].message.content or "").strip().split()[0]
+            return word if word in {"Alta", "Media", "Baja", "Nula"} else "Nula"
+        except _RateLimitError:
+            wait = 2 ** attempt * 3  # 3s, 6s, 12s
+            _log.warning("[compat] rate-limit, retrying in %ss (attempt %d/3)", wait, attempt + 1)
+            time.sleep(wait)
+        except Exception as e:
+            _log.warning("[compat] error: %s", e)
+            return "Nula"
+    _log.error("[compat] all retries exhausted for user=%s", user_id)
+    return "Nula"
 
 
 # ── Motor principal ───────────────────────────────────────────────────────────
