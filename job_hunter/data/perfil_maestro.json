@@ -48,25 +48,40 @@
     "software_fullstack": [
       "Python",
       "Flask",
-      "SQLAlchemy",
-      "APIs RESTful",
-      "HTML/CSS/JS",
-      "React",
-      "Next.js",
       "FastAPI",
+      "Fastify",
+      "Node.js",
+      "React 18",
+      "Next.js 14",
+      "Vite",
+      "TypeScript",
+      "Tailwind v4",
+      "SQLAlchemy",
+      "Prisma",
+      "APIs RESTful",
+      "Socket.IO",
+      "WebRTC",
       "MySQL",
-      "PostgreSQL",
+      "PostgreSQL (RLS)",
       "SQLite",
       "Redis",
+      "Supabase",
+      "BullMQ",
       "Docker",
+      "Nginx",
       "Gunicorn",
       "Prometheus",
       "CI/CD",
       "JWT",
+      "MFA",
       "bcrypt",
       "CSRF",
       "HTTPS",
       "OWASP",
+      "Anthropic SDK (Claude)",
+      "Groq (Llama 3.3)",
+      "Puppeteer",
+      "Google Maps Places API",
       "pandas",
       "numpy",
       "openpyxl",
@@ -163,6 +178,78 @@
     }
   ],
   "proyectos": [
+    {
+      "nombre": "CO.DE Aerospace — Sitio web corporativo (codeaerospace.com)",
+      "descripcion": "Landing page corporativa con identidad visual aeroespacial/cyberpunk. Diseño con fondo animado de estrellas y partículas, gradientes deep space, efectos de paralaje con mousemove, tarjetas de servicios con hover luminoso y navegación fija con backdrop blur. Totalmente responsive con animaciones de entrada por scroll via IntersectionObserver.",
+      "tecnologias": [
+        "HTML5",
+        "CSS3",
+        "JavaScript",
+        "Canvas"
+      ]
+    },
+    {
+      "nombre": "CO.DE Aerospace Cowork Platform",
+      "descripcion": "Plataforma de operaciones interna tipo Jira + Notion + dashboard de agentes de IA, con arquitectura dockerizada. Incluye sistema de roles RBAC con matrix de permisos, tablero Kanban con drag-and-drop (@dnd-kit), monitoreo de agentes en tiempo real vía Socket.IO y módulo de prospectos con bulk outreach.",
+      "tecnologias": [
+        "React 18",
+        "Vite",
+        "Tailwind v4",
+        "Fastify",
+        "PostgreSQL",
+        "Prisma",
+        "Redis",
+        "BullMQ",
+        "Socket.IO",
+        "Docker",
+        "Nginx"
+      ]
+    },
+    {
+      "nombre": "Sistema de Agentes de IA — CODE-Scout / CODE-Outreach / CODE-QA-Closer",
+      "descripcion": "Sistema multiagente de captación y seguimiento automatizado integrado como workers. CODE-Scout para búsqueda y scoring via Google Maps; CODE-Outreach para envío personalizado vía Email/WhatsApp (Puppeteer/Socket.IO); CODE-QA-Closer para calificación de leads. Pipeline de estados con trazabilidad completa.",
+      "tecnologias": [
+        "Python",
+        "Anthropic SDK (Claude)",
+        "Supabase (PostgreSQL)",
+        "Google Maps Places API",
+        "Nodemailer",
+        "Puppeteer",
+        "BullMQ",
+        "Groq (Llama-3.3-70b)"
+      ]
+    },
+    {
+      "nombre": "Dashboard Mission Control — CO.DE Aerospace",
+      "descripcion": "Dashboard de administración web con sistema de roles completo y RLS. Autenticación magic link, gráficas de actividad en tiempo real, integración vía webhook con agentes (tokens, transcripciones) y cron jobs de sincronización con Anthropic.",
+      "tecnologias": [
+        "Next.js 14",
+        "Supabase",
+        "PostgreSQL (RLS)",
+        "TypeScript"
+      ]
+    },
+    {
+      "nombre": "Plataforma de Telepsicología (cliente CO.DE Aerospace)",
+      "descripcion": "Diseño arquitectónico completo de plataforma bajo normativa mexicana (NOM-004-SSA3-2012). Incluye videollamadas WebRTC cifradas, expediente clínico electrónico pseudonimizado y pagos CFDI. Entregable como informe técnico profesional branded CO.DE Aerospace.",
+      "tecnologias": [
+        "Node.js",
+        "PostgreSQL",
+        "WebRTC",
+        "RBAC",
+        "MFA",
+        "Python/ReportLab"
+      ]
+    },
+    {
+      "nombre": "Sitio web pedrovargasfotografia.com (cliente CO.DE Aerospace)",
+      "descripcion": "Desarrollo de sitio web para fotógrafo profesional con panel admin. Módulo wizard para generación de invitaciones digitales con RSVP, Google Maps embed y gestión multi-canal (WhatsApp/Email).",
+      "tecnologias": [
+        "React",
+        "Next.js",
+        "SPA"
+      ]
+    },
     {
       "nombre": "Publicación IAC 2024 — Small Satellite Missions",
       "descripcion": "Coautor en el 75th International Astronautical Congress (IAC 2024), Milán, Italia. Simposio: 31st IAA Symposium on Small Satellite Missions. DOI: 10.52202/078365-0120",

@@ -13,7 +13,10 @@ from mcp.types import Tool, TextContent
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-from gemini_engine import compilar_pdf, get_user_outputs_dir, _inject_fixed_header, _detect_lang, _build_header
+from gemini_engine import (
+    compilar_pdf, get_user_outputs_dir, _inject_fixed_header,
+    _detect_lang, _build_header, regenerate_mi_perfil, _get_user_profile_structured
+)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -194,6 +197,22 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="get_my_profile",
+            description=(
+                "Devuelve el perfil estructurado del candidato (nombre, título, skills, resumen, experiencia). "
+                "Úsala para conocer el contexto del candidato antes de generar un CV."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="sync_profile",
+            description=(
+                "Sincroniza y regenera el archivo mi_perfil.md a partir del JSON maestro. "
+                "Úsala si sospechas que el contexto de Claude está desactualizado respecto a la app."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
             name="save_latex_cv",
             description=(
                 "[REQUIERE api.py corriendo en 127.0.0.1:8000] "
@@ -248,6 +267,10 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict):
     _log.info("TOOL CALL: %s  args=%s", name, arguments)
+    if name == "get_my_profile":
+        return await _get_my_profile()
+    if name == "sync_profile":
+        return await _sync_profile()
     if name == "get_vacancy_by_id":
         return await _get_vacancy_by_id(int(arguments["vacante_id"]))
     if name == "get_pending_vacancies":
@@ -263,6 +286,22 @@ async def call_tool(name: str, arguments: dict):
     return [TextContent(type="text", text=f"Tool desconocida: {name}")]
 
 # ── Implementaciones ──────────────────────────────────────────────────────────
+
+async def _get_my_profile():
+    try:
+        data = _get_user_profile_structured(_MCP_USER_ID)
+        return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+    except Exception as e:
+        return [TextContent(type="text", text=f"ERROR obteniendo perfil: {e}")]
+
+
+async def _sync_profile():
+    try:
+        path = regenerate_mi_perfil(_MCP_USER_ID)
+        return [TextContent(type="text", text=f"✓ Perfil sincronizado exitosamente.\nArchivo regenerado: {path}")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"ERROR sincronizando perfil: {e}")]
+
 
 async def _get_vacancy_by_id(vacante_id: int):
     if not _api_health():
@@ -467,10 +506,19 @@ async def _save_latex_cl(vacante_id: int, tex_content: str):
     return [TextContent(type="text", text="ERROR: pdflatex no generó el archivo.")]
 
 
+def sync_on_startup():
+    _login()
+    try:
+        path = regenerate_mi_perfil(_MCP_USER_ID)
+        _log.info("Perfil sincronizado al arranque: %s", path)
+    except Exception as e:
+        _log.warning("No se pudo sincronizar perfil al arranque: %s", e)
+
+
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 
 async def main():
-    _login()
+    sync_on_startup()
     _log.info("stdio_server iniciando — esperando mensajes JSON-RPC de Claude Desktop")
     heartbeat_task = asyncio.create_task(_heartbeat_loop())
     try:

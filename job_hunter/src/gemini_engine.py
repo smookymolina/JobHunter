@@ -421,6 +421,62 @@ def _get_user_profile_structured(user_id: str) -> dict:
     }
 
 
+def regenerate_mi_perfil(user_id: str = 'default_user') -> str:
+    """Regenerates mi_perfil.md from the JSON profile of the given user."""
+    data = _load_profile_json(user_id)
+    if not data:
+        return ""
+    
+    os.makedirs(CONTEXT_DIR, exist_ok=True)
+    habs = data.get("habilidades", {})
+    skill_lines = [
+        f"- **{cat.replace('_', ' ').title()}**: {', '.join(vals)}"
+        for cat, vals in habs.items() if vals
+    ]
+    exp_lines = []
+    for e in data.get("experiencia", []):
+        exp_lines.append(f"### {e.get('puesto','')} — {e.get('empresa','')} ({e.get('periodo','')})")
+        for l in e.get("logros", []):
+            exp_lines.append(f"- {l}")
+    edu_lines = [
+        f"- **{e.get('titulo','')}** — {e.get('institucion','')} ({e.get('anio','')})"
+        for e in data.get("educacion", [])
+    ]
+    proj_lines = []
+    for p in data.get("proyectos", []):
+        proj_lines.append(f"### {p.get('nombre','')}")
+        proj_lines.append(p.get("descripcion",""))
+        if p.get("tecnologias"):
+            proj_lines.append(f"Tecnologías: {', '.join(p['tecnologias'])}")
+
+    md = "\n".join([
+        f"# {data.get('nombre','')} {data.get('apellidos','')}",
+        f"**{data.get('titulo_profesional','')}**",
+        f"",
+        f"Email: {data.get('email','')}  |  Tel: {data.get('telefono','')}",
+        f"Ubicación: {data.get('ubicacion','')}  |  LinkedIn: {data.get('linkedin','')}  |  GitHub: {data.get('github','')}",
+        f"",
+        f"## Resumen",
+        data.get("resumen", ""),
+        f"",
+        f"## Habilidades",
+        *skill_lines,
+        f"",
+        f"## Experiencia",
+        *exp_lines,
+        f"",
+        f"## Educación",
+        *edu_lines,
+        f"",
+        f"## Proyectos",
+        *proj_lines,
+    ])
+    md_path = os.path.join(CONTEXT_DIR, "mi_perfil.md")
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(md)
+    return md_path
+
+
 # ── generar_terminos_busqueda ──────────────────────────────────────────────────
 
 def generar_terminos_busqueda(user_id: str = 'default_user') -> list[str]:

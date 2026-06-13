@@ -8,7 +8,7 @@ from starlette.requests import Request
 from starlette.routing import Mount, Route
 from mcp.server.sse import SseServerTransport
 
-from mcp_server import server  # registers all tools via decorators
+from mcp_server import server, sync_on_startup  # registers all tools via decorators
 
 API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
@@ -39,6 +39,7 @@ async def _heartbeat_loop():
 
 
 async def lifespan(app):
+    sync_on_startup()
     task = asyncio.create_task(_heartbeat_loop())
     try:
         yield
