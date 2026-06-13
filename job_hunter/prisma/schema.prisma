@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id                      Int       @id @default(autoincrement()) @map("id")
+  userId                  String    @unique @db.VarChar(50) @map("user_id")
+  email                   String    @unique @db.VarChar(255)
+  hashedPassword          String    @db.Text @map("hashed_password")
+  tier                    String    @default("free") @db.VarChar(20)
+  role                    String    @default("user") @db.VarChar(20)
+  telegramTokenEncrypted  String?   @db.VarChar(500) @map("telegram_token_encrypted")
+  vacantesLimite          Int       @default(5) @map("vacantes_limite")
+  latexLimite             Int       @default(3) @map("latex_limite")
+  latexGenerados          Int       @default(0) @map("latex_generados")
+  emailVerified           Boolean   @default(false) @map("email_verified")
+  emailOtp                String?   @db.VarChar(255) @map("email_otp")
+  emailOtpExpiresAt       DateTime? @map("email_otp_expires_at")
+  phone                   String?   @unique @db.VarChar(32)
+  phoneVerified           Boolean   @default(false) @map("phone_verified")
+  whatsappOtp             String?   @db.VarChar(255) @map("whatsapp_otp")
+  whatsappOtpExpiresAt    DateTime? @map("whatsapp_otp_expires_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+
+  @@map("usuarios")
+}

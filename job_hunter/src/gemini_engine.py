@@ -12,7 +12,8 @@ from logging.handlers import RotatingFileHandler as _RotatingFileHandler
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-from openai import OpenAI, RateLimitError as _RateLimitError
+import google.generativeai as _genai
+from google.api_core.exceptions import ResourceExhausted as _ResourceExhausted
 
 _LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'mcp_debug.log')
 _log = _logging.getLogger("gemini_engine")
@@ -24,8 +25,9 @@ if not _log.handlers:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL   = "llama-3.3-70b-versatile"
+GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL_FAST = "gemini-1.5-flash"   # compat checks, inspector
+GEMINI_MODEL_PRO  = "gemini-1.5-pro"     # CV / CL generation
 
 BASE_DIR      = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 DB_PATH       = os.path.join(BASE_DIR, 'db', 'vacantes.db')
@@ -249,31 +251,42 @@ def _build_header(lang: str, user_id: str = 'default_user', headline: str | None
         disponib   = f"Disponibilidad para viajar: {disp_raw}"
         ciudad_hdr = ciudad or 'Ciudad de México, México'
 
-    # Build contact-line parts dynamically; skip empty fields
-    parts: list[str] = []
+    # ── Línea 1: teléfono | email | ciudad ───────────────────────────────────
+    contact_parts: list[str] = []
     if telefono:
-        parts.append(telefono)
+        contact_parts.append(telefono)
     if email:
-        parts.append(f"\\href{{mailto:{email}}}{{{email}}}")
+        contact_parts.append(f"\\href{{mailto:{email}}}{{{email}}}")
+    if ciudad_hdr:
+        contact_parts.append(ciudad_hdr)
+    contact_line = r" \quad|\quad ".join(contact_parts)
+
+    # ── Línea 2: linkedin | github ────────────────────────────────────────────
+    links_parts: list[str] = []
     if linkedin:
-        # Display just "linkedin.com/in/slug" without https://www. prefix
         ln_display = re.sub(r'^https?://(www\.)?', '', linkedin).rstrip('/')
-        parts.append(f"\\href{{{linkedin}}}{{{ln_display}}}")
+        links_parts.append(f"\\href{{{linkedin}}}{{{ln_display}}}")
     if github:
         gh_display = re.sub(r'^https?://(www\.)?', '', github).rstrip('/')
-        parts.append(f"\\href{{{github}}}{{{gh_display}}}")
-    if ciudad_hdr:
-        parts.append(ciudad_hdr)
-    if disponib:
-        parts.append(disponib)
+        links_parts.append(f"\\href{{{github}}}{{{gh_display}}}")
+    links_line = r" \quad|\quad ".join(links_parts)
 
-    contact_line = " $|$ ".join(parts)
+    # ── Línea 3: disponibilidad ───────────────────────────────────────────────
+    lines: list[str] = []
+    if contact_line:
+        lines.append(f"\\small {contact_line} \\\\ \\vspace{{1mm}}")
+    if links_line:
+        lines.append(f"{links_line} \\\\ \\vspace{{1mm}}")
+    if disponib:
+        lines.append(disponib)
+
+    body = "\n".join(lines)
 
     return (
         "\\begin{center}\n"
         f"{{\\Huge \\textbf{{{nombre}}}}} \\\\ \\vspace{{2mm}}\n"
-        f"{{\\large \\textit{{{titulo_hdr}}}}} \\\\ \\vspace{{1mm}}\n"
-        f"\\small {contact_line}\n"
+        f"{{\\large \\textit{{{titulo_hdr}}}}} \\\\ \\vspace{{2mm}}\n"
+        f"{body}\n"
         "\\end{center}\n"
         "\\vspace{2mm}"
     )
@@ -303,10 +316,28 @@ def _inject_fixed_header(latex: str, header: str) -> str:
     )
 
 
-_GROQ_SEM = threading.Semaphore(2)  # max 2 concurrent Groq calls to avoid burst rate-limit
+_GEMINI_SEM = threading.Semaphore(2)  # max 2 concurrent Gemini calls
 
-def _groq_client():
-    return OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+
+def _gemini_call(
+    system_msg: str,
+    user_msg: str,
+    model: str,
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+) -> str:
+    """Thread-safe Gemini call. Configures API key, builds model, returns response text."""
+    _genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = _genai.GenerativeModel(
+        model_name=model,
+        system_instruction=system_msg or None,
+    )
+    with _GEMINI_SEM:
+        resp = gemini_model.generate_content(
+            user_msg,
+            generation_config={"temperature": temperature, "max_output_tokens": max_tokens},
+        )
+    return resp.text or ""
 
 
 def _load_profile_json(user_id: str):
@@ -343,7 +374,10 @@ def _get_user_profile(user_id: str) -> str:
             f"Habilidades: {', '.join(skills[:50])}\n"
             f"Experiencia relevante:\n{exp_lines}\n"
         )
-    md_path = os.path.join(CONTEXT_DIR, 'mi_perfil.md')
+    # Per-user markdown; fall back to legacy global file only if present
+    md_path = os.path.join(CONTEXT_DIR, f'{user_id}_mi_perfil.md')
+    if not os.path.exists(md_path):
+        md_path = os.path.join(CONTEXT_DIR, 'mi_perfil.md')
     if os.path.exists(md_path):
         return _read(md_path)
     return ""
@@ -478,7 +512,7 @@ def regenerate_mi_perfil(user_id: str = 'default_user') -> str:
         f"## Proyectos",
         *proj_lines,
     ])
-    md_path = os.path.join(CONTEXT_DIR, "mi_perfil.md")
+    md_path = os.path.join(CONTEXT_DIR, f"{user_id}_mi_perfil.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md)
     return md_path
@@ -590,28 +624,19 @@ def _get_profile_for_compat(user_id: str = 'default_user') -> str:
 
 
 def evaluar_compatibilidad_rapida(requerimientos: str, user_id: str = 'default_user') -> str:
-    if not GROQ_API_KEY or not requerimientos.strip():
+    if not GEMINI_API_KEY or not requerimientos.strip():
         return "Nula"
     perfil = _get_profile_for_compat(user_id)
     if not perfil:
         return "Nula"
-    msgs = [
-        {"role": "system", "content": "Responde ÚNICAMENTE con una de estas palabras: Alta, Media, Baja o Nula."},
-        {"role": "user",   "content": f"Vacante:\n{requerimientos[:800]}\n\nCandidato:\n{perfil}\n\n¿Compatibilidad?"},
-    ]
+    sys_msg = "Responde ÚNICAMENTE con una de estas palabras: Alta, Media, Baja o Nula."
+    usr_msg = f"Vacante:\n{requerimientos[:800]}\n\nCandidato:\n{perfil}\n\n¿Compatibilidad?"
     for attempt in range(3):
         try:
-            with _GROQ_SEM:
-                client = _groq_client()
-                resp = client.chat.completions.create(
-                    model=GROQ_MODEL,
-                    messages=msgs,
-                    temperature=0.0,
-                    max_tokens=10,
-                )
-            word = (resp.choices[0].message.content or "").strip().split()[0]
+            raw = _gemini_call(sys_msg, usr_msg, GEMINI_MODEL_FAST, temperature=0.0, max_tokens=10)
+            word = raw.strip().split()[0] if raw.strip() else "Nula"
             return word if word in {"Alta", "Media", "Baja", "Nula"} else "Nula"
-        except _RateLimitError:
+        except _ResourceExhausted:
             wait = 2 ** attempt * 3  # 3s, 6s, 12s
             _log.warning("[compat] rate-limit, retrying in %ss (attempt %d/3)", wait, attempt + 1)
             time.sleep(wait)
@@ -750,7 +775,15 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
         "=== PASO 4 — ESTRUCTURA LATEX ESTRICTA ===\n"
         "REGLA CRÍTICA: TIENES ESTRICTAMENTE PROHIBIDO colocar bloques \\begin{center}, "
         "macros de cabecera, nombre, contacto o cualquier datos personales en el cuerpo del documento. "
-        "El encabezado personal es INYECTADO AUTOMÁTICAMENTE por el sistema. "
+        "El encabezado personal es INYECTADO AUTOMÁTICAMENTE por el sistema con esta distribución en 3 líneas:\n"
+        "  \\begin{center}\n"
+        "    {\\Huge \\textbf{ {nombre} }} \\\\ \\vspace{2mm}\n"
+        "    {\\large \\textit{ {headline_generado} }} \\\\ \\vspace{2mm}\n"
+        "    \\small {telefono} \\quad|\\quad {email} \\quad|\\quad {ciudad} \\\\ \\vspace{1mm}\n"
+        "    linkedin.com/in/jair-molina-arce \\quad|\\quad github.com/smookymolina \\\\ \\vspace{1mm}\n"
+        "    Willing to travel: Yes (o Disponibilidad para viajar: Sí)\n"
+        "  \\end{center}\n"
+        "  \\vspace{2mm}\n"
         "El documento DEBE ir directo a las secciones después de \\begin{document}.\n"
         "El orden de secciones es:\n"
         "  1. Professional Summary / Perfil Profesional (párrafo continuo, máx 4 líneas)\n"
@@ -829,17 +862,7 @@ MANDATORY FORMAT RULES:
     _log.info("[IA] Generando CV vacante #%s user=%s lang=%s: %s", vid, user_id, lang, titulo[:50])
 
     try:
-        client = _groq_client()
-        resp = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "user",   "content": user_msg},
-            ],
-            temperature=0.3,
-            max_tokens=4096,
-        )
-        latex_raw = resp.choices[0].message.content or ""
+        latex_raw = _gemini_call(system_msg, user_msg, GEMINI_MODEL_PRO, temperature=0.3, max_tokens=4096)
     except Exception as e:
         _log.error("[IA ERROR] %s", e)
         _set_status(vid, "Requiere_Correccion", user_id)
@@ -916,17 +939,7 @@ REGLAS:
 """
 
     try:
-        client = _groq_client()
-        resp = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "user",   "content": user_msg},
-            ],
-            temperature=0.5,
-            max_tokens=2048,
-        )
-        latex_raw = resp.choices[0].message.content or ""
+        latex_raw = _gemini_call(system_msg, user_msg, GEMINI_MODEL_PRO, temperature=0.5, max_tokens=2048)
     except Exception as e:
         _log.error("[CL IA ERROR] %s", e)
         return None
@@ -990,8 +1003,8 @@ def compilar_pdf(tex_path: str) -> str | None:
 
 
 def generar_y_compilar(vacante_id: int, user_id: str = 'default_user') -> tuple[str | None, str | None]:
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY no configurada.")
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY no configurada.")
     tex_path = generar_latex_cv(vacante_id, user_id)
     if not tex_path:
         return None, None
@@ -1009,8 +1022,8 @@ def generar_y_compilar(vacante_id: int, user_id: str = 'default_user') -> tuple[
 
 
 def generar_cl_y_compilar(vacante_id: int, user_id: str = 'default_user') -> tuple[str | None, str | None]:
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY no configurada.")
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY no configurada.")
     tex_path = generar_latex_cl(vacante_id, user_id)
     if not tex_path:
         return None, None

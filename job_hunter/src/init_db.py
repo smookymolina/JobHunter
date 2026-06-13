@@ -46,6 +46,13 @@ SCHEMA_SQL = [
         latex_limite             INT DEFAULT 3 NOT NULL,
         latex_generados          INT DEFAULT 0 NOT NULL,
         created_at               TIMESTAMP DEFAULT NOW(),
+        email_verified           BOOLEAN DEFAULT FALSE NOT NULL,
+        email_otp                VARCHAR(255) DEFAULT NULL,
+        email_otp_expires_at     TIMESTAMP DEFAULT NULL,
+        phone                    VARCHAR(32) DEFAULT NULL,
+        phone_verified           BOOLEAN DEFAULT FALSE NOT NULL,
+        whatsapp_otp             VARCHAR(255) DEFAULT NULL,
+        whatsapp_otp_expires_at  TIMESTAMP DEFAULT NULL,
         is_verified              BOOLEAN DEFAULT FALSE NOT NULL,
         verification_code        VARCHAR(10) DEFAULT NULL,
         phone_number             VARCHAR(20) DEFAULT NULL

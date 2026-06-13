@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CV – Jair Molina Arce</title>
+<style>
+  /* ── PRINT SETUP ── */
+  @page {
+    size: A4;
+    margin: 14mm 16mm 14mm 16mm;
+  }
+  @media print {
+    body { font-size: 8.5pt; }
+    .no-break { page-break-inside: avoid; }
+    section { page-break-inside: avoid; }
+  }
+
+  /* ── BASE ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 8.8pt;
+    color: #1a1a1a;
+    line-height: 1.45;
+    background: #fff;
+    max-width: 210mm;
+    margin: 0 auto;
+    padding: 14mm 16mm;
+  }
+
+  /* ── COLORS ── */
+  :root {
+    --dark-blue: #1B3A5C;
+    --mid-blue:  #2E6DA4;
+    --light-blue:#D6E8F7;
+    --gray:      #555555;
+    --bg-stripe: #F4F8FC;
+  }
+
+  /* ── HEADER ── */
+  .header { margin-bottom: 10px; }
+  .name {
+    font-size: 22pt;
+    font-weight: 700;
+    color: var(--dark-blue);
+    letter-spacing: -0.3px;
+    line-height: 1.1;
+    margin-bottom: 3px;
+  }
+  .role {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: var(--mid-blue);
+    margin-bottom: 2px;
+  }
+  .subtitle {
+    font-size: 8.5pt;
+    font-style: italic;
+    color: var(--gray);
+    margin-bottom: 3px;
+  }
+  .location {
+    font-size: 8.5pt;
+    color: #333;
+    margin-bottom: 7px;
+  }
+  .contact-grid {
+    display: grid;
+    grid-template-columns: 55% 45%;
+    gap: 0;
+    font-size: 8.3pt;
+    color: #222;
+    margin-bottom: 6px;
+  }
+  .contact-grid span { display: block; margin-bottom: 2px; }
+  .contact-grid span::before { content: '▶  '; color: var(--mid-blue); }
+
+  .header-rule {
+    border: none;
+    border-top: 1.5px solid var(--dark-blue);
+    margin: 8px 0 6px;
+  }
+
+  /* ── SECTIONS ── */
+  section { margin-bottom: 8px; }
+  .section-title {
+    font-size: 10pt;
+    font-weight: 700;
+    color: var(--dark-blue);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 3px;
+  }
+  .section-rule {
+    border: none;
+    border-top: 1.2px solid var(--mid-blue);
+    margin-bottom: 6px;
+  }
+
+  /* ── EXPERIENCE BLOCKS ── */
+  .exp-block { margin-bottom: 8px; }
+  .exp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .exp-title {
+    font-weight: 700;
+    font-size: 9pt;
+    color: #1a1a1a;
+    flex: 1;
+  }
+  .exp-date {
+    font-size: 8.3pt;
+    font-weight: 700;
+    font-style: italic;
+    color: var(--mid-blue);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .exp-org {
+    font-size: 8.3pt;
+    font-style: italic;
+    color: var(--gray);
+    margin-bottom: 3px;
+  }
+  .exp-bullets {
+    margin: 0;
+    padding-left: 14px;
+    list-style: disc;
+    color: #1a1a1a;
+  }
+  .exp-bullets li {
+    margin-bottom: 2px;
+    text-align: justify;
+  }
+
+  /* ── PUBLICATIONS ── */
+  .pub-sub { font-weight: 700; font-size: 8.8pt; margin: 5px 0 3px; }
+  .pub-entry {
+    margin: 0 0 4px 14px;
+    text-indent: -8px;
+    text-align: justify;
+  }
+  .pub-entry::before { content: '•  '; }
+
+  /* ── CHIP GRID (Áreas) ── */
+  .chip-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    margin-top: 2px;
+  }
+  .chip {
+    background: var(--light-blue);
+    color: var(--dark-blue);
+    font-size: 7.8pt;
+    text-align: center;
+    padding: 4px 5px;
+    border: 0.5px solid var(--mid-blue);
+    line-height: 1.3;
+  }
+
+  /* ── SKILLS TABLE ── */
+  .skills-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+  }
+  .skills-table tr:nth-child(odd)  td { background: var(--bg-stripe); }
+  .skills-table tr:nth-child(even) td { background: #fff; }
+  .skills-table td {
+    padding: 3.5px 5px 3.5px 0;
+    vertical-align: top;
+    border-bottom: 0.3px solid #ddd;
+  }
+  .skills-table td:first-child {
+    font-weight: 700;
+    width: 30%;
+    padding-right: 10px;
+    color: #1a1a1a;
+  }
+
+  /* ── FOOTER ── */
+  .footer-rule {
+    border: none;
+    border-top: 0.5px solid var(--gray);
+    margin: 10px 0 5px;
+  }
+  .footer-note {
+    font-size: 7.8pt;
+    font-style: italic;
+    color: var(--gray);
+  }
+
+  /* Print helpers */
+  b { font-weight: 700; }
+  i { font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════ HEADER ══════════════════════════════════ -->
+<div class="header">
+  <div class="name">Jair Molina Arce</div>
+  <div class="role">Ingeniero Mecánico | IoT &amp; Sistemas Embebidos | Investigación y Desarrollo</div>
+  <div class="subtitle">Control de Sistemas Dinámicos · Instrumentación · Plataformas SmartCity · Desarrollo Web Full-Stack</div>
+  <div class="location">Ciudad de México, México</div>
+
+  <div class="contact-grid">
+    <div>
+      <span>jmolinaa1700@alumno.ipn.mx</span>
+      <span>ingjairmolina@gmail.com</span>
+      <span>CVU CONACYT: 1340773</span>
+    </div>
+    <div>
+      <span>56 5646 4108</span>
+      <span>ORCID: 0009-0009-6732-8100</span>
+      <span>Nacionalidad: Mexicana</span>
+    </div>
+  </div>
+</div>
+<hr class="header-rule">
+
+<!-- ══════════════════════════════ PERFIL PROFESIONAL ══════════════════════════ -->
+<section>
+  <div class="section-title">Perfil Profesional</div>
+  <hr class="section-rule">
+  <p style="text-align:justify">
+    Ingeniero Mecánico con formación avanzada en <b>control de sistemas dinámicos, instrumentación,
+    IoT y desarrollo de software full-stack</b>. Candidato a la Maestría en Tecnologías Avanzadas
+    en el IPN, línea de investigación en control e instrumentación. Experiencia en diseño e
+    implementación de sistemas de adquisición de datos (DAQ), programación de microcontroladores
+    (ESP32, STM32), plataformas web con APIs RESTful, análisis térmico-estructural mediante FEA y
+    desarrollo de bancos de prueba para propulsión cohete. Participación como ponente y coautor en
+    congresos internacionales (<b>IAC 2024, Milán</b>), docencia a nivel posgrado y demostración
+    tecnológica en televisión nacional. Orientado al desarrollo de productos inteligentes, plataformas
+    SmartCity y proyectos de investigación aplicada.
+  </p>
+</section>
+
+<!-- ══════════════════════════════ FORMACIÓN ACADÉMICA ════════════════════════ -->
+<section>
+  <div class="section-title">Formación Académica</div>
+  <hr class="section-rule">
+
+  <div class="exp-block no-break">
+    <div class="exp-header">
+      <span class="exp-title">Maestría en Tecnologías Avanzadas</span>
+      <span class="exp-date">2024 – Presente</span>
+    </div>
+    <div class="exp-org">Instituto Politécnico Nacional (IPN), Ciudad de México</div>
+    <ul class="exp-bullets">
+      <li>Línea de investigación: <b>Control de sistemas dinámicos e instrumentación</b>.</li>
+      <li>Estado: En curso.</li>
+    </ul>
+  </div>
+
+  <div class="exp-block no-break">
+    <div class="exp-header">
+      <span class="exp-title">Ingeniería Mecánica</span>
+      <span class="exp-date">2017 – 2023</span>
+    </div>
+    <div class="exp-org">Instituto Politécnico Nacional (IPN), Ciudad de México</div>
+    <ul class="exp-bullets">
+      <li>Enfoque: diseño y análisis de bancos de prueba; térmica, instrumentación y sistemas embebidos.</li>
+      <li>Estado: Concluido. Titulación en trámite.</li>
+    </ul>
+  </div>
+
+  <div class="exp-block no-break">
+    <div class="exp-header">
+      <span class="exp-title">Bachillerato Técnico en Informática</span>
+      <span class="exp-date">2014 – 2017</span>
+    </div>
+    <div class="exp-org">Colegio de Bachilleres Plantel 1 "El Rosario"</div>
+    <ul class="exp-bullets">
+      <li>Especialidad: Técnico en Informática.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ EXPERIENCIA RELEVANTE ══════════════════════ -->
+<section>
+  <div class="section-title">Experiencia Relevante</div>
+  <hr class="section-rule">
+
+  <div class="exp-block no-break">
+    <div class="exp-header">
+      <span class="exp-title">Sistemas Embebidos e Instrumentación – Banco de Pruebas de Propulsión</span>
+      <span class="exp-date">2022 – 2024</span>
+    </div>
+    <div class="exp-org">Instituto Politécnico Nacional (IPN), Ciudad de México</div>
+    <ul class="exp-bullets">
+      <li>Diseño e implementación de sistema DAQ con sensores de presión, temperatura y flujo para banco de pruebas de cohetes de combustible sólido.</li>
+      <li>Programación de microcontroladores <b>ESP32</b> y <b>STM32</b> para lectura de sensores, transmisión de datos y control de actuadores.</li>
+      <li>Implementación de controladores digitales y modelos de sistemas dinámicos con <b>MATLAB/Simulink</b>.</li>
+      <li>Análisis y visualización de datos con <b>Python</b> (pandas, numpy, matplotlib) y <b>LabVIEW</b>.</li>
+      <li>Análisis térmico-estructural mediante FEA con <b>SolidWorks</b> y <b>ANSYS</b>.</li>
+    </ul>
+  </div>
+
+  <div class="exp-block no-break">
+    <div class="exp-header">
+      <span class="exp-title">Desarrollo de Plataforma Web Full-Stack para Monitoreo IoT</span>
+      <span class="exp-date">2023 – 2024</span>
+    </div>
+    <div class="exp-org">Proyecto independiente / IPN</div>
+    <ul class="exp-bullets">
+      <li>Diseño e implementación de plataforma web con <b>Flask</b> y <b>SQLAlchemy</b> para monitoreo en tiempo real de dispositivos conectados.</li>
+      <li>Integración de <b>APIs RESTful</b> para recepción y procesamiento de datos de sensores remotos (temperatura, presión, flujo).</li>
+      <li>Autenticación segura con JWT, Flask-Login y bcrypt; control de acceso por roles y cifrado de datos.</li>
+      <li>Despliegue con <b>Docker</b> y Gunicorn; monitoreo con Prometheus; bases de datos MySQL y Redis.</li>
+      <li>Panel de control con visualización en tiempo real e historiales de eventos.</li>
+    </ul>
+  </div>
+
+  <div class="exp-block no-break">
+    <div class="exp-header">
+      <span class="exp-title">Desarrollo de Aplicaciones Móviles y Web para Automatización</span>
+      <span class="exp-date">2023 – 2024</span>
+    </div>
+    <div class="exp-org">Proyecto académico / profesional</div>
+    <ul class="exp-bullets">
+      <li>Creación de aplicaciones multiplataforma para control remoto de dispositivos y automatización de procesos.</li>
+      <li>Integración de interfaces de usuario con backends conectados a microcontroladores vía WiFi/HTTP.</li>
+      <li>Aplicación de <b>Realidad Virtual (VR)</b> y <b>Realidad Aumentada (AR)</b> en capacitación técnica e industrial.</li>
+      <li>Demostración de solución VR para capacitación con extintores en <b>TV Azteca México</b> (2024).</li>
+    </ul>
+  </div>
+
+  <div class="exp-block no-break">
+    <div class="exp-header">
+      <span class="exp-title">Docente – Tecnologías Disruptivas (Posgrado)</span>
+      <span class="exp-date">2024</span>
+    </div>
+    <div class="exp-org">Escuela Nacional de Biblioteconomía y Archivonomía (ENBA), IPN, Ciudad de México</div>
+    <ul class="exp-bullets">
+      <li>Impartición del curso <i>Impacto de las Tecnologías de Realidad Virtual y Realidad Aumentada</i> a nivel posgrado.</li>
+      <li>Diseño de contenido sobre VR/AR aplicada a gestión de información, capacitación inmersiva y archivos digitales.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ PRODUCCIÓN CIENTÍFICA ══════════════════════ -->
+<section>
+  <div class="section-title">Producción Científica</div>
+  <hr class="section-rule">
+
+  <div class="pub-sub">Publicaciones en Congresos Internacionales</div>
+  <p class="pub-entry">
+    Sánchez González, A., Manríquez Chávez, Y., Rosas Palacios, A., <b>Molina Arce, J.</b> (2024).
+    <i>31st IAA Symposium on Small Satellite Missions.</i>
+    <b>75th International Astronautical Congress (IAC 2024)</b>, Milán, Italia.
+    International Astronautical Federation (IAF). DOI: 10.52202/078365-0120
+  </p>
+
+  <div class="pub-sub">Publicaciones Nacionales</div>
+  <p class="pub-entry">
+    <b>Molina Arce, J.</b> (2024). <i>Caracterización, diseño y simulación de un banco de pruebas
+    mecánicas para la medición de parámetros operativos.</i> Revista <i>Hacia el Espacio</i>, México.
+  </p>
+</section>
+
+<!-- ══════════════════════════════ CONGRESOS Y DIVULGACIÓN ════════════════════ -->
+<section>
+  <div class="section-title">Participación en Congresos y Divulgación</div>
+  <hr class="section-rule">
+
+  <p class="pub-entry"><b>Ponente / Coautor</b> (oct. 2024). <b>75th International Astronautical Congress (IAC 2024)</b>, Milán, Italia. Simposio: <i>31st IAA Symposium on Small Satellite Missions</i>.</p>
+  <p class="pub-entry"><b>Ponente</b> (07 mar. 2024). <i>Caracterización y diseño de un banco de pruebas para cohetes de combustible sólido</i>. UPIITA–IPN, Ciudad de México.</p>
+  <p class="pub-entry"><b>Demostración Tecnológica en Televisión Nacional</b> (2024). TV Azteca México. Tema: <i>Realidad Virtual aplicada a capacitación con extintores</i>.</p>
+  <p class="pub-entry"><b>Presentación de póster científico</b> (2023). Planetario Luis Enrique Erro (CDA–IPN), Ciudad de México.</p>
+  <p class="pub-entry"><b>Jefe de Staff</b> (2023). ICASST 2023 – International Congress on Advanced Systems Science and Technology, Ciudad de México.</p>
+  <p class="pub-entry"><b>Organizing Committee Staff</b> (2022). ICASST 2022 – International Congress on Advanced Systems Science and Technology, Ciudad de México.</p>
+</section>
+
+<!-- ══════════════════════════════ ÁREAS DE ESPECIALIZACIÓN ══════════════════ -->
+<section>
+  <div class="section-title">Áreas de Especialización</div>
+  <hr class="section-rule">
+  <div class="chip-grid">
+    <div class="chip">IoT y sistemas embebidos<br>(ESP32, STM32, Arduino)</div>
+    <div class="chip">Domótica y automatización<br>de edificios</div>
+    <div class="chip">Redes de sensores<br>y telemetría</div>
+    <div class="chip">Protocolos: MQTT, HTTP/REST<br>WiFi, UART, SPI, I2C</div>
+    <div class="chip">Plataformas SmartCity<br>y monitoreo remoto</div>
+    <div class="chip">Desarrollo web full-stack<br>(Flask, APIs REST)</div>
+    <div class="chip">Aplicaciones móviles<br>multiplataforma</div>
+    <div class="chip">Bases de datos: MySQL<br>PostgreSQL, SQLite, Redis</div>
+    <div class="chip">DevOps: Docker, CI/CD<br>Prometheus</div>
+    <div class="chip">Ciberseguridad: JWT<br>CSRF, HTTPS, OWASP</div>
+    <div class="chip">Instrumentación y<br>adquisición de datos (DAQ)</div>
+    <div class="chip">Control de sistemas<br>dinámicos</div>
+    <div class="chip">Análisis térmico/estructural<br>(FEA / ANSYS)</div>
+    <div class="chip">Realidad Virtual (VR)<br>y Aumentada (AR)</div>
+    <div class="chip">Bancos de prueba para<br>propulsión cohete</div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ COMPETENCIAS TÉCNICAS ══════════════════════ -->
+<section>
+  <div class="section-title">Competencias Técnicas</div>
+  <hr class="section-rule">
+  <table class="skills-table">
+    <tr>
+      <td>Sistemas Embebidos / IoT</td>
+      <td>ESP32, STM32, Arduino; firmware en C/C++; protocolos MQTT, HTTP, WiFi, UART, SPI, I2C; integración con plataformas en la nube.</td>
+    </tr>
+    <tr>
+      <td>Programación</td>
+      <td>Python, C/C++, MATLAB/Simulink, LabVIEW; scripting y procesamiento de datos.</td>
+    </tr>
+    <tr>
+      <td>Desarrollo Web Full-Stack</td>
+      <td>Flask, SQLAlchemy, APIs RESTful, HTML/CSS/JS; autenticación segura (Flask-Login, bcrypt, JWT).</td>
+    </tr>
+    <tr>
+      <td>Bases de Datos</td>
+      <td>MySQL, PostgreSQL, SQLite, Redis; diseño relacional y optimización de consultas.</td>
+    </tr>
+    <tr>
+      <td>DevOps / Infraestructura</td>
+      <td>Docker, Gunicorn, pytest, logging, Prometheus, rate limiting.</td>
+    </tr>
+    <tr>
+      <td>Ciberseguridad</td>
+      <td>Autenticación segura, cifrado, protección CSRF, HTTPS, buenas prácticas OWASP.</td>
+    </tr>
+    <tr>
+      <td>Instrumentación</td>
+      <td>Sensores de presión / temperatura / flujo; acondicionamiento de señales; DAQ (LabVIEW, Python).</td>
+    </tr>
+    <tr>
+      <td>Control Automático</td>
+      <td>Modelado de sistemas dinámicos; controladores PID clásicos y digitales.</td>
+    </tr>
+    <tr>
+      <td>Diseño CAD / CAE</td>
+      <td>SolidWorks, ANSYS; análisis FEA, simulación térmica y estructural.</td>
+    </tr>
+    <tr>
+      <td>Procesamiento de Datos</td>
+      <td>pandas, numpy, openpyxl; análisis, visualización y reportes automatizados.</td>
+    </tr>
+    <tr>
+      <td>Manufactura</td>
+      <td>Procesos de fabricación, metrología dimensional, lectura de planos técnicos.</td>
+    </tr>
+    <tr>
+      <td>Apps Móviles / VR-AR</td>
+      <td>Desarrollo multiplataforma; integración con hardware; VR/AR para capacitación técnica.</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ══════════════════════════════ IDIOMAS ════════════════════════════════════ -->
+<section>
+  <div class="section-title">Idiomas</div>
+  <hr class="section-rule">
+  <table class="skills-table">
+    <tr>
+      <td>Español</td>
+      <td>Nativo</td>
+    </tr>
+    <tr>
+      <td>Inglés</td>
+      <td>Intermedio — lectura técnica fluida y comprensión de documentación especializada</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ══════════════════════════════ IDENTIFICADORES ════════════════════════════ -->
+<section>
+  <div class="section-title">Identificadores de Investigador</div>
+  <hr class="section-rule">
+  <table class="skills-table">
+    <tr>
+      <td>CVU CONACYT</td>
+      <td>1340773</td>
+    </tr>
+    <tr>
+      <td>ORCID</td>
+      <td>0009-0009-6732-8100</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ══════════════════════════════ INFORMACIÓN ADICIONAL ══════════════════════ -->
+<section>
+  <div class="section-title">Información Adicional</div>
+  <hr class="section-rule">
+  <table class="skills-table">
+    <tr>
+      <td>Fecha de nacimiento</td>
+      <td>19 de noviembre de 1998</td>
+    </tr>
+    <tr>
+      <td>Estado civil</td>
+      <td>Soltero</td>
+    </tr>
+    <tr>
+      <td>Disponibilidad</td>
+      <td>Inmediata para proyectos de investigación, IoT, SmartCity y desarrollo de software</td>
+    </tr>
+    <tr>
+      <td>Referencias</td>
+      <td>Disponibles a solicitud</td>
+    </tr>
+  </table>
+</section>
+
+<hr class="footer-rule">
+<p class="footer-note">Declaro que la información contenida en este CV es verídica y verificable.</p>
+
+</body>
+</html>

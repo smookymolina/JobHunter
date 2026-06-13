@@ -283,7 +283,22 @@ export const api = {
       user_id: string; email: string; tier: string; role: string;
       has_telegram_bot: boolean;
       vacantes_limite: number; latex_limite: number; latex_generados: number;
+      email_verified: boolean; phone_verified: boolean; phone: string | null;
     }>('/auth/me'),
+
+  sendWhatsappOtp: (phone: string) =>
+    req<{ ok: boolean; msg: string; phone: string }>('/auth/send-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    }),
+
+  verifyWhatsappOtp: (code: string) =>
+    req<{ ok: boolean; msg: string }>('/auth/verify-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    }),
 
   setTelegramToken: (password: string, telegram_token: string) =>
     req<{ ok: boolean }>('/perfil/telegram/set', {

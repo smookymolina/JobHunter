@@ -106,7 +106,14 @@ def get_current_user(
     if not creds:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
     if creds.credentials == _BOT_TOKEN:
-        return {"user_id": "default_user", "email": "", "is_bot": True}
+        return {
+            "user_id": "default_user",
+            "email": "",
+            "is_bot": True,
+            "email_verified": True,
+            "phone_verified": True,
+            "role": "admin",
+        }
     payload = verify_token(creds.credentials)
     if not payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")
@@ -114,12 +121,16 @@ def get_current_user(
     try:
         conn = _auth_db()
         cur = conn.cursor()
-        cur.execute("SELECT is_verified, role FROM usuarios WHERE user_id=%s", (user_id,))
+        cur.execute(
+            "SELECT COALESCE(email_verified, is_verified), COALESCE(phone_verified, FALSE), role "
+            "FROM usuarios WHERE user_id=%s",
+            (user_id,),
+        )
         row = cur.fetchone()
         cur.close(); conn.close()
         if row:
-            is_verified, role = row
-            if not is_verified and role != "admin":
+            email_verified, phone_verified, role = row
+            if not email_verified and role != "admin":
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Cuenta no verificada. Revisa tu correo para el código de activación.",
@@ -127,8 +138,17 @@ def get_current_user(
     except HTTPException:
         raise
     except Exception:
-        pass  # DB unavailable → let the request through (fail open, not fail closed)
-    return {"user_id": user_id, "email": payload.get("email", "")}
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo validar la sesión.",
+        )
+    return {
+        "user_id": user_id,
+        "email": payload.get("email", ""),
+        "email_verified": bool(row[0]) if row else False,
+        "phone_verified": bool(row[1]) if row else False,
+        "role": row[2] if row else "user",
+    }
 
 
 def get_optional_user(

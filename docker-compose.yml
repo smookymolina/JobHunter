@@ -28,16 +28,26 @@ services:
     env_file:
       - ./job_hunter/.env
     environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - PLAYWRIGHT_HEADLESS=true
       - DATABASE_URL=postgresql://jobhunter:devpass@postgres:5432/jobhunter_db
-      - AUTH_SECRET=jobhunter-dev-secret-CHANGE-IN-PRODUCTION
-      - SMTP_HOST=smtp.gmail.com
-      - SMTP_PORT=587
-      - SMTP_USER=codeaerospace@gmail.com
+      - AUTH_SECRET=${AUTH_SECRET:-jobhunter-dev-secret-CHANGE-IN-PRODUCTION}
+      - OTP_SECRET=${OTP_SECRET:-}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
-      - EMAIL_FROM=codeaerospace@gmail.com
-      - EMAIL_FROM_NAME=CO.DE Aerospace
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-Job Hunter}
+      - WHATSAPP_CLOUD_API_TOKEN=${WHATSAPP_CLOUD_API_TOKEN:-}
+      - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_WHATSAPP_FROM=${TWILIO_WHATSAPP_FROM:-}
       - WHATSAPP_BOT_NUMBER=${WHATSAPP_BOT_NUMBER:-}
+      - WHATSAPP_API_URL=http://whatsapp-bot:3001/send
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ADMIN_ID=${TELEGRAM_ADMIN_ID:-}
     shm_size: '256m'
     volumes:
       - ./job_hunter/db:/app/db
@@ -65,11 +75,26 @@ services:
         condition: service_healthy
     environment:
       - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=/backend
       - BACKEND_URL=http://api:8000
       - AUTH_SECRET=jobhunter-nextauth-secret-CHANGE-IN-PRODUCTION
       - AUTH_URL=http://localhost:3000
       - AUTH_TRUST_HOST=true
       - NEXT_TELEMETRY_DISABLED=1
+
+  whatsapp-bot:
+    build:
+      context: ./whatsapp-bot
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    volumes:
+      - ./whatsapp-session:/app/.wwebjs_auth
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1G
 
 volumes:
   postgres_data:

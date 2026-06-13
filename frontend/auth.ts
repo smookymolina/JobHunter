@@ -12,18 +12,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
-        try {
-          const res = await fetch(`${BACKEND}/auth/login`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ email: credentials.email, password: credentials.password }),
-          })
-          if (!res.ok) return null
-          const data = await res.json() as { access_token: string; user_id: string }
-          return { id: data.user_id, email: credentials.email as string, accessToken: data.access_token }
-        } catch {
-          return null
+        const res = await fetch(`${BACKEND}/auth/login`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ email: credentials.email, password: credentials.password }),
+        })
+        if (!res.ok) {
+          let detail = 'Credenciales inválidas'
+          try {
+            const data = await res.json() as { detail?: string }
+            detail = data.detail ?? detail
+          } catch {
+            try { detail = (await res.text()) || detail } catch { /* ignore */ }
+          }
+          throw new Error(detail)
         }
+        const data = await res.json() as { access_token: string; user_id: string }
+        return { id: data.user_id, email: credentials.email as string, accessToken: data.access_token }
       },
     }),
   ],

@@ -3,7 +3,9 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 import json
 import logging
-import random
+import secrets
+import hashlib
+import hmac
 import uuid
 import pg8000.dbapi as _pg8000
 from urllib.parse import urlparse as _urlparse
@@ -11,6 +13,8 @@ import os
 import shutil
 import subprocess
 import time
+import re
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO)
@@ -34,7 +38,7 @@ from gemini_engine import (
     TEMPLATES_DIR, DB_PATH, OUTPUTS_DIR, CONTEXT_DIR,
     get_user_outputs_dir, get_user_profile_path,
     compilar_pdf, evaluar_compatibilidad_rapida, generar_terminos_busqueda,
-    clear_compat_cache,
+    clear_compat_cache, GEMINI_API_KEY,
 )
 from watcher import DeepHealthWatcher, deep_health_check
 
@@ -48,6 +52,8 @@ _DATA_DIR           = os.path.abspath(os.path.join(os.path.dirname(os.path.abspa
 PERFIL_MAESTRO_PATH = os.path.join(_DATA_DIR, 'perfil_maestro.json')   # default_user legacy path
 
 _scrape_status: dict = {"running": False, "last": None}
+_OTP_SECRET = os.getenv("OTP_SECRET", os.getenv("AUTH_SECRET", "jobhunter-dev-secret-CHANGE-IN-PRODUCTION"))
+_PHONE_E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -62,6 +68,33 @@ def _ts(v):
     if v is None:
         return None
     return v.strftime('%Y-%m-%d %H:%M:%S') if hasattr(v, 'strftime') else v
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow()
+
+
+def _otp_code() -> str:
+    return f"{secrets.randbelow(900000) + 100000:06d}"
+
+
+def _otp_hash(kind: str, user_id: str, code: str) -> str:
+    msg = f"{kind}:{user_id}:{code}".encode("utf-8")
+    return hmac.new(_OTP_SECRET.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def _normalize_phone(value: str) -> str:
+    phone = value.strip().replace(" ", "").replace("-", "")
+    if not phone.startswith("+"):
+        if phone.startswith("00"):
+            phone = f"+{phone[2:]}"
+    if not _PHONE_E164_RE.fullmatch(phone):
+        raise HTTPException(status_code=400, detail="El teléfono debe usar formato internacional E.164, por ejemplo +5215512345678.")
+    return phone
+
+
+def _is_expired(expires_at) -> bool:
+    return bool(expires_at and expires_at <= _utcnow())
 
 
 def _row_dict(cols, row):
@@ -106,6 +139,53 @@ def _blacklist_add(conn, enlace: str, titulo: str, user_id: str = 'default_user'
     cur.close()
 
 
+def _sync_usuario_security_schema(cur) -> None:
+    """Add and backfill the verification fields used by the auth flow."""
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='usuarios'")
+    cols = {r[0] for r in cur.fetchall()}
+
+    if 'email_verified' not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN email_verified BOOLEAN DEFAULT FALSE NOT NULL")
+    if 'email_otp' not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN email_otp VARCHAR(255) DEFAULT NULL")
+    if 'email_otp_expires_at' not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN email_otp_expires_at TIMESTAMP DEFAULT NULL")
+    if 'phone' not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN phone VARCHAR(32) DEFAULT NULL")
+    if 'phone_verified' not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN phone_verified BOOLEAN DEFAULT FALSE NOT NULL")
+    if 'whatsapp_otp' not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN whatsapp_otp VARCHAR(255) DEFAULT NULL")
+    if 'whatsapp_otp_expires_at' not in cols:
+        cur.execute("ALTER TABLE usuarios ADD COLUMN whatsapp_otp_expires_at TIMESTAMP DEFAULT NULL")
+
+    if 'email_verified' in cols and 'is_verified' in cols:
+        cur.execute(
+            "UPDATE usuarios SET email_verified=COALESCE(email_verified, is_verified), "
+            "is_verified=COALESCE(is_verified, email_verified)"
+        )
+    elif 'is_verified' in cols and 'email_verified' not in cols:
+        cur.execute("UPDATE usuarios SET email_verified=COALESCE(is_verified, FALSE)")
+
+    if 'phone' in cols and 'phone_number' in cols:
+        cur.execute(
+            "UPDATE usuarios SET phone=COALESCE(phone, phone_number), "
+            "phone_number=COALESCE(phone_number, phone)"
+        )
+    elif 'phone_number' in cols and 'phone' not in cols:
+        cur.execute("UPDATE usuarios SET phone=phone_number")
+
+    if 'verification_code' in cols:
+        cur.execute(
+            "UPDATE usuarios "
+            "SET email_otp=COALESCE(email_otp, verification_code), "
+            "email_otp_expires_at=COALESCE(email_otp_expires_at, NOW() + INTERVAL '15 minutes') "
+            "WHERE verification_code IS NOT NULL AND COALESCE(email_verified, is_verified, FALSE) = FALSE"
+        )
+
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_phone_unique ON usuarios(phone) WHERE phone IS NOT NULL")
+
+
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     conn = _db()
     cur = conn.cursor()
@@ -115,6 +195,14 @@ def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     conn.close()
     if not row or row[0] != 'admin':
         raise HTTPException(status_code=403, detail="Acceso restringido a administradores.")
+    return current_user
+
+
+def require_phone_verified(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user.get("role") == "admin":
+        return current_user
+    if not current_user.get("phone_verified"):
+        raise HTTPException(status_code=403, detail="WhatsApp verification required.")
     return current_user
 
 
@@ -204,6 +292,13 @@ async def lifespan(app: FastAPI):
                 vacantes_limite          INT DEFAULT 5 NOT NULL,
                 latex_limite             INT DEFAULT 3 NOT NULL,
                 latex_generados          INT DEFAULT 0 NOT NULL,
+                email_verified           BOOLEAN DEFAULT FALSE NOT NULL,
+                email_otp                VARCHAR(255) DEFAULT NULL,
+                email_otp_expires_at     TIMESTAMP DEFAULT NULL,
+                phone                    VARCHAR(32) DEFAULT NULL,
+                phone_verified           BOOLEAN DEFAULT FALSE NOT NULL,
+                whatsapp_otp             VARCHAR(255) DEFAULT NULL,
+                whatsapp_otp_expires_at  TIMESTAMP DEFAULT NULL,
                 created_at               TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -222,12 +317,28 @@ async def lifespan(app: FastAPI):
             _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_limite INT DEFAULT 3 NOT NULL")
         if 'latex_generados' not in _usr_cols:
             _cur.execute("ALTER TABLE usuarios ADD COLUMN latex_generados INT DEFAULT 0 NOT NULL")
+        if 'email_verified' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN email_verified BOOLEAN DEFAULT FALSE NOT NULL")
+        if 'email_otp' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN email_otp VARCHAR(255) DEFAULT NULL")
+        if 'email_otp_expires_at' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN email_otp_expires_at TIMESTAMP DEFAULT NULL")
+        if 'phone' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN phone VARCHAR(32) DEFAULT NULL")
+        if 'phone_verified' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN phone_verified BOOLEAN DEFAULT FALSE NOT NULL")
+        if 'whatsapp_otp' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN whatsapp_otp VARCHAR(255) DEFAULT NULL")
+        if 'whatsapp_otp_expires_at' not in _usr_cols:
+            _cur.execute("ALTER TABLE usuarios ADD COLUMN whatsapp_otp_expires_at TIMESTAMP DEFAULT NULL")
         if 'is_verified' not in _usr_cols:
             _cur.execute("ALTER TABLE usuarios ADD COLUMN is_verified BOOLEAN DEFAULT FALSE NOT NULL")
         if 'verification_code' not in _usr_cols:
             _cur.execute("ALTER TABLE usuarios ADD COLUMN verification_code VARCHAR(10) DEFAULT NULL")
         if 'phone_number' not in _usr_cols:
             _cur.execute("ALTER TABLE usuarios ADD COLUMN phone_number VARCHAR(20) DEFAULT NULL")
+
+        _sync_usuario_security_schema(_cur)
         # Drop any legacy CHECK constraint on vacantes.status (blocks "Entrevista")
         _cur.execute("""
             DO $$
@@ -267,7 +378,7 @@ async def lifespan(app: FastAPI):
         )
         # All admin/default accounts are pre-verified; clear pending OTPs for them
         _cur.execute(
-            "UPDATE usuarios SET is_verified=TRUE, verification_code=NULL "
+            "UPDATE usuarios SET email_verified=TRUE, is_verified=TRUE, email_otp=NULL, email_otp_expires_at=NULL, verification_code=NULL "
             "WHERE role='admin' OR user_id='default_user'"
         )
         _mc.commit()
@@ -375,6 +486,7 @@ def root_health():
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
 
+@app.post("/api/auth/login")
 @app.post("/auth/login")
 async def login(request: Request):
     try:
@@ -387,16 +499,19 @@ async def login(request: Request):
         raise HTTPException(status_code=400, detail="Email y contraseña requeridos.")
     conn = _db()
     cur  = conn.cursor()
-    cur.execute("SELECT user_id, hashed_password FROM usuarios WHERE email=%s", (email,))
+    cur.execute("SELECT user_id, hashed_password, COALESCE(email_verified, is_verified) FROM usuarios WHERE email=%s", (email,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     if not row or not verify_password(password, row[1]):
         raise HTTPException(status_code=401, detail="Credenciales inválidas.")
+    if not row[2]:
+        raise HTTPException(status_code=403, detail="Cuenta pendiente de verificación de correo.")
     token = create_token(row[0], email)
     return {"access_token": token, "token_type": "bearer", "user_id": row[0]}
 
 
+@app.post("/api/auth/register", status_code=201)
 @app.post("/auth/register", status_code=201)
 async def register(request: Request, background_tasks: BackgroundTasks):
     try:
@@ -405,7 +520,8 @@ async def register(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="JSON inválido.")
     email    = (body.get("email") or "").strip().lower()
     password = body.get("password") or ""
-    phone    = (body.get("phone") or "").strip() or None
+    phone_in = (body.get("phone") or "").strip()
+    phone    = _normalize_phone(phone_in) if phone_in else None
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email y contraseña requeridos.")
     conn = _db()
@@ -415,11 +531,12 @@ async def register(request: Request, background_tasks: BackgroundTasks):
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="El correo ya está registrado.")
     user_id = uuid.uuid4().hex
-    otp = str(random.randint(100000, 999999))
+    otp = _otp_code()
+    otp_expires_at = _utcnow() + timedelta(minutes=15)
     cur.execute(
-        "INSERT INTO usuarios (user_id, email, hashed_password, verification_code, phone_number) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        (user_id, email, hash_password(password), otp, phone)
+        "INSERT INTO usuarios (user_id, email, hashed_password, email_verified, email_otp, email_otp_expires_at, phone, phone_verified) "
+        "VALUES (%s, %s, %s, FALSE, %s, %s, %s, FALSE)",
+        (user_id, email, hash_password(password), _otp_hash("email", user_id, otp), otp_expires_at, phone)
     )
     conn.commit()
     cur.close(); conn.close()
@@ -429,14 +546,14 @@ async def register(request: Request, background_tasks: BackgroundTasks):
     from notifier_agent import NotificationAgent
     agent = NotificationAgent()
     background_tasks.add_task(agent.send_email_otp, email, otp)
-    if phone:
-        background_tasks.add_task(agent.trigger_whatsapp_bot, phone, otp)
     return JSONResponse(status_code=201, content={
         "ok": True, "user_id": user_id,
         "msg": "Cuenta creada. Revisa tu correo para el código de verificación.",
     })
 
 
+@app.post("/api/auth/verify-email")
+@app.post("/auth/verify-email")
 @app.post("/auth/verify")
 async def verify_account(request: Request):
     try:
@@ -449,22 +566,33 @@ async def verify_account(request: Request):
         raise HTTPException(status_code=400, detail="Email y código requeridos.")
     conn = _db()
     cur  = conn.cursor()
-    cur.execute("SELECT user_id, verification_code FROM usuarios WHERE email=%s", (email,))
+    cur.execute(
+        "SELECT user_id, email_otp, email_otp_expires_at, COALESCE(email_verified, is_verified) "
+        "FROM usuarios WHERE email=%s",
+        (email,)
+    )
     row = cur.fetchone()
-    if not row or row[1] != code:
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if row[3]:
+        cur.close(); conn.close()
+        return {"ok": True, "msg": "Cuenta ya verificada."}
+    if _is_expired(row[2]) or row[1] != _otp_hash("email", row[0], code):
         cur.close(); conn.close()
         raise HTTPException(status_code=401, detail="Código incorrecto o expirado.")
     user_id = row[0]
     cur.execute(
-        "UPDATE usuarios SET is_verified=TRUE, verification_code=NULL WHERE user_id=%s",
+        "UPDATE usuarios SET email_verified=TRUE, is_verified=TRUE, email_otp=NULL, email_otp_expires_at=NULL, verification_code=NULL WHERE user_id=%s",
         (user_id,)
     )
     conn.commit()
     cur.close(); conn.close()
-    token = create_token(user_id, email)
-    return {"ok": True, "access_token": token, "token_type": "bearer", "user_id": user_id}
+    return {"ok": True, "user_id": user_id, "msg": "Correo verificado. Ya puedes iniciar sesión."}
 
 
+@app.post("/api/auth/resend-email")
+@app.post("/auth/resend-email")
 @app.post("/auth/resend")
 async def resend_otp(request: Request, background_tasks: BackgroundTasks):
     try:
@@ -476,7 +604,10 @@ async def resend_otp(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Email requerido.")
     conn = _db()
     cur  = conn.cursor()
-    cur.execute("SELECT user_id, is_verified FROM usuarios WHERE email=%s", (email,))
+    cur.execute(
+        "SELECT user_id, COALESCE(email_verified, is_verified) FROM usuarios WHERE email=%s",
+        (email,)
+    )
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
@@ -484,8 +615,12 @@ async def resend_otp(request: Request, background_tasks: BackgroundTasks):
     if row[1]:
         cur.close(); conn.close()
         return {"ok": True, "msg": "Cuenta ya verificada."}
-    new_otp = str(random.randint(100000, 999999))
-    cur.execute("UPDATE usuarios SET verification_code=%s WHERE user_id=%s", (new_otp, row[0]))
+    new_otp = _otp_code()
+    expires_at = _utcnow() + timedelta(minutes=15)
+    cur.execute(
+        "UPDATE usuarios SET email_otp=%s, email_otp_expires_at=%s, verification_code=NULL WHERE user_id=%s",
+        (_otp_hash("email", row[0], new_otp), expires_at, row[0])
+    )
     conn.commit()
     cur.close(); conn.close()
     from notifier_agent import NotificationAgent
@@ -493,13 +628,91 @@ async def resend_otp(request: Request, background_tasks: BackgroundTasks):
     return {"ok": True, "msg": "Nuevo código enviado."}
 
 
+@app.post("/api/auth/send-whatsapp")
+@app.post("/auth/send-whatsapp")
+async def send_whatsapp(request: Request, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido.")
+
+    phone_in = (body.get("phone") or "").strip()
+    if not phone_in:
+        raise HTTPException(status_code=400, detail="Número telefónico requerido.")
+    phone = _normalize_phone(phone_in)
+    uid = current_user["user_id"]
+
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM usuarios WHERE phone=%s AND user_id<>%s", (phone, uid))
+    if cur.fetchone():
+        cur.close(); conn.close()
+        raise HTTPException(status_code=409, detail="Este número ya está vinculado a otra cuenta.")
+
+    otp = _otp_code()
+    expires_at = _utcnow() + timedelta(minutes=10)
+    cur.execute(
+        "UPDATE usuarios SET phone=%s, phone_verified=FALSE, whatsapp_otp=%s, whatsapp_otp_expires_at=%s WHERE user_id=%s",
+        (phone, _otp_hash("whatsapp", uid, otp), expires_at, uid)
+    )
+    conn.commit()
+    cur.close(); conn.close()
+
+    from notifier_agent import NotificationAgent
+    background_tasks.add_task(NotificationAgent().trigger_whatsapp_bot, phone, otp)
+    return {"ok": True, "msg": "Código enviado por WhatsApp.", "phone": phone}
+
+
+@app.post("/api/auth/verify-whatsapp")
+@app.post("/auth/verify-whatsapp")
+async def verify_whatsapp(request: Request, current_user: dict = Depends(get_current_user)):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON inválido.")
+
+    code = str(body.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Código requerido.")
+
+    uid = current_user["user_id"]
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT phone, whatsapp_otp, whatsapp_otp_expires_at, phone_verified FROM usuarios WHERE user_id=%s",
+        (uid,)
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    if row[3]:
+        cur.close(); conn.close()
+        return {"ok": True, "msg": "WhatsApp ya verificado."}
+    if not row[0]:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Primero vincula un número telefónico.")
+    if _is_expired(row[2]) or row[1] != _otp_hash("whatsapp", uid, code):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=401, detail="Código incorrecto o expirado.")
+    cur.execute(
+        "UPDATE usuarios SET phone_verified=TRUE, whatsapp_otp=NULL, whatsapp_otp_expires_at=NULL WHERE user_id=%s",
+        (uid,)
+    )
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "msg": "Número verificado con éxito."}
+
+
+@app.get("/api/auth/me")
 @app.get("/auth/me")
 def get_me(current_user: dict = Depends(get_current_user)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT email, tier, role, telegram_token_encrypted, vacantes_limite, latex_limite, latex_generados "
+        "SELECT email, tier, role, telegram_token_encrypted, vacantes_limite, latex_limite, latex_generados, "
+        "COALESCE(email_verified, is_verified), COALESCE(phone_verified, FALSE), phone "
         "FROM usuarios WHERE user_id=%s", (uid,)
     )
     row = cur.fetchone()
@@ -511,6 +724,7 @@ def get_me(current_user: dict = Depends(get_current_user)):
         "user_id": uid, "email": row[0], "tier": row[1], "role": row[2],
         "has_telegram_bot": bool(row[3]),
         "vacantes_limite": row[4], "latex_limite": row[5], "latex_generados": row[6],
+        "email_verified": bool(row[7]), "phone_verified": bool(row[8]), "phone": row[9],
     }
 
 
@@ -582,7 +796,8 @@ def get_bot_telegram_token(current_user: dict = Depends(get_current_user)):
 
 # ── Perfil Maestro helpers ────────────────────────────────────────────────────
 
-def _regenerate_mi_perfil(data: dict) -> None:
+def _regenerate_mi_perfil(data: dict, user_id: str = 'default_user') -> None:
+    """Write a per-user mi_perfil.md so each tester's profile stays isolated."""
     os.makedirs(CONTEXT_DIR, exist_ok=True)
     habs = data.get("habilidades", {})
     skill_lines = [
@@ -627,7 +842,8 @@ def _regenerate_mi_perfil(data: dict) -> None:
         f"## Proyectos",
         *proj_lines,
     ])
-    with open(os.path.join(CONTEXT_DIR, "mi_perfil.md"), "w", encoding="utf-8") as f:
+    out_path = os.path.join(CONTEXT_DIR, f"{user_id}_mi_perfil.md")
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(md)
 
 
@@ -641,7 +857,7 @@ _VSEL  = ("SELECT id, titulo, empresa, enlace, requerimientos, compatibilidad, s
 # ── Vacantes endpoints ────────────────────────────────────────────────────────
 
 @app.get("/vacantes")
-def listar_vacantes(limit: int = 50, status: str | None = None, current_user: dict = Depends(get_current_user)):
+def listar_vacantes(limit: int = 50, status: str | None = None, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
@@ -664,7 +880,7 @@ def listar_vacantes(limit: int = 50, status: str | None = None, current_user: di
 
 
 @app.get("/vacantes/eliminadas")
-def listar_eliminadas(limit: int = 200, current_user: dict = Depends(get_current_user)):
+def listar_eliminadas(limit: int = 200, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
@@ -681,7 +897,7 @@ def listar_eliminadas(limit: int = 200, current_user: dict = Depends(get_current
 
 
 @app.delete("/vacantes/eliminadas/{eid}")
-def restaurar_eliminada(eid: int, current_user: dict = Depends(get_current_user)):
+def restaurar_eliminada(eid: int, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
@@ -696,7 +912,7 @@ def restaurar_eliminada(eid: int, current_user: dict = Depends(get_current_user)
 
 
 @app.get("/vacantes/{vid}")
-def detalle_vacante(vid: int, current_user: dict = Depends(get_current_user)):
+def detalle_vacante(vid: int, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
@@ -710,7 +926,7 @@ def detalle_vacante(vid: int, current_user: dict = Depends(get_current_user)):
 
 
 @app.patch("/vacantes/{vid}/status")
-def cambiar_status(vid: int, body: dict, current_user: dict = Depends(get_current_user)):
+def cambiar_status(vid: int, body: dict, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     VALIDOS = {"No_Creado", "En_Proceso", "Revisado_IA", "Listo_Manual", "Requiere_Correccion", "Entrevista"}
     nuevo = body.get("status", "")
@@ -738,7 +954,7 @@ def cambiar_status(vid: int, body: dict, current_user: dict = Depends(get_curren
 
 
 @app.post("/vacantes/{vid}/sync")
-def sync_vacante(vid: int, current_user: dict = Depends(get_current_user)):
+def sync_vacante(vid: int, current_user: dict = Depends(require_phone_verified)):
     uid      = current_user["user_id"]
     out_dir  = get_user_outputs_dir(uid)
     pdf_path = os.path.join(out_dir, f"cv_vacante_{vid}.pdf")
@@ -774,7 +990,7 @@ def debug_sync_health():
 
 
 @app.patch("/vacantes/{vid}/compatibilidad")
-def cambiar_compatibilidad(vid: int, body: dict, current_user: dict = Depends(get_current_user)):
+def cambiar_compatibilidad(vid: int, body: dict, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     VALIDOS = {"Alta", "Media", "Baja", "Nula"}
     nuevo = body.get("compatibilidad", "")
@@ -796,7 +1012,7 @@ def cambiar_compatibilidad(vid: int, body: dict, current_user: dict = Depends(ge
 
 
 @app.patch("/vacantes/{vid}/favorito")
-def toggle_favorito(vid: int, current_user: dict = Depends(get_current_user)):
+def toggle_favorito(vid: int, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
@@ -817,7 +1033,7 @@ def toggle_favorito(vid: int, current_user: dict = Depends(get_current_user)):
 # ── LaTeX / PDF endpoints ─────────────────────────────────────────────────────
 
 @app.get("/latex/{vid}", response_class=PlainTextResponse)
-def get_latex(vid: int, current_user: dict = Depends(get_current_user)):
+def get_latex(vid: int, current_user: dict = Depends(require_phone_verified)):
     uid      = current_user["user_id"]
     tex_path = os.path.join(get_user_outputs_dir(uid), f"cv_vacante_{vid}.tex")
     if not os.path.exists(tex_path):
@@ -827,7 +1043,7 @@ def get_latex(vid: int, current_user: dict = Depends(get_current_user)):
 
 
 @app.post("/latex/{vid}")
-async def save_latex(vid: int, request: Request, current_user: dict = Depends(get_current_user)):
+async def save_latex(vid: int, request: Request, current_user: dict = Depends(require_phone_verified)):
     uid         = current_user["user_id"]
     tex_content = (await request.body()).decode("utf-8")
     if not tex_content.strip():
@@ -850,7 +1066,7 @@ async def save_latex(vid: int, request: Request, current_user: dict = Depends(ge
 
 
 @app.post("/upload_template")
-async def upload_template(file: UploadFile = File(...)):
+async def upload_template(file: UploadFile = File(...), current_user: dict = Depends(require_phone_verified)):
     if not file.filename.lower().endswith('.tex'):
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos .tex")
     dest = os.path.join(TEMPLATES_DIR, 'mi_estilo.tex')
@@ -860,7 +1076,7 @@ async def upload_template(file: UploadFile = File(...)):
 
 
 @app.post("/generar_cv/{vid}")
-async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current_user)):
+async def generar_cv_endpoint(vid: int, current_user: dict = Depends(require_phone_verified)):
     import asyncio
     import functools
     from gemini_engine import generar_y_compilar
@@ -917,7 +1133,7 @@ async def generar_cv_endpoint(vid: int, current_user: dict = Depends(get_current
 # ── CRUD vacantes ─────────────────────────────────────────────────────────────
 
 @app.post("/vacantes")
-def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_current_user)):
+def crear_vacante(body: VacanteCreate, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     if current_user.get("is_bot") and body.user_id:
         uid = body.user_id
@@ -983,7 +1199,7 @@ def crear_vacante(body: VacanteCreate, current_user: dict = Depends(get_current_
 
 
 @app.post("/vacantes/bulk")
-def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depends(get_current_user)):
+def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depends(require_phone_verified)):
     if not items:
         raise HTTPException(status_code=400, detail="El arreglo JSON esta vacio.")
 
@@ -1044,7 +1260,7 @@ def crear_vacantes_bulk(items: list[VacanteBulkItem], current_user: dict = Depen
 
 
 @app.get("/pdf/{vid}")
-def descargar_pdf(vid: int, download: bool = False, current_user: dict = Depends(get_current_user)):
+def descargar_pdf(vid: int, download: bool = False, current_user: dict = Depends(require_phone_verified)):
     uid      = current_user["user_id"]
     pdf_path = os.path.join(get_user_outputs_dir(uid), f"cv_vacante_{vid}.pdf")
     if not os.path.exists(pdf_path):
@@ -1062,7 +1278,7 @@ def descargar_pdf(vid: int, download: bool = False, current_user: dict = Depends
 
 
 @app.get("/download/cv/{vid}")
-def download_cv_secure(vid: int, current_user: dict = Depends(get_current_user)):
+def download_cv_secure(vid: int, current_user: dict = Depends(require_phone_verified)):
     """Descarga protegida: valida ownership antes de entregar el PDF."""
     uid = current_user["user_id"]
     conn = _db()
@@ -1084,7 +1300,7 @@ def download_cv_secure(vid: int, current_user: dict = Depends(get_current_user))
 
 
 @app.post("/scrape")
-async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_optional_user)):
+async def iniciar_scrape(body: ScrapeRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(require_phone_verified)):
     if _scrape_status["running"]:
         raise HTTPException(status_code=409, detail="Ya hay un scraping en curso. Espera a que termine.")
     user_id = current_user["user_id"]
@@ -1109,7 +1325,7 @@ def scrape_status():
 
 
 @app.delete("/vacantes/{vid}")
-def borrar_vacante(vid: int, current_user: dict = Depends(get_current_user)):
+def borrar_vacante(vid: int, current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
@@ -1204,7 +1420,7 @@ def get_perfil():
 
 
 @app.get("/api/search-terms")
-def get_search_terms(current_user: dict = Depends(get_current_user)):
+def get_search_terms(current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     terms = generar_terminos_busqueda(uid)
     return {"terminos": terms, "user_id": uid}
@@ -1243,12 +1459,9 @@ async def save_perfil_maestro(request: Request, current_user: dict = Depends(get
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    # Always sync perfil_maestro.json so bot/scraper/LLM are never stale
-    with open(PERFIL_MAESTRO_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
     clear_compat_cache(uid)
     try:
-        _regenerate_mi_perfil(data)
+        _regenerate_mi_perfil(data, uid)
     except Exception as _regen_err:
         _log.warning("POST /api/perfil → _regenerate_mi_perfil falló (perfil JSON ya guardado): %s", _regen_err)
     return {"ok": True, "mensaje": "Perfil guardado correctamente."}
@@ -1302,7 +1515,7 @@ _TECH_KEYWORDS = [
 
 
 @app.get("/metricas")
-def get_metricas(current_user: dict = Depends(get_current_user)):
+def get_metricas(current_user: dict = Depends(require_phone_verified)):
     uid = current_user["user_id"]
     conn = _db()
     cur = conn.cursor()
@@ -1372,13 +1585,13 @@ def admin_list_users(current_user: dict = Depends(require_admin)):
     conn = _db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT user_id, email, tier, role, created_at, is_verified, verification_code "
+        "SELECT user_id, email, tier, role, created_at, COALESCE(email_verified, is_verified), NULL::text, phone, COALESCE(phone_verified, FALSE) "
         "FROM usuarios ORDER BY created_at"
     )
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    cols = ["user_id", "email", "tier", "role", "fecha_creacion", "is_verified", "verification_code"]
+    cols = ["user_id", "email", "tier", "role", "fecha_creacion", "is_verified", "verification_code", "phone", "phone_verified"]
     return JSONResponse(content=[_row_dict(cols, r) for r in rows], headers={"Cache-Control": "no-store"})
 
 
@@ -1391,7 +1604,7 @@ def admin_force_verify(target_id: str, current_user: dict = Depends(require_admi
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Usuario no encontrado.")
     cur.execute(
-        "UPDATE usuarios SET is_verified=TRUE, verification_code=NULL WHERE user_id=%s",
+        "UPDATE usuarios SET email_verified=TRUE, is_verified=TRUE, email_otp=NULL, email_otp_expires_at=NULL, verification_code=NULL WHERE user_id=%s",
         (target_id,)
     )
     conn.commit()

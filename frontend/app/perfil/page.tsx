@@ -361,7 +361,7 @@ export default function PerfilPage() {
       <header className="sticky top-0 z-30 shrink-0 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 px-6 py-4 backdrop-blur-sm">
         <h1 className="text-[18px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">Perfil Maestro</h1>
         <p className="text-[12px] text-slate-500 dark:text-slate-400">
-          Fuente de verdad para CV | datos guardados en perfil_maestro.json
+          Fuente de verdad para CV | perfil aislado por usuario
         </p>
       </header>
 
@@ -422,7 +422,7 @@ export default function PerfilPage() {
             </p>
             <div className="mt-2 flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              <span className="text-xs text-slate-500 dark:text-slate-400">perfil_maestro.json | guardado</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">Perfil guardado de forma aislada</span>
             </div>
           </div>
         </div>

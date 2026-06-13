@@ -12,6 +12,7 @@ import AddVacanteModal from '@/components/AddVacanteModal'
 import JobDetailsModal from '@/components/JobDetailsModal'
 import KanbanBoard from '@/components/KanbanBoard'
 import StatusBadge, { compatBadge } from '@/components/StatusBadge'
+import WhatsAppGuardModal from '@/components/WhatsAppGuardModal'
 
 const STAT_COLS: {
   id: Status
@@ -76,6 +77,8 @@ export default function DashboardPage() {
   const [health, setHealth] = useState<SyncHealthReport | null>(null)
   const [activeFilter, setActiveFilter] = useState<Status | null>(null)
   const [selectedJob, setSelectedJob] = useState<Vacante | null>(null)
+  const [phoneVerified, setPhoneVerified] = useState<boolean | null>(null)
+  const [userRole, setUserRole] = useState<string>('')
 
   const fetchVacantes = useCallback(async (silent = false) => {
     let data: Vacante[] | null = null
@@ -131,6 +134,16 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
+    if (status !== 'authenticated') return
+    void api.me().then(u => {
+      setPhoneVerified(u.phone_verified)
+      setUserRole(u.role)
+    }).catch(() => {
+      setPhoneVerified(true)
+    })
+  }, [status])
+
+  useEffect(() => {
     if (status === 'loading') {
       setLoading(true)
       return
@@ -173,8 +186,13 @@ export default function DashboardPage() {
         ? 'bg-amber-400'
         : 'bg-slate-400 dark:bg-slate-500'
 
+  const showWhatsAppGuard = phoneVerified === false && userRole !== 'admin'
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-radial-indigo">
+      {showWhatsAppGuard && (
+        <WhatsAppGuardModal onVerified={() => setPhoneVerified(true)} />
+      )}
       {/* ── Header ─────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 flex shrink-0 flex-col gap-2 border-b border-slate-100 bg-white/90 px-6 py-4 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/90">
         <div className="flex items-center justify-between">

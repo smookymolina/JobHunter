@@ -109,28 +109,72 @@ class NotificationAgent:
 
     async def trigger_whatsapp_bot(self, to_phone: str, code: str) -> bool:
         """
-        Hook para bot de WhatsApp local (Chromium/Baileys).
-        Envía petición HTTP al agente local en http://localhost:3001/send.
-        Configura WHATSAPP_API_URL en .env para apuntar a tu instancia.
+        Envía OTP por WhatsApp usando el mejor transporte disponible:
+        1. Meta Cloud API
+        2. Twilio WhatsApp
+        3. Bot local vía HTTP (fallback para WhatsApp Web)
         """
-        wa_url = os.getenv("WHATSAPP_API_URL", "http://localhost:3001/send")
+        message = (
+            f"*Job Hunter — Código de verificación*\n\n"
+            f"Tu código es: *{code}*\n"
+            f"Expira en 15 minutos.\n\n"
+            f"_CO.DE Aerospace_"
+        )
         try:
             import aiohttp  # type: ignore
-            payload = {
-                "phone": to_phone,
-                "message": (
-                    f"*Job Hunter — Código de verificación*\n\n"
-                    f"Tu código es: *{code}*\n"
-                    f"Expira en 15 minutos.\n\n"
-                    f"_CO.DE Aerospace_"
-                ),
-            }
-            async with aiohttp.ClientSession() as session:
-                async with session.post(wa_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as r:
-                    ok = r.status < 300
-                    if ok:
-                        log.info("WhatsApp OTP encolado para %s", to_phone)
-                    return ok
+
+            cloud_token = os.getenv("WHATSAPP_CLOUD_API_TOKEN", "")
+            phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+            if cloud_token and phone_number_id:
+                url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
+                payload = {
+                    "messaging_product": "whatsapp",
+                    "to": to_phone,
+                    "type": "text",
+                    "text": {"body": message},
+                }
+                headers = {"Authorization": f"Bearer {cloud_token}", "Content-Type": "application/json"}
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=12)) as r:
+                        ok = r.status < 300
+                        if ok:
+                            log.info("WhatsApp OTP enviado por Meta Cloud API a %s", to_phone)
+                        else:
+                            log.warning("Meta Cloud API respondió %s para %s", r.status, to_phone)
+                        return ok
+
+            tw_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+            tw_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+            tw_from = os.getenv("TWILIO_WHATSAPP_FROM", "")
+            if tw_sid and tw_token and tw_from:
+                from aiohttp import BasicAuth
+                url = f"https://api.twilio.com/2010-04-01/Accounts/{tw_sid}/Messages.json"
+                payload = {
+                    "From": tw_from,
+                    "To": to_phone if to_phone.startswith("whatsapp:") else f"whatsapp:{to_phone}",
+                    "Body": message,
+                }
+                async with aiohttp.ClientSession(auth=BasicAuth(tw_sid, tw_token)) as session:
+                    async with session.post(url, data=payload, timeout=aiohttp.ClientTimeout(total=12)) as r:
+                        ok = r.status < 300
+                        if ok:
+                            log.info("WhatsApp OTP enviado por Twilio a %s", to_phone)
+                        else:
+                            log.warning("Twilio respondió %s para %s", r.status, to_phone)
+                        return ok
+
+            wa_url = os.getenv("WHATSAPP_API_URL", "http://localhost:3001/send")
+            payload = {"phone": to_phone, "message": message}
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(wa_url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                        ok = r.status < 300
+                        if ok:
+                            log.info("WhatsApp OTP encolado para %s", to_phone)
+                        return ok
+            except Exception as e:
+                log.warning("WhatsApp local falló para %s (%s). Mensaje a enviar: %s", to_phone, e, message)
+                return False
         except Exception as exc:
             log.warning("WhatsApp bot no disponible (%s): %s", to_phone, exc)
             return False

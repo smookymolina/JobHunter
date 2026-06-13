@@ -7,7 +7,7 @@ import re
 import pg8000.dbapi as _pg8000
 from urllib.parse import urlparse as _urlparse
 
-from gemini_engine import GROQ_API_KEY, GROQ_MODEL, OUTPUTS_DIR, _groq_client
+from gemini_engine import GEMINI_API_KEY, GEMINI_MODEL_FAST, OUTPUTS_DIR, _gemini_call
 
 
 def _db():
@@ -91,17 +91,7 @@ Responde SOLO con JSON:
 {{"aprobado": true, "comentarios": "Razon concisa en 2-3 puntos."}}"""
 
     try:
-        client = _groq_client()
-        resp = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=0.1,
-            max_tokens=300,
-        )
-        raw = resp.choices[0].message.content or "{}"
+        raw = _gemini_call(system_msg, user_msg, GEMINI_MODEL_FAST, temperature=0.1, max_tokens=300)
         result = _parse_json(raw)
         return {
             "aprobado": bool(result.get("aprobado", False)),
