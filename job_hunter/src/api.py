@@ -1248,9 +1248,9 @@ async def save_perfil_maestro(request: Request, current_user: dict = Depends(get
         json.dump(data, f, ensure_ascii=False, indent=2)
     clear_compat_cache(uid)
     try:
-        regenerate_mi_perfil(uid)
+        _regenerate_mi_perfil(data)
     except Exception as _regen_err:
-        _log.warning("POST /api/perfil → regenerate_mi_perfil falló (perfil JSON ya guardado): %s", _regen_err)
+        _log.warning("POST /api/perfil → _regenerate_mi_perfil falló (perfil JSON ya guardado): %s", _regen_err)
     return {"ok": True, "mensaje": "Perfil guardado correctamente."}
 
 

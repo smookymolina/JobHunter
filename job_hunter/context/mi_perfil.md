@@ -1,5 +1,5 @@
 # Jair Molina Arce
-**Ingeniero Mecánico | IoT, Domótica y Sistemas Embebidos | Full-Stack Developer**
+**Ingeniero Mecánico | Maestría en Tecnologías Avanzadas**
 
 Email: ingjairmolina@gmail.com  |  Tel: 5652646108
 Ubicación: Ciudad de México, México  |  LinkedIn: https://www.linkedin.com/in/jair-molina-arce-4909622b2/  |  GitHub: https://github.com/smookymolina

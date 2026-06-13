@@ -181,6 +181,8 @@ function AvatarUploader({ initials }: { initials: string }) {
 
 export default function PerfilPage() {
   const [perfil, setPerfil] = useState<PerfilMaestro>(EMPTY)
+  const perfilRef = useRef<PerfilMaestro>(EMPTY)
+  perfilRef.current = perfil
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -265,7 +267,7 @@ export default function PerfilPage() {
     setSaving(true)
     setMsg(null)
     try {
-      const r = await api.savePerfilMaestro(perfil)
+      const r = await api.savePerfilMaestro(perfilRef.current)
       console.log('Perfil guardado con éxito:', r)
       const ini = [perfil.nombre[0], perfil.apellidos?.[0]].filter(Boolean).join('').toUpperCase() || 'JM'
       setInitials(ini)

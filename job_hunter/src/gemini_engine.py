@@ -201,6 +201,12 @@ def _extract_latex(text):
     return match.group(1).strip() if match else text.strip()
 
 
+def _extract_headline(raw: str) -> str | None:
+    """Extract the dynamically generated headline from the LLM's % HEADLINE: marker."""
+    m = re.search(r'^%\s*HEADLINE:\s*(.+)$', raw, re.MULTILINE)
+    return m.group(1).strip() if m else None
+
+
 _EN_MARKERS = re.compile(
     r'\b(experience|education|summary|skills|profile|objective|engineer|manager|willing)\b',
     re.IGNORECASE,
@@ -216,16 +222,17 @@ def _detect_lang(text: str) -> str:
     return 'en' if len(_EN_MARKERS.findall(text)) > len(_ES_MARKERS.findall(text)) else 'es'
 
 
-def _build_header(lang: str, user_id: str = 'default_user') -> str:
+def _build_header(lang: str, user_id: str = 'default_user', headline: str | None = None) -> str:
     """
     Build the personal header block dynamically from the user's profile JSON.
+    headline overrides titulo_profesional when the LLM generates a job-tailored headline.
     Includes LinkedIn and GitHub as \\href links when present in the profile.
     Fallback to empty strings if a field is absent — never hardcodes personal data.
     """
     p = _load_profile_json(user_id) or {}
 
     nombre   = f"{p.get('nombre','')} {p.get('apellidos','')}".strip() or "Nombre Apellido"
-    titulo   = p.get('titulo_profesional', '')
+    titulo   = headline or p.get('titulo_profesional', '')
     email    = p.get('email', '')
     telefono = p.get('telefono', '')
     linkedin = p.get('linkedin', '').strip()
@@ -696,50 +703,84 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
     instrucciones = _read(instruc_path) if os.path.exists(instruc_path) else ""
     template_code = _select_template()
 
-    # ── System prompt maestro — 100% dinámico ────────────────────────────────
+    # ── System prompt maestro v2 — 100% dinámico ─────────────────────────────
     system_msg = (
-        "Eres redactor ejecutivo de CVs técnicos. Devuelves ÚNICAMENTE código LaTeX compilable. "
-        "Sin bloques markdown, sin explicaciones. Empieza con \\documentclass.\n\n"
+        "Eres redactor experto en CVs técnicos de ingeniería. "
+        "Devuelves ÚNICAMENTE código LaTeX compilable. Sin bloques markdown, sin explicaciones.\n\n"
 
-        "=== MÉTRICAS DE CONVERSIÓN ===\n"
-        f"Skills alta conversión (prioriza si aplican): {winning_skills}\n\n"
+        "=== PASO 0 — DETECCIÓN DE IDIOMA ===\n"
+        "Analiza el título y los requerimientos de la vacante. "
+        "Si >60\\% de los requerimientos están en inglés → IDIOMA = EN. Si no → IDIOMA = ES. "
+        "Mantén ese idioma en TODO el documento sin excepción. "
+        "PROHIBIDO mezclar idiomas. Excepción: nombres propios de herramientas (SolidWorks, ANSYS, "
+        "Python, MATLAB, ESP32, STM32, MQTT, CATIA, AutoCAD). "
+        "Labels EN: Technical Skills | Professional Experience | Education | Key Projects. "
+        "Labels ES: Habilidades Técnicas | Experiencia Profesional | Educación | Proyectos.\n\n"
+
+        "=== PASO 1 — HEADLINE (OBLIGATORIO) ===\n"
+        "Construye un headline personalizado para ESTA vacante con el formato: "
+        "[Dominio principal] | [Especialidad 1] & [Especialidad 2]. "
+        "Ejemplos: 'Mechanical Design Engineer | CAD/CAE & Systems Integration', "
+        "'Automation & Embedded Systems Engineer | IoT & DAQ'. "
+        "NUNCA uses el título exacto de la vacante. "
+        "Escribe el headline en la PRIMERA LÍNEA del código generado como comentario LaTeX: "
+        "% HEADLINE: <tu headline aquí>\n\n"
+
+        "=== PASO 2 — TONO (LISTA NEGRA) ===\n"
+        "PROHIBIDO USAR: 'Highly motivated', 'Strong background', 'Team player', "
+        "'Results-driven', 'Orientado a resultados', 'Proactivo', "
+        "'Profesional con X años de experiencia', 'Apasionado por'. "
+        "ESTRUCTURA OBLIGATORIA para bullets: "
+        "[Verbo de acción] + [tecnología/herramienta] + [resultado o contexto medible].\n\n"
 
         "=== PERFIL DEL CANDIDATO ===\n"
+        f"Nombre: {nombre_usuario}\n"
         f"Resumen: {user_summary}\n"
         f"Skills: {user_skills}\n"
         f"Experiencia: {user_exp}\n\n"
 
-        "=== REGLA CRÍTICA DE INICIO — ESQUELETO OBLIGATORIO ===\n"
-        "El código LaTeX generado DEBE comenzar EXACTAMENTE con \\begin{document} "
-        "seguido del comentario % [START_CONTENT] y luego INMEDIATAMENTE el primer "
-        "comando \\section. Ejemplo ÚNICO válido:\n"
-        "  \\begin{document}\n"
-        "  % [START_CONTENT]\n"
-        "  \\section{PERFIL PROFESIONAL}\n"
-        "Tienes ESTRICTAMENTE PROHIBIDO colocar código, variables, nombres, bloques "
-        "\\begin{center}, macros de cabecera o datos de contacto ANTES del primer "
-        "\\section. El encabezado personal es INYECTADO AUTOMÁTICAMENTE por el sistema.\n\n"
+        "=== MÉTRICAS DE CONVERSIÓN ===\n"
+        f"Skills alta conversión (prioriza si aplican): {winning_skills}\n\n"
+
+        "=== PASO 3 — CONTENIDO EXCLUSIVO ===\n"
+        "Incluye ÚNICAMENTE tecnologías y experiencias del perfil del candidato. "
+        "NUNCA inventes habilidades, certificaciones ni experiencias ausentes del perfil. "
+        "Incluye la publicación IAC 2024 (DOI: 10.52202/078365-0120) si la vacante es técnica/académica.\n\n"
+
+        "=== PASO 4 — ESTRUCTURA LATEX ESTRICTA ===\n"
+        "REGLA CRÍTICA: TIENES ESTRICTAMENTE PROHIBIDO colocar bloques \\begin{center}, "
+        "macros de cabecera, nombre, contacto o cualquier datos personales en el cuerpo del documento. "
+        "El encabezado personal es INYECTADO AUTOMÁTICAMENTE por el sistema. "
+        "El documento DEBE ir directo a las secciones después de \\begin{document}.\n"
+        "El orden de secciones es:\n"
+        "  1. Professional Summary / Perfil Profesional (párrafo continuo, máx 4 líneas)\n"
+        "  2. Technical Skills / Habilidades Técnicas — usa ESTAS categorías exactas:\n"
+        "     \\textbf{CAD / CAE:} SolidWorks, CATIA, AutoCAD, ANSYS...\n"
+        "     \\textbf{Mechanical Design:} 2D/3D modeling, GD\\&T, tolerance analysis...\n"
+        "     \\textbf{Manufacturing \\& Process:} CNC machining, lean methods, metrology...\n"
+        "     \\textbf{Automation \\& Control:} Embedded systems (ESP32, STM32), DAQ, MATLAB/Simulink...\n"
+        "     \\textbf{Languages:} Spanish (native) | English: Professional Fluency C1/C2\n"
+        "  3. Professional Experience / Experiencia Profesional — formato:\n"
+        "     \\noindent \\textbf{Job Title} \\hfill \\textbf{Year -- Year} \\\\\n"
+        "     \\textit{Company/Institution} \\hfill \\textit{Location} \\\\\n"
+        "     \\vspace{-2mm}\n"
+        "     \\begin{itemize} \\itemsep -2pt\n"
+        "         \\item Bullet 1\n"
+        "     \\end{itemize}\n"
+        "  4. Education / Educación\n"
+        "  5. Key Projects / Proyectos (si hay espacio)\n\n"
 
         "=== EXACT MATCH — REQUISITOS INDISPENSABLES ===\n"
         "Identifica los requisitos marcados como INDISPENSABLE, EXCLUYENTE o REQUISITO. "
-        "Escribe ESAS PALABRAS EXACTAS en Perfil Profesional o Habilidades. "
-        "Ejemplos: si pide 'auto estándar y camionetas Pick Up' → escribe exactamente eso, "
-        "no 'manejo de vehículo'. Si pide 'disponibilidad de rolar turnos' → escribe exactamente eso.\n\n"
-
-        "=== REGLAS FIJAS ===\n"
-        "1. INGLÉS: Siempre 'Inglés: Dominio Profesional Fluido (C1/C2)'. PROHIBIDO 'intermedio'.\n"
-        "2. TONO DIRECTO: PROHIBIDO iniciar el Perfil con frases genéricas ('Profesional con X años...', "
-        "'Apasionado por...', 'Orientado a...'). Ve directo a la propuesta de valor técnica "
-        "específica a los problemas operativos de ESTA empresa.\n"
-        "3. ANTI-ALUCINACIÓN: No inventes habilidades, certs ni experiencias ausentes del perfil.\n"
-        "4. PAR: Logros en formato Problema→Acción→Resultado. Cuantifica cuando sea posible.\n\n"
+        "Escribe ESAS PALABRAS EXACTAS en Perfil Profesional o Habilidades.\n\n"
 
         "=== PROTECCIÓN LATEX ===\n"
-        "- Preámbulo: incluye \\usepackage[utf8]{inputenc}, \\usepackage[spanish]{babel}, "
-        "\\usepackage{bookmark}. Añade \\setlength{\\footskip}{4.5pt} tras \\usepackage{geometry}.\n"
+        "- Preámbulo: incluye \\usepackage[utf8]{inputenc}, \\usepackage[spanish]{babel} "
+        "(o [english] si IDIOMA=EN), \\usepackage{bookmark}. "
+        "Añade \\setlength{\\footskip}{4.5pt} tras \\usepackage{geometry}.\n"
         "- Listas: usa \\begin{itemize}/\\item. NUNCA llaves sueltas como viñetas.\n"
-        "- Saltos en \\item: TIENES ESTRICTAMENTE PROHIBIDO usar \\\\\\ dentro de \\item. "
-        "Usa \\newline obligatoriamente para saltos de línea dentro de entornos \\item.\n"
+        "- TIENES ESTRICTAMENTE PROHIBIDO usar \\\\ dentro de \\item. "
+        "Usa \\newline para saltos dentro de items.\n"
         "- Escapa: \\%, \\&, \\#, \\_. No uses $ para texto regular.\n"
         "- PROHIBIDO \\usepackage{fontawesome5} — causa conflictos en el sistema.\n"
         "- Sin Markdown dentro del LaTeX."
@@ -753,32 +794,39 @@ def generar_latex_cv(vacante_id: int, user_id: str = 'default_user') -> str | No
             "Prioriza resaltar habilidades y enfoques similares para maximizar la conversión."
         )
 
-    user_msg = f"""Genera un CV completo en LaTeX para esta vacante.
+    # Pre-detect language from vacante data (before LLM call) so it's authoritative
+    lang = _detect_lang(titulo + " " + (requerimientos or "")[:1000])
+    lang_label = "EN (English)" if lang == 'en' else "ES (Español)"
 
-VACANTE:
-- Título: {titulo}
-- Empresa: {empresa}
-- Enlace: {enlace}
-- Requerimientos:
-{requerimientos or 'No especificados'}
+    user_msg = f"""Generate a complete LaTeX CV for the following job vacancy.
 
-PERFIL COMPLETO DEL CANDIDATO:
-{perfil_full or '[Sin perfil configurado]'}
+VACANCY:
+- Title: {titulo}
+- Company: {empresa}
+- Link: {enlace}
+- Requirements:
+{requerimientos or 'Not specified'}
 
-INSTRUCCIONES ADICIONALES:
+CANDIDATE FULL PROFILE:
+{perfil_full or '[No profile configured]'}
+
+ADDITIONAL INSTRUCTIONS:
 {instrucciones}
 
-PLANTILLA BASE:
+BASE TEMPLATE:
 {template_code}
 
-REGLAS DE FORMATO:
-1. Código LaTeX puro, empezando con \\documentclass.
-2. Usa vocabulario espejo al de la vacante (keywords de la descripción).
-3. Logros cuantificables cuando sea posible.
-4. Máximo 1 página para puestos junior/mid."""
+MANDATORY FORMAT RULES:
+1. LANGUAGE: {lang_label} — Write ALL section names, bullets and text in this language.
+2. FIRST LINE of the code MUST be the headline comment: % HEADLINE: [Domain] | [Specialty 1] & [Specialty 2]
+   Example: % HEADLINE: Mechanical Engineering Specialist | Automotive Systems & Design/Release
+3. Second line must be \\documentclass. No other code before \\documentclass.
+4. Use mirror vocabulary from the vacancy keywords.
+5. Quantifiable achievements whenever possible.
+6. Maximum 1 page for junior/mid positions."""
 
     _set_status(vid, "En_Proceso", user_id)
-    _log.info("[IA] Generando CV vacante #%s user=%s: %s", vid, user_id, titulo[:50])
+    _log.info("[IA] Generando CV vacante #%s user=%s lang=%s: %s", vid, user_id, lang, titulo[:50])
 
     try:
         client = _groq_client()
@@ -797,9 +845,9 @@ REGLAS DE FORMATO:
         _set_status(vid, "Requiere_Correccion", user_id)
         return None
 
-    lang = _detect_lang(titulo + " " + latex_raw)
-    fixed_header = _build_header(lang, user_id)
-    _log.info("[IA] Idioma detectado: %s", lang)
+    headline = _extract_headline(latex_raw)
+    fixed_header = _build_header(lang, user_id, headline=headline)
+    _log.info("[IA] Idioma: %s | Headline: %s", lang, headline or "(desde perfil)")
     latex_clean = _inject_fixed_header(_extract_latex(latex_raw), fixed_header)
     if not latex_clean.startswith("\\documentclass"):
         _log.warning("[IA] Respuesta no parece LaTeX válido, guardando de todas formas...")
