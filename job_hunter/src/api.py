@@ -358,14 +358,20 @@ async def lifespan(app: FastAPI):
                 END LOOP;
             END $$;
         """)
-        # Seed default_user — keeps link to the 33 migrated vacantes
+        # Seed default_user — keeps link to the 33 migrated vacantes.
+        # Credentials come from env (SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD), never hardcoded.
         _cur.execute("SELECT id FROM usuarios WHERE user_id='default_user'")
         if not _cur.fetchone():
-            _log.info("Sembrando usuario por defecto (default_user)")
-            _cur.execute(
-                "INSERT INTO usuarios (user_id, email, hashed_password) VALUES ('default_user', %s, %s)",
-                ('test@jobhunter.com', hash_password('jobhunter123'))
-            )
+            _seed_email = os.environ.get("SEED_ADMIN_EMAIL")
+            _seed_password = os.environ.get("SEED_ADMIN_PASSWORD")
+            if _seed_email and _seed_password:
+                _log.info("Sembrando usuario por defecto (default_user) desde variables de entorno")
+                _cur.execute(
+                    "INSERT INTO usuarios (user_id, email, hashed_password) VALUES ('default_user', %s, %s)",
+                    (_seed_email, hash_password(_seed_password))
+                )
+            else:
+                _log.warning("SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD no configurados; omitiendo seed de usuario por defecto")
         # God Mode: default_user always admin + unlimited credits
         _cur.execute(
             "UPDATE usuarios SET tier='pro', role='admin', vacantes_limite=9999, latex_limite=9999 "

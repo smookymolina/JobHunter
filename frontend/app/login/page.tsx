@@ -97,7 +97,11 @@ function LoginPageContent() {
     const result = await signIn('credentials', { email, password, redirect: false })
     setLoading(false)
     if (result?.error) {
-      const msg = result.error
+      // Auth.js solo expone el `code` del CredentialsSignin al cliente; ahí viaja
+      // el mensaje real del backend (ver CustomAuthError en auth.ts).
+      const msg = result.code && result.code !== 'credentials'
+        ? result.code
+        : 'Credenciales incorrectas'
       if (
         msg === 'Cuenta pendiente de verificación de correo.' ||
         msg.toLowerCase().includes('verifica') ||

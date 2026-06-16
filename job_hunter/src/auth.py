@@ -1,4 +1,5 @@
 """JWT + password hashing — stdlib only, no external deps."""
+import logging
 import os
 import hashlib
 import hmac
@@ -8,9 +9,11 @@ import time
 from typing import Optional
 from urllib.parse import urlparse as _urlparse
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from cryptography.fernet import Fernet
+
+_log = logging.getLogger("auth")
 
 
 def _auth_db():
@@ -23,7 +26,25 @@ def _auth_db():
     )
 
 SECRET_KEY = os.getenv('AUTH_SECRET', 'jobhunter-dev-secret-CHANGE-IN-PRODUCTION')
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY") or Fernet.generate_key().decode()
+
+# ── Encryption key bootstrap ──────────────────────────────────────────────────
+_RAW_EK = os.getenv("ENCRYPTION_KEY")
+if not _RAW_EK:
+    if os.getenv("ENV", "development").lower() == "production":
+        raise RuntimeError(
+            "ENCRYPTION_KEY is required in production. "
+            "Generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    # Dev fallback: deterministic key derived from fixed seed so restarts never corrupt stored tokens
+    _RAW_EK = base64.urlsafe_b64encode(
+        hashlib.sha256(b"jobhunter-dev-fixed-key-UNSAFE-local-only").digest()
+    ).decode()
+    _log.warning(
+        "ENCRYPTION_KEY not set — using deterministic dev key. "
+        "Stored tokens survive restarts, but this MUST NOT be used in production."
+    )
+ENCRYPTION_KEY = _RAW_EK
+
 _TTL = 7 * 24 * 3600  # 7 days
 
 _bearer = HTTPBearer(auto_error=False)
@@ -101,13 +122,16 @@ _BOT_TOKEN = os.getenv("BOT_MASTER_TOKEN", "BOT_MASTER_TOKEN_2026")
 
 
 def get_current_user(
+    request: Request,
     creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> dict:
     if not creds:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
     if creds.credentials == _BOT_TOKEN:
+        # Multi-tenant: caller declares which user's data to operate on
+        bot_user_id = request.headers.get("x-bot-user-id", "default_user")
         return {
-            "user_id": "default_user",
+            "user_id": bot_user_id,
             "email": "",
             "is_bot": True,
             "email_verified": True,
