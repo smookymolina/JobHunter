@@ -6,6 +6,19 @@ Guía operativa para que el generador de CVs use **los datos del usuario correct
 
 ---
 
+## 0. Antes de empezar una sesión de pruebas
+
+Cuatro pasos, en orden. Saltarse el 3 es lo que ha causado casi todos los errores.
+
+1. **Servicios arriba** — `docker compose ps` → `api` y `postgres` en `healthy`.
+2. **Si tocaste código** — `docker compose build api mcp-marulanda && docker compose up -d api mcp-marulanda` (§6). Tras un *recreate*, los MCP tardan ~30–60 s en aceptar llamadas; con `restart` bastan ~3 s.
+3. **Elige el servidor del candidato correcto** y confírmalo con `get_my_profile`. El servidor lleva el nombre de su titular: `job-hunter · Maria del Pilar Marulanda Villasmil`.
+4. **Trabaja siempre dentro de ese mismo servidor** — vacante, perfil y guardado. No cruces tools entre perfiles.
+
+Si una vacante «no existe», no concluyas nada: comprueba de quién es (§1).
+
+---
+
 ## 1. Mapa actual
 
 | Usuario | `MCP_USER_ID` | Puerto | Contenedor | Nombre en Claude Desktop |
@@ -44,6 +57,16 @@ Es exactamente lo que pasa si pides la vacante 13 (de Maria) estando en el servi
 docker exec jobhunter-postgres-1 psql -U jobhunter -d jobhunter_db \
   -c "SELECT id, titulo, status, user_id FROM vacantes WHERE id = <N>;"
 ```
+
+Desde `mcp_server.py`, el 404 ya no es mudo: `_friendly_error()` lo traduce a un mensaje que explica que el sistema es multi-cuenta y que hay que buscar en el servidor hermano. Está aplicado en los cuatro puntos que consultan una vacante por ID (`get_vacancy_by_id`, `reset_vacancy`, `save_latex_cv`, `save_latex_cl`).
+
+### 🚫 Nunca mezcles tools de dos servidores
+
+Si descubres que la vacante pertenece al otro perfil, **cambia de servidor por completo**. No uses `get_vacancy_by_id` de un servidor y `save_latex_cv` del otro.
+
+Ocurrió con la vacante 22 (Grupo Modelo, de Maria) pidiéndola desde la sesión de Jair: se acabó llamando al `save_latex_cv` de Marulanda desde la conversación de Jair. Salió bien de casualidad, pero es frágil — basta que los datos personales se tomen del perfil de un servidor y el guardado del otro para producir un CV con identidad cruzada.
+
+Las tres tools de un mismo CV (`get_vacancy_by_id`, `get_my_profile`, `save_latex_cv`) **deben venir del mismo servidor**. Comprueba el `[PERFIL: …]` de cada una si tienes duda.
 
 ---
 
@@ -191,7 +214,35 @@ No copies el preámbulo de un `.tex` viejo de `outputs/`: algunos son anteriores
 
 ---
 
-## 6. Verificación rápida
+## 6. Si editas `mcp_server.py`, hay que reconstruir la imagen
+
+El `Dockerfile` hace `COPY . .` y **`src/` no está montado como volumen** (solo lo están `outputs`, `data`, `context`, `logs`). El código Python vive **dentro de la imagen**.
+
+Además, Claude Desktop **no ejecuta** el servidor MCP: se conecta con `mcp-remote` a un servidor que ya corre en Docker. Por eso:
+
+> Reiniciar Claude Desktop **no** aplica cambios de código. Editar el `.py` y reconectar el cliente deja el contenedor sirviendo la versión anterior, en silencio.
+
+Secuencia correcta:
+
+```bash
+docker compose build api mcp-marulanda
+docker compose up -d api mcp-marulanda
+```
+
+Y **verifica que el cambio llegó** (esto es lo que delata el fallo):
+
+```bash
+docker exec jobhunter-api-1        sh -c "grep -c '_friendly_error' /app/src/mcp_server.py"
+docker exec jobhunter-mcp-marulanda-1 sh -c "grep -c '_friendly_error' /app/src/mcp_server.py"
+```
+
+Si devuelve `0`, el contenedor sigue con el código viejo. Sustituye `_friendly_error` por algo propio de tu cambio.
+
+Solo hay que reconstruir para cambios en **código** (`src/`) o en el `Dockerfile`. Los perfiles (`data/`, `context/`) y los CVs (`outputs/`) van por volumen y se ven al instante.
+
+---
+
+## 7. Verificación rápida
 
 ```bash
 # 1. Servicios arriba
@@ -218,13 +269,15 @@ grep -c '^!' job_hunter/outputs/<UID>/cv_vacante_<N>.log   # debe ser 0
 
 ---
 
-## 7. Fallos conocidos
+## 8. Fallos conocidos
 
 | Síntoma | Causa | Solución |
 |---|---|---|
 | Claude Desktop no muestra las tools | Editaste el config de `%APPDATA%`, que MSIX ignora | Usa la ruta de `LocalCache` (§4) |
 | SSE responde pero el POST corta la conexión (`curl` exit 56 / HTTP 000, log con `TypeError: 'NoneType' object is not callable`) | El contenedor recién **recreado** aún hace login y sincroniza perfil | Espera 30–60 s y reintenta. Con `restart` (sin recrear) está listo en ~3 s |
 | «La vacante N no existe» y te ofrece otras | Estás en el MCP del usuario equivocado; esa vacante es de otro titular | Comprueba el dueño en la BD (§1) y cambia de servidor |
+| Editaste `mcp_server.py` y el comportamiento no cambia | El código va dentro de la imagen; reiniciar Claude Desktop no lo actualiza | `docker compose build` + `up -d`, y verifica con `grep` dentro del contenedor (§6) |
+| CV con datos de un perfil guardado desde otro | Se mezclaron tools de dos servidores en la misma conversación | Las 3 tools del CV deben venir del mismo servidor (§1) |
 | CV con nombre de una persona y experiencia de otra | El prompt citaba `context/mi_perfil.md` a mano | Usa `get_my_profile` (§2) |
 | `Package babel Error: Unknown option 'spanish'` | Falta `texlive-lang-spanish` en la imagen | Ya está en el `Dockerfile`; si reaparece, rebuild |
 | Las líneas bajo los títulos no salen | Falta `\usepackage{xcolor}` | Usa el preámbulo oficial (§5) |
@@ -232,6 +285,6 @@ grep -c '^!' job_hunter/outputs/<UID>/cv_vacante_<N>.log   # debe ser 0
 
 ---
 
-## 8. Nota de seguridad
+## 9. Nota de seguridad
 
 `docker-compose.yml` lleva contraseñas en texto plano como valores por defecto (`MCP_API_PASSWORD`, `MCP_MARULANDA_PASSWORD`) y está versionado en git. Antes de compartir o publicar el repo, muévelas a un `.env` fuera de control de versiones y deja solo `${VAR}` sin default.

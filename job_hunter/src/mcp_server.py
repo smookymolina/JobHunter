@@ -60,6 +60,33 @@ _log.info("MCP sirviendo el perfil de %s (user_id=%s)", _OWNER, _MCP_USER_ID)
 
 server = Server(f"job-hunter · {_OWNER}")
 
+
+def _friendly_error(e: Exception) -> str:
+    """
+    Convierte un 404 de /vacantes/{id} en un mensaje accionable.
+
+    Este sistema es multi-cuenta: cada servidor MCP (job-hunter, job-hunter-marulanda, ...)
+    inicia sesión con credenciales propias y la API solo devuelve las vacantes que
+    pertenecen a ESA cuenta. Un 404 aquí NO significa que la vacante no exista en
+    absoluto — casi siempre significa que pertenece a la cuenta del OTRO servidor MCP
+    registrado. Sin esta pista, un cliente (o Claude) puede concluir erróneamente que la
+    vacante no existe, cuando en realidad solo hay que consultar el servidor hermano.
+    """
+    msg = str(e)
+    if "404" in msg:
+        return (
+            f"{msg}\n\n"
+            f"💡 Esta vacante NO pertenece a la cuenta de '{_OWNER}' (user_id={_MCP_USER_ID}). "
+            "El sistema es multi-cuenta: cada servidor MCP registrado (p. ej. job-hunter / "
+            "job-hunter-marulanda) inicia sesión con credenciales distintas y solo ve SUS "
+            "PROPIAS vacantes — NO asumas que la vacante no existe. "
+            "Antes de continuar: prueba la misma tool (get_vacancy_by_id) en el OTRO servidor "
+            "MCP job-hunter registrado en esta sesión. Si aparece ahí, usa el get_my_profile "
+            "de ESE mismo servidor para los datos personales, y guarda el CV con el "
+            "save_latex_cv de ESE mismo servidor (nunca mezcles herramientas de dos perfiles)."
+        )
+    return msg
+
 # ── HTTP helpers (evitan sqlite3 bloqueado por sandbox) ──────────────────────
 
 _STOP_API_DOWN = (
@@ -341,7 +368,7 @@ async def _get_vacancy_by_id(vacante_id: int):
     try:
         data = _http_get(f"/vacantes/{vacante_id}")
     except RuntimeError as e:
-        return [TextContent(type="text", text=f"ERROR: {e}")]
+        return [TextContent(type="text", text=f"ERROR: {_friendly_error(e)}")]
     return [TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
 
 
@@ -385,7 +412,7 @@ async def _reset_vacancy(vacante_id: int):
         vacante = _http_get(f"/vacantes/{vacante_id}")
         titulo = vacante.get("titulo", f"#{vacante_id}")
     except RuntimeError as e:
-        return [TextContent(type="text", text=f"ERROR verificando vacante: {e}")]
+        return [TextContent(type="text", text=f"ERROR verificando vacante: {_friendly_error(e)}")]
 
     # Resetear status → No_Creado
     try:
@@ -426,7 +453,7 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
         vacante = _http_get(f"/vacantes/{vacante_id}")
         titulo = vacante.get("titulo", f"#{vacante_id}")
     except RuntimeError as e:
-        return [TextContent(type="text", text=f"ERROR verificando vacante: {e}")]
+        return [TextContent(type="text", text=f"ERROR verificando vacante: {_friendly_error(e)}")]
 
     # Señalizar En_Proceso antes de compilar
     try:
@@ -503,7 +530,7 @@ async def _save_latex_cl(vacante_id: int, tex_content: str):
         vacante = _http_get(f"/vacantes/{vacante_id}")
         titulo = vacante.get("titulo", f"#{vacante_id}")
     except RuntimeError as e:
-        return [TextContent(type="text", text=f"ERROR verificando vacante: {e}")]
+        return [TextContent(type="text", text=f"ERROR verificando vacante: {_friendly_error(e)}")]
 
     # Inyección de encabezado
     _lang = _detect_lang(titulo + " " + tex_content)
