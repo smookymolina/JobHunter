@@ -1,0 +1,114 @@
+{
+  "nombre": "Maria del Pilar",
+  "apellidos": "Marulanda Villasmil",
+  "titulo_profesional": "Ingeniera en Mecatrónica y Robótica",
+  "headline": "Ingeniera en Mecatrónica y Robótica | Automatización industrial, PLC, CAD e impresión 3D",
+  "email": "mariadelpilarmarulandavillasmi@gmail.com",
+  "telefono": "+52 55 3735 7718",
+  "ubicacion": "Ciudad de México, México",
+  "linkedin": "",
+  "github": "",
+  "resumen": "Egresada de Ingeniería Mecatrónica e Ingeniería en Robótica, con interés en las áreas de automatización industrial, programación de PLC, diseño CAD e impresión 3D. Experiencia en desarrollo de prototipos electrónicos, sistemas de control PID, robótica móvil y gestión documental industrial.",
+  "habilidades": {
+    "mecanica_manufactura": [
+      "Diseño CAD en SolidWorks",
+      "Impresión 3D y prototipado rápido",
+      "Programación y configuración de PLCs",
+      "Programación en lenguaje Ladder",
+      "Instrumentación y uso de sensores"
+    ],
+    "iot_embebidos": [
+      "Programación de microcontroladores Arduino",
+      "ESP32",
+      "Control PID",
+      "Sensores MPU-6050 y ultrasónicos",
+      "Señales PWM y ESC"
+    ],
+    "software_fullstack": [
+      "Paquetería Office (Excel, Word, PowerPoint)",
+      "Documentación técnica"
+    ],
+    "idiomas": [
+      "Español (nativo)",
+      "Inglés (avanzado)",
+      "Francés (básico)"
+    ]
+  },
+  "experiencia": [
+    {
+      "puesto": "Desarrolladora freelance — Sistema de detección y monitoreo de gas",
+      "empresa": "Freelance",
+      "periodo": "2025 - 2026",
+      "logros": [
+        "Participé en la fase inicial de diseño y definición de requerimientos técnicos del proyecto.",
+        "Elaboré propuestas de diseño y establecí métricas de desempeño.",
+        "Colaboré en la selección de componentes y la planificación de pruebas.",
+        "Participé en las primeras etapas de pruebas y evaluación del desempeño del prototipo.",
+        "Documenté resultados y observaciones para apoyar el desarrollo posterior del proyecto."
+      ]
+    },
+    {
+      "puesto": "Servicio Social",
+      "empresa": "SACMEX",
+      "periodo": "2024 - 2025",
+      "logros": [
+        "Registré a través de Excel documentación entregada de empresas externas.",
+        "Participé en actividades de inspección y seguimiento en planta para asegurar la correcta gestión de residuos y el cumplimiento de las prácticas establecidas.",
+        "Efectué visitas a plantas industriales para el emplacado y registro de equipos nuevos, así como la gestión de baja de equipos existentes, manteniendo la documentación actualizada.",
+        "Fungí como punto de contacto para empresas externas, organizando y registrando la documentación entregada e identificando faltantes.",
+        "Organicé la documentación integral de contratos de obra y supervisión, manteniendo un archivo físico."
+      ]
+    }
+  ],
+  "educacion": [
+    {
+      "titulo": "Ingeniería en Robótica",
+      "institucion": "ICEL",
+      "anio": "2020 - Mayo 2026"
+    },
+    {
+      "titulo": "Ingeniería en Mecatrónica",
+      "institucion": "UNITEC",
+      "anio": "2021 - 2025"
+    },
+    {
+      "titulo": "Técnico en Administración de Empresas",
+      "institucion": "ECCC",
+      "anio": "2017 - 2020"
+    }
+  ],
+  "proyectos": [
+    {
+      "nombre": "PID para estabilización de plataforma tipo dron",
+      "descripcion": "Desarrollo e implementación de un sistema de control PID para la estabilización de una plataforma aerodinámica de dos rotores. Integración de sensor MPU-6050, programación en Arduino con señales PWM para ESC, sintonización de constantes Kp/Ki/Kd, filtros complementarios para fusión de datos del acelerómetro y giroscopio, análisis de perfiles NACA y validación experimental logrando la estabilización física de la plataforma. (2025)",
+      "tecnologias": [
+        "Arduino",
+        "MPU-6050",
+        "Control PID",
+        "PWM",
+        "ESC",
+        "Perfiles NACA"
+      ]
+    },
+    {
+      "nombre": "Robot cartesiano para movimiento de piezas de ajedrez",
+      "descripcion": "Diseño y construcción de un sistema cartesiano de tres ejes (X, Y, Z) con mecanismo de desplazamiento oculto bajo el tablero y sistema magnético para la manipulación de piezas. Selección e integración de motores, construcción y pruebas funcionales del prototipo físico, y desarrollo de código para el control de movimientos. (2025)",
+      "tecnologias": [
+        "Mecánica de precisión",
+        "Motores paso a paso",
+        "Sistemas magnéticos",
+        "Arduino"
+      ]
+    },
+    {
+      "nombre": "Robot móvil con control remoto y detección de obstáculos",
+      "descripcion": "Desarrollo de un robot móvil basado en ESP32 con sensor ultrasónico para detección de obstáculos, control remoto desde dispositivo móvil, funciones de evasión básica y reproducción de audio como funcionalidad adicional. Trabajo colaborativo en la integración y pruebas del sistema. (2024)",
+      "tecnologias": [
+        "ESP32",
+        "Sensor ultrasónico",
+        "Control remoto móvil",
+        "Audio embebido"
+      ]
+    }
+  ]
+}

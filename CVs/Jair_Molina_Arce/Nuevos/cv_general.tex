@@ -1,0 +1,93 @@
+\documentclass[10pt,letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{lmodern}
+
+\pagestyle{empty}
+
+\titleformat{\section}{\large\bfseries\uppercase}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{1ex}{1ex}
+
+\newcommand{\CVItem}[1]{\item #1}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Jair Molina Arce}} \\ \vspace{0.5ex}
+    Querétaro, Qro., México \\
+    \href{mailto:ingjairmolina@gmail.com}{ingjairmolina@gmail.com} | 5652646108 \\
+    \href{https://jairmolina.dev}{jairmolina.dev} | \href{https://github.com/smookymolina}{github.com/smookymolina} | \href{https://linkedin.com/in/jair-molina-arce-4909622b2}{linkedin.com/in/jair-molina-arce-4909622b2}
+\end{center}
+
+\vspace{1ex}
+
+\begin{center}
+    {\Large \textbf{Ingeniero Mecánico y de Sistemas Embebidos}}
+\end{center}
+
+\section*{Perfil Profesional}
+Ingeniero Mecánico multidisciplinario con sólida experiencia transversal que abarca el diseño mecánico avanzado, el desarrollo de hardware (PCBs) y la programación de firmware de bajo nivel para sistemas embebidos. Mi trayectoria profesional incluye la caracterización detallada de bancos de prueba de propulsión, la ejecución de simulaciones térmicas y estructurales complejas (FEA), y la automatización integral de procesos físicos mediante microcontroladores (ESP32, STM32, arquitecturas ARM Cortex). Destaco en el sector por mi capacidad excepcional para actuar como puente tecnológico: integro fluidamente requerimientos mecánicos con soluciones electrónicas y de software, desarrollando productos desde la fase de diseño conceptual (CAD), pasando por el prototipado rápido y el diseño de circuito impreso, hasta llegar a la validación física del hardware final y su puesta en marcha.
+
+\section*{Habilidades Técnicas Integrales}
+\begin{itemize}[leftmargin=*, itemsep=0.2ex]
+    \CVItem{\textbf{Diseño Mecánico y Simulación}: Dominio de SolidWorks para modelado 3D de piezas complejas y ensamblajes mayores; análisis por Elementos Finitos (FEA) empleando ANSYS para validación estructural bajo cargas estáticas/dinámicas y estrés térmico; modelado matemático en MATLAB/Simulink; metrología e interpretación de tolerancias geométricas (GD\&T).}
+    \CVItem{\textbf{Desarrollo de Firmware y Electrónica}: Programación en C/C++ y MicroPython; arquitectura de software embebido (máquinas de estado, interrupciones, manejo de memoria); diseño de PCBs mixed-signal utilizando KiCad con enfoque en integridad de señal e inmunidad al ruido electromagnético; integración de periféricos (ADC, DAC, PWM) y buses (I2C, SPI, UART).}
+    \CVItem{\textbf{Instrumentación y Control}: Diseño de sistemas DAQ (Adquisición de Datos); selección, calibración y acondicionamiento de sensores (temperatura, presión, celdas de carga); implementación y sintonización de lazos de control PID; manejo competente de equipo de laboratorio (osciloscopios, generadores de funciones, fuentes de poder).}
+    \CVItem{\textbf{Software, Datos y Gestión}: Desarrollo de scripts en Python (Pandas, NumPy) para automatización de análisis de datos experimentales; desarrollo web backend (Flask); control de versiones (Git); uso de Docker para entornos aislados; redacción técnica y documentación de ingeniería.}
+\end{itemize}
+
+\section*{Experiencia Relevante}
+\begin{itemize}[leftmargin=*, itemsep=0.5ex]
+    \item \textbf{Docente Universitario e Investigador} | \textit{Instituciones Privadas y Públicas (IPN)} | 2024 -- Presente.
+    \begin{itemize}[itemsep=0.1ex]
+        \item Impartición de cátedras en Ingeniería Térmica, Modelización de Sistemas Aeroespaciales y Tecnologías Disruptivas.
+        \item Desarrollo continuo de investigación en el área de control de sistemas dinámicos e instrumentación avanzada.
+        \item Autoría de artículos técnicos y presentaciones en foros internacionales de ingeniería aeroespacial.
+    \end{itemize}
+    \item \textbf{Ingeniería y Desarrollo Integrado - Banco de Pruebas de Propulsión} | \textit{Instituto Politécnico Nacional} | 2022 -- 2024.
+    \begin{itemize}[itemsep=0.1ex]
+        \item Ejecuté el ciclo completo de diseño de una instalación experimental para motores cohete: desde el diseño CAD del soporte de empuje, hasta la selección de galgas extensiométricas y la programación del DAQ.
+        \item Implementé rutinas de seguridad automatizadas mediante relés de estado sólido y electroválvulas controladas por STM32.
+        \item Reduje drásticamente la incertidumbre de medición aplicando técnicas de filtrado digital directamente en el firmware.
+        \item Consolidé una arquitectura de red local para la transmisión de datos críticos en tiempo real hacia la estación de control.
+    \end{itemize}
+\end{itemize}
+
+\section*{Proyectos Destacados (Ciclo de Desarrollo Completo)}
+\begin{itemize}[leftmargin=*, itemsep=0.5ex]
+    \item \textbf{Jaguar MX - Sistema de Extracción de Aire Caliente para Gabinete de Telecomunicaciones} (2026).
+    \begin{itemize}[itemsep=0.1ex]
+        \item Desarrollo end-to-end de un sistema de gestión térmica industrial. Inicié con el cálculo de cargas térmicas y diseño CAD para el montaje de ventiladores y ductos. Posteriormente, diseñé el hardware (esquemático y PCB en KiCad) aislando la lógica de baja tensión del puente H de potencia. Finalmente, programé el firmware en C++ asegurando un funcionamiento ininterrumpido mediante watchdogs de hardware y máquinas de estados robustas contra fallos de sensores.
+    \end{itemize}
+    \item \textbf{Impresora 3D DIY - Diseño Mecatrónico desde Cero}.
+    \begin{itemize}[itemsep=0.1ex]
+        \item Proyecto integral que combinó el diseño CAD del pórtico, análisis de deflexiones, selección de perfiles estructurales, cableado eléctrico del cuadro de control, flasheo y configuración de firmware Marlin, y calibración final de pasos por milímetro e interpolación térmica del hotend.
+    \end{itemize}
+    \item \textbf{Sistema de Telemetría Inalámbrica y Control Adaptativo PID}.
+    \begin{itemize}[itemsep=0.1ex]
+        \item Desarrollo de un nodo sensor portátil con comunicación WiFi/MQTT, operando con baterías Li-Po. Implementación de algoritmos de control adaptativo para compensar variaciones de inercia térmica en tiempo real, mejorando la respuesta del sistema frente a perturbaciones externas.
+    \end{itemize}
+    \item \textbf{Pipeline de Automatización de Análisis de Datos de Ingeniería}.
+    \begin{itemize}[itemsep=0.1ex]
+        \item Software propietario desarrollado en Python que procesa archivos de registro (logs) generados durante pruebas destructivas, detecta anomalías, aplica filtros de media móvil y genera automáticamente reportes ejecutivos en formato PDF y hojas de cálculo con gráficos interactivos.
+    \end{itemize}
+\end{itemize}
+
+\section*{Educación}
+\begin{itemize}[leftmargin=*, itemsep=0.2ex]
+    \CVItem{\textbf{Maestría en Tecnologías Avanzadas} (En curso) - IPN.}
+    \CVItem{\textbf{Ingeniería Mecánica} (2017 -- 2023) - IPN.}
+    \CVItem{\textbf{Bachillerato Técnico en Informática} (2014 -- 2017) - Colegio de Bachilleres.}
+\end{itemize}
+
+\section*{Idiomas y Reconocimientos}
+\begin{itemize}[leftmargin=*, itemsep=0.2ex]
+    \CVItem{\textbf{Idiomas}: Español (Nativo), Inglés (Avanzado, B2/C1 técnico).}
+    \CVItem{\textbf{Publicaciones}: Coautor presentado en el \textit{75th IAC 2024} (Italia). Artículo en \textit{Revista Hacia el Espacio}.}
+\end{itemize}
+
+\end{document}

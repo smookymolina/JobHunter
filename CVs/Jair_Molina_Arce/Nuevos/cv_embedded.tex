@@ -1,0 +1,113 @@
+\documentclass[10pt,letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{lmodern}
+
+\pagestyle{empty}
+
+\titleformat{\section}{\large\bfseries\uppercase}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{1ex}{1ex}
+
+\newcommand{\CVItem}[1]{\item #1}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Jair Molina Arce}} \\ \vspace{0.5ex}
+    Querétaro, Qro., México \\
+    \href{mailto:ingjairmolina@gmail.com}{ingjairmolina@gmail.com} | 5652646108 \\
+    \href{https://jairmolina.dev}{jairmolina.dev} | \href{https://github.com/smookymolina}{github.com/smookymolina} | \href{https://linkedin.com/in/jair-molina-arce-4909622b2}{linkedin.com/in/jair-molina-arce-4909622b2}
+\end{center}
+
+\vspace{1ex}
+
+\begin{center}
+    {\Large \textbf{Ingeniero en Sistemas Embebidos Jr.}}
+\end{center}
+
+\section*{Perfil Profesional}
+Ingeniero Mecánico con sólida formación orientada a sistemas embebidos, instrumentación y control. He desarrollado firmware escalable y robusto para plataformas como ESP32, STM32 y RP2350 utilizando C/C++, MicroPython y Arduino framework. Mi experiencia incluye la integración de periféricos (ADC, PWM, timers), implementación de mecanismos de seguridad (watchdog), diseño de máquinas de estados (FSM) y sistemas de adquisición de datos (DAQ). Mi perfil es único porque combina un profundo criterio mecánico con electrónica práctica y documentación técnica rigurosa; me siento completamente cómodo depurando sistemas físicos con osciloscopio, multímetro, analizador lógico, consola serial y simuladores de hardware. Busco un rol junior en el que pueda aportar autonomía técnica, orden, metodologías de desarrollo estructuradas y una base sólida para crecer en áreas de firmware, integración de hardware mixed-signal y validación de sistemas críticos.
+
+\section*{Habilidades Técnicas}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \CVItem{\textbf{Firmware / Software}: C/C++, MicroPython, Python, PlatformIO, Arduino framework, Máquinas de Estados (FSM), ADC, PWM, Timers, Watchdog, depuración serial, REPL, fundamentos de JTAG/SWD, memory mapping, bare-metal, conceptos fundamentales de RTOS, ISR (Interrupt Service Routines), logging, manejo de errores, y optimización en entornos de memoria limitada.}
+    \CVItem{\textbf{Microcontroladores y Arquitecturas}: ESP32, STM32, RP2040, RP2350, configuración de bajo nivel de GPIOs y periféricos, integración de sensores y actuadores, diseño de software orientado a seguridad y estados fail-safe.}
+    \CVItem{\textbf{Protocolos de Comunicación}: UART, SPI, I2C, MQTT, HTTP/REST, WiFi (configuración de modos STA/AP).}
+    \CVItem{\textbf{Hardware e Instrumentación}: DAQ, lectura de NTCs, acondicionamiento de señales analógicas, control de ventilación, drivers de motores (TB6612FNG), MOSFET de potencia, reguladores LDO, diseño de layout mixed-signal, implementaciones de protecciones eléctricas, uso de osciloscopio, multímetro, validación y testing de hardware.}
+    \CVItem{\textbf{Herramientas CAD/CAE y Datos}: KiCad, SolidWorks, ANSYS, MATLAB/Simulink, LabVIEW, procesamiento de datos con pandas, numpy, visualización con matplotlib, control de versiones con Git.}
+\end{itemize}
+
+\section*{Experiencia Relevante}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Docente Universitario - Ingeniería Térmica y Modelización de Sistemas Aeroespaciales} | \textit{Universidad Internacional de Innovación de Aguascalientes} | Ago. 2025 -- Presente.
+    \begin{itemize}[itemsep=0pt]
+        \item Imparto clases de nivel licenciatura y desarrollo material técnico avanzado con foco en modelado, análisis de sistemas y resolución estructurada de problemas de ingeniería.
+        \item Aplico herramientas de simulación computacional para explicar fenómenos térmicos y dinámicos a nivel académico y profesional.
+        \item Traduzco conceptos complejos de física, matemáticas e ingeniería a material claro, con estructura útil para alumnos y equipos técnicos.
+        \item Implementación de rúbricas de evaluación técnica y fomento del pensamiento crítico.
+    \end{itemize}
+    \item \textbf{Sistemas Embebidos e Instrumentación - Banco de Pruebas de Propulsión} | \textit{Instituto Politécnico Nacional (IPN)} | 2022 -- 2024.
+    \begin{itemize}[itemsep=0pt]
+        \item Diseñé, construí e implementé un sistema DAQ personalizado con sensores de presión, temperatura y flujo para un banco de pruebas de cohetes de combustible sólido.
+        \item Programé microcontroladores ESP32 y STM32 para la lectura sincronizada de sensores, transmisión de datos de alta velocidad y control preciso de actuadores.
+        \item Integré buses de comunicación UART, SPI e I2C según los requerimientos específicos de ancho de banda y distancia del banco.
+        \item Analicé señales y resultados experimentales utilizando Python, MATLAB/Simulink y LabVIEW.
+        \item Documenté exhaustivamente ensayos, variables de calibración y criterios de validación para garantizar la repetibilidad de las pruebas y la trazabilidad de los resultados.
+        \item Lideré la selección de instrumentación y el diseño de protocolos de seguridad operacional.
+    \end{itemize}
+\end{itemize}
+
+\section*{Proyecto Embebido Destacado}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Jaguar MX - Sistema de Extracción de Aire Caliente para Gabinete de Telecomunicaciones} (2026).
+    \begin{itemize}[itemsep=0pt]
+        \item \textit{Rol}: Desarrollo completo (firmware, simulación, esquemático y PCB) usando Seeed XIAO RP2350 / RP2040-Wokwi.
+        \item Diseñé y validé una FSM de seguridad robusta (INIT $\rightarrow$ READING $\rightarrow$ COOLING/IDLE/ERROR/LOCKOUT) con watchdog de hardware de 8 segundos, asegurando un estado seguro por falla y recuperación controlada.
+        \item Implementé adquisición de temperatura mediante 2 sensores NTC TT05 con divisor de voltaje, conversión Beta, validación de estado abierto/corto y filtro digital trimmed-mean sobre un buffer circular.
+        \item Integré un DIP switch para selección de 8 setpoints térmicos y apliqué una histéresis de +/-1 $^\circ$C para evitar chattering electromecánico.
+        \item Controlé el actuador FIT0803 y el ventilador industrial MR1238E48B-FSR mediante puente H y MOSFET de potencia aislados.
+        \item Separé meticulosamente el diseño analógico y de potencia en KiCad, optimizando rutas de ADC y utilizando planos de tierra divididos (net-ties).
+    \end{itemize}
+\end{itemize}
+
+\section*{Proyectos Seleccionados}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \CVItem{\textbf{Pipeline de Automatización de Análisis de Datos y Reportes} (2024 -- 2025). Construí un flujo en Python (Pandas/NumPy) para procesar grandes volúmenes de datos experimentales con ruido, reduciendo el tiempo de análisis de 6 horas a menos de 20 minutos.}
+    \CVItem{\textbf{Sistema de Telemetría Inalámbrica para Propulsores Cohete} (2023 -- 2024). Desarrollé telemetría de baja latencia con ESP32, backend MQTT y visualización en tiempo real (latencia $<$ 50 ms).}
+    \CVItem{\textbf{Sistema de Control Adaptativo PID con Ajuste Automático} (2023 -- 2024). Implementación en C++ embebido de un controlador PID digital con auto-tuning, reduciendo el tiempo de estabilización térmica en un 35\%.}
+\end{itemize}
+
+\section*{Freelance y Proyectos Independientes}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \CVItem{\textbf{Instructor - Excel Avanzado} (Mar. 2026). Diseño e impartición de curso intensivo corporativo cubriendo macros VBA, Power Query y automatización de reportes.}
+    \CVItem{\textbf{Plataforma Web Full-Stack para Monitoreo IoT} (2023 -- 2024). Desarrollo de backend Flask, APIs RESTful, bases de datos relacionales y despliegue con Docker para visualización de sensores remotos.}
+\end{itemize}
+
+\section*{Educación}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Maestría en Tecnologías Avanzadas} (2024 -- Presente), Instituto Politécnico Nacional (IPN).
+    \begin{itemize}[itemsep=0pt]
+        \item Línea de investigación principal: control de sistemas dinámicos e instrumentación.
+        \item Cursos destacados: Control Avanzado, Procesamiento de Señales, Instrumentación Virtual.
+        \item Desarrollo de tesis enfocada en la optimización de sistemas de control aplicados a bancos de prueba.
+    \end{itemize}
+    \item \textbf{Ingeniería Mecánica} (2017 -- 2023), Instituto Politécnico Nacional (IPN).
+    \begin{itemize}[itemsep=0pt]
+        \item Enfoque en diseño de bancos de prueba, térmica, instrumentación y sistemas embebidos.
+        \item Participación activa en proyectos extracurriculares de diseño mecánico y manufactura.
+        \item Proyecto terminal destacado en caracterización térmica y estructural de componentes aeroespaciales.
+    \end{itemize}
+    \item \textbf{Bachillerato Técnico en Informática} (2014 -- 2017), Colegio de Bachilleres Plantel 1 "El Rosario".
+\end{itemize}
+
+\section*{Idiomas y Competencias Transversales}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \CVItem{\textbf{Idiomas}: Español (Nativo) | Inglés (Avanzado, con lectura técnica fluida y capacidad de redacción de reportes de ingeniería).}
+    \CVItem{\textbf{Soft Skills}: Liderazgo técnico, resolución de problemas complejos, capacidad de análisis crítico, trabajo en equipo multidisciplinario, comunicación efectiva de conceptos técnicos a audiencias no técnicas, adaptabilidad, aprendizaje continuo, gestión del tiempo y organización de proyectos.}
+\end{itemize}
+
+\end{document}

@@ -10,10 +10,15 @@ Si cualquier tool MCP falla: **DETENTE. NO uses bash/sqlite. Levanta la API y re
 ---
 
 ## Fuente de Verdad del Perfil
-- JSON maestro: `data/perfil_maestro.json`
-- **Nombre:** Jair Molina Arce | **Email:** ingjairmolina@gmail.com
-- **Teléfono:** 5652646108 | **Ubicación:** Ciudad de México, México
+- Multi-tenant: cada usuario tiene su propio JSON en `data/{user_id}_perfil.json`
+  (fallback histórico SOLO para `default_user` → `data/perfil_maestro.json`).
+- El nombre, email, teléfono y ubicación del candidato se inyectan DINÁMICAMENTE en cada
+  generación de CV a partir de ESE archivo — nunca están fijos en este documento.
+- PROHIBIDO usar el nombre, email, teléfono, publicaciones o experiencia de un candidato
+  distinto al que se está generando en esta ejecución (identificado por `user_id`/`MCP_USER_ID`).
 - PROHIBIDO inventar datos. PROHIBIDO placeholders: [NOMBRE], [EMAIL], etc.
+- Antes de escribir contenido, si tienes dudas sobre el candidato actual, usa la tool MCP
+  `get_my_profile` para confirmar nombre, título y skills antes de generar el CV.
 
 ---
 
@@ -133,16 +138,17 @@ El CV debe superar DOS filtros: primero el algoritmo ATS, luego el reclutador hu
 - [ ] Sin layouts multi-columna
 - [ ] Título profesional = título exacto de la vacante
 - [ ] Keywords exactas de la vacante en resumen y habilidades
-- [ ] Datos reales de `perfil_maestro.json` (sin inventar, sin placeholders)
+- [ ] Datos reales del perfil del `user_id` activo (sin inventar, sin placeholders, sin mezclar con otro candidato)
 - [ ] Compilable con `pdflatex -interaction=nonstopmode`
 - [ ] Caracteres especiales con `\'` para máxima compatibilidad
 
 ---
 
-## Términos de Búsqueda Activos
-"Ingeniero Mecánico" | "Ingeniero IoT" | "Desarrollador IoT" | "Ingeniero Sistemas Embebidos"
-"Embedded Systems Engineer" | "Desarrollador Full Stack" | "Full Stack Developer Python"
-"Automatización Industrial" | "Domótica Automatización" | "Desarrollador Python Flask"
+## Términos de Búsqueda
+Cada usuario tiene sus propios términos de búsqueda, generados dinámicamente a partir de su
+perfil (`generar_terminos_busqueda(user_id)`) en lugar de una lista fija global. NO uses los
+términos de un candidato para otro — si necesitas confirmarlos, consulta el perfil del `user_id`
+activo en vez de asumir un dominio (mecánica/IoT, mecatrónica/robótica, software, etc.).
 
 ## Fuentes de Búsqueda
 Computrabajo México | OCC Mundial

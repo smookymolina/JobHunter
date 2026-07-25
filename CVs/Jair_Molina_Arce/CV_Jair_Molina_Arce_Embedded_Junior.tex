@@ -1,0 +1,201 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[spanish,es-noshorthands]{babel}
+\usepackage[left=1.4cm,right=1.4cm,top=1.15cm,bottom=1.15cm]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage[protrusion=true,expansion=false]{microtype}
+
+\pdfgentounicode=1
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\raggedright
+\raggedbottom
+\linespread{1.03}
+
+\definecolor{navy}{RGB}{15,48,87}
+\definecolor{graytext}{RGB}{92,107,115}
+
+\titleformat{\section}
+  {\bfseries\large\color{navy}}
+  {}
+  {0pt}
+  {}
+  [\vspace{-0.2em}\color{navy}\titlerule]
+\titlespacing*{\section}{0pt}{9pt}{5pt}
+
+\newcommand{\resumeItem}[1]{\item\small #1}
+\newcommand{\resumeSubheading}[4]{%
+  \vspace{3pt}\noindent
+  \textbf{#1}\hfill{\small\textit{\color{graytext}#2}}\\
+  \textit{\color{graytext}#3}\hfill{\small\color{graytext}#4}\vspace{2pt}
+}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=1.15em,itemsep=1.5pt,topsep=2pt,partopsep=0pt,parsep=0pt]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{2pt}}
+
+\newcolumntype{L}{>{\bfseries\raggedright\arraybackslash}p{3.9cm}}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries Jair Molina Arce}\\[4pt]
+{\large\color{navy} Ingeniero en Sistemas Embebidos Jr.}\\[4pt]
+{\small
+\href{mailto:ingjairmolina@gmail.com}{ingjairmolina@gmail.com} \,$\cdot$\,
+5652646108 \,$\cdot$\,
+\href{https://jairmolina.dev}{jairmolina.dev} \,$\cdot$\,
+\href{https://github.com/smookymolina}{github.com/smookymolina} \,$\cdot$\,
+\href{https://www.linkedin.com/in/jair-molina-arce-4909622b2/}{linkedin.com/in/jair-molina-arce-4909622b2} \,$\cdot$\,
+Ciudad de M\'exico, M\'exico}
+\end{center}
+
+\vspace{3pt}
+\hrule
+\vspace{6pt}
+
+\section{Perfil Profesional}
+\small
+Ingeniero Mec\'anico con formaci\'on orientada a sistemas embebidos, instrumentaci\'on y control. He desarrollado firmware para ESP32, STM32 y RP2350 con C/C++, MicroPython y Arduino framework, integrando ADC, PWM, timers, watchdog, m\'aquinas de estados (FSM) y adquisici\'on de datos. Mi perfil combina criterio mec\'anico, electr\'onica pr\'actica y documentaci\'on t\'ecnica; me siento c\'omodo depurando con osciloscopio, mult\'imetro, consola serial y simulaci\'on de hardware. Busco un rol junior en el que pueda aportar autonom\'ia t\'ecnica, orden y una base s\'olida para crecer en firmware, integraci\'on de hardware y validaci\'on.
+
+\section{Habilidades T\'ecnicas}
+\small
+\begin{tabularx}{\textwidth}{@{}L@{\hspace{10pt}}X@{}}
+Firmware / software & C/C++, MicroPython, Python, PlatformIO, Arduino framework, FSM, ADC, PWM, timers, watchdog, depuraci\'on serial, REPL, fundamentos de JTAG/SWD, memory mapping, bare-metal, conceptos de RTOS, ISR, logging, manejo de errores y memoria limitada.\\[4pt]
+Microcontroladores & ESP32, STM32, RP2040, RP2350, GPIO, configuraci\'on de perif\'ericos, integraci\'on de sensores y actuadores, dise\~no orientado a seguridad fail-safe.\\[4pt]
+Protocolos & UART, SPI, I2C, MQTT, HTTP/REST, WiFi.\\[4pt]
+Hardware / instrumentaci\'on & DAQ, NTC, acondicionamiento de se\~nales, control de ventilaci\'on, TB6612FNG, MOSFET de potencia, LDO, layout mixed-signal, protecciones, osciloscopio, mult\'imetro, validaci\'on de hardware.\\[4pt]
+CAD / CAE / datos & KiCad, SolidWorks, ANSYS, MATLAB/Simulink, LabVIEW, pandas, numpy, matplotlib, Git.\\
+\end{tabularx}
+
+\section{Experiencia Relevante}
+
+\resumeSubheading
+{Docente - Ingenier\'ia T\'ermica y Modelizaci\'on de Sistemas Aeroespaciales}{Ago. 2025 -- Presente}
+{Universidad Internacional de Innovaci\'on de Aguascalientes}{Virtual}
+\resumeItemListStart
+  \resumeItem{Imparto clases y desarrollo material t\'ecnico con foco en modelado, an\'alisis de sistemas y resoluci\'on estructurada de problemas de ingenier\'ia.}
+  \resumeItem{Aplico herramientas de simulaci\'on para explicar fen\'omenos t\'ermicos y din\'amicos a nivel acad\'emico y profesional.}
+  \resumeItem{Traduzco conceptos de f\'isica e ingenier\'ia a material claro, con estructura \'util para alumnos y equipos t\'ecnicos.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Sistemas Embebidos e Instrumentaci\'on - Banco de Pruebas de Propulsi\'on}{2022 -- 2024}
+{Instituto Polit\'ecnico Nacional (IPN)}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Dise\~n\'e e implement\'e un sistema DAQ con sensores de presi\'on, temperatura y flujo para banco de pruebas de cohetes de combustible s\'olido.}
+  \resumeItem{Program\'e microcontroladores ESP32 y STM32 para lectura de sensores, transmisi\'on de datos y control de actuadores; integr\'e UART, SPI e I2C seg\'un la necesidad del banco.}
+  \resumeItem{Analic\'e se\~nales y resultados experimentales con Python, MATLAB/Simulink y LabVIEW, y apoy\'e el an\'alisis t\'ermico-estructural con ANSYS y SolidWorks.}
+  \resumeItem{Document\'e ensayos, variables de calibraci\'on y criterios de validaci\'on para hacer repetibles las pruebas y facilitar la trazabilidad de resultados.}
+\resumeItemListEnd
+
+\section{Proyecto Embebido Destacado}
+
+\resumeSubheading
+{Jaguar MX - Sistema de Extracci\'on de Aire Caliente para Gabinete de Telecomunicaciones}{2026}
+{Desarrollo completo: firmware, simulaci\'on, esquem\'atico y PCB}{Seeed XIAO RP2350 / RP2040-Wokwi}
+\resumeItemListStart
+  \resumeItem{Dise\~n\'e y valid\'e una FSM de seguridad \texttt{INIT -> READING -> COOLING/IDLE/ERROR/LOCKOUT} con watchdog de hardware de 8 s, estado seguro por falla y recuperaci\'on controlada tras 30 s.}
+  \resumeItem{Implement\'e adquisici\'on de 2 NTC TT05 en GP26/ADC0 y GP27/ADC1 con divisor de 10 kOhm, conversi\'on Beta de 3435 K, validaci\'on de sensor abierto/corto y filtro \emph{trimmed-mean} sobre un buffer circular de 8 muestras.}
+  \resumeItem{Integr\'e un DIP switch de 3 bits para seleccionar 8 setpoints entre 40 y 75 \textdegree C, con hist\'eresis de +/-1 \textdegree C para evitar chattering y mantener estabilidad t\'ermica.}
+  \resumeItem{Control\'e el actuador FIT0803 mediante TB6612FNG y el ventilador industrial MR1238E48B-FSR mediante MOSFET de potencia para conmutaci\'on segura de 48 V.}
+  \resumeItem{Separ\'e el dise\~no anal\'ogico y de potencia en KiCad, con rutas cortas para ADC, protecci\'on en entradas, plano de tierra dividido por dominios y uni\'on \'unica mediante \emph{net-tie}.}
+  \resumeItem{Valid\'e el firmware en simulaci\'on Wokwi sobre RP2040 y en hardware f\'isico con Seeed XIAO RP2350; la versi\'on de prueba f\'isica en C++/Arduino us\'o temporizaci\'on con \texttt{millis()} y watchdog hardware.}
+  \resumeItem{Entregado en 4 d\'ias de trabajo t\'ecnico, aproximadamente 29 horas, cubriendo firmware, simulaci\'on, hardware, PCB y documentaci\'on.}
+\resumeItemListEnd
+
+\section{Proyectos Seleccionados}
+
+\resumeSubheading
+{Pipeline de Automatizaci\'on de An\'alisis de Datos y Reportes}{2024 -- 2025}
+{Proyecto de productividad t\'ecnica / investigaci\'on}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Constru\'i un flujo en Python para procesar datos experimentales y generar reportes t\'ecnicos en PDF y Excel.}
+  \resumeItem{Reduje el tiempo de an\'alisis post-prueba de 6 horas a menos de 20 minutos mediante automatizaci\'on y normalizaci\'on de datos.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Aplicaci\'on de Realidad Virtual para Capacitaci\'on en Seguridad Industrial}{2024}
+{Proyecto profesional / TV Azteca M\'exico}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Desarroll\'e un entorno inmersivo VR para simulaci\'on de uso de extintores con hardware de seguimiento de movimiento.}
+  \resumeItem{La demostraci\'on t\'ecnica fue presentada en transmisi\'on en vivo, reforzando mi capacidad para comunicar soluciones t\'ecnicas de forma clara.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Sistema de Telemetr\'ia Inal\'ambrica para Propulsores Cohete}{2023 -- 2024}
+{IPN / Proyecto de investigaci\'on}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Desarroll\'e telemetr\'ia con ESP32 para transmisi\'on inal\'ambrica de presi\'on, temperatura y empuje durante ensayos est\'aticos.}
+  \resumeItem{Conect\'e el sistema a un backend con MQTT y visualizaci\'on en tiempo real, reduciendo la latencia operativa a menos de 50 ms en la arquitectura de prueba.}
+  \resumeItem{Integr\'e captura de datos y validaci\'on de ensayos para obtener trazabilidad t\'ecnica \'util en investigaci\'on y pruebas de banco.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Sistema de Control Adaptativo PID con Ajuste Autom\'atico}{2023 -- 2024}
+{IPN - Laboratorio de Control y Sistemas Din\'amicos}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Desarroll\'e un controlador PID digital con auto-tuning para banco de pruebas, con implementaci\'on en C++ embebido.}
+  \resumeItem{Reduje el tiempo de estabilizaci\'on en 35\% frente al control manual previo y document\'e el comportamiento para an\'alisis posterior.}
+\resumeItemListEnd
+
+\section{Freelance y Proyectos Independientes}
+
+\resumeSubheading
+{Instructor - Excel Avanzado}{Mar. 2026}
+{Profuturo}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Dise\~n\'e e impart\'i un curso intensivo de Excel Avanzado para equipos corporativos, con foco en automatizaci\'on de reportes y an\'alisis de datos.}
+  \resumeItem{Cubr\'i tablas din\'amicas, Power Query, macros con VBA, f\'ormulas avanzadas y visualizaci\'on ejecutiva.}
+  \resumeItem{Convert\'i reportes manuales en flujos m\'as ordenados y r\'apidos para equipos no t\'ecnicos.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Plataforma Web Full-Stack para Monitoreo IoT y Control Remoto}{2023 -- 2024}
+{Proyecto independiente / IPN}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Dise\~n\'e una plataforma con Flask, SQLAlchemy y APIs RESTful para recepci\'on y visualizaci\'on de datos de dispositivos conectados en tiempo real.}
+  \resumeItem{Implement\'e autenticaci\'on con JWT, Flask-Login y bcrypt; despliegue con Docker, Gunicorn y monitoreo con Prometheus.}
+  \resumeItem{Desarroll\'e dashboards de historiales y eventos, e interfaces web/m\'oviles para control remoto y validaci\'on de estados de hardware desde la interfaz de usuario.}
+  \resumeItem{Organic\'e el flujo de datos para separar captura, persistencia, autenticaci\'on y visualizaci\'on, manteniendo el sistema mantenible.}
+\resumeItemListEnd
+
+\section{Formaci\'on Acad\'emica}
+
+\resumeSubheading
+{Maestr\'ia en Tecnolog\'ias Avanzadas}{2024 -- Presente}
+{Instituto Polit\'ecnico Nacional (IPN)}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{L\'inea de investigaci\'on: control de sistemas din\'amicos e instrumentaci\'on.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Ingenier\'ia Mec\'anica}{2017 -- 2023}
+{Instituto Polit\'ecnico Nacional (IPN)}{Ciudad de M\'exico}
+\resumeItemListStart
+  \resumeItem{Enfoque en dise\~no de bancos de prueba, t\'ermica, instrumentaci\'on y sistemas embebidos.}
+\resumeItemListEnd
+
+\resumeSubheading
+{Bachillerato T\'ecnico en Inform\'atica}{2014 -- 2017}
+{Colegio de Bachilleres Plantel 1 "El Rosario"}{Ciudad de M\'exico}
+
+\vspace{4pt}
+\section{Producci\'on Seleccionada}
+\small
+\begin{itemize}[leftmargin=1.15em,itemsep=2pt,topsep=3pt,partopsep=0pt,parsep=0pt]
+  \item Ponente y coautor en el \textit{75th International Astronautical Congress (IAC 2024)}, Mil\'an, Italia.
+  \item Publicaci\'on t\'ecnica en \textit{Revista Hacia el Espacio} sobre caracterizaci\'on y dise\~no de un banco de pruebas mec\'anicas.
+  \item Participaci\'on en proyectos de investigaci\'on con enfoque en telemetr\'ia, control y adquisici\'on de datos.
+\end{itemize}
+
+\section{Idiomas}
+\small
+Espa\~nol nativo | Ingl\'es avanzado con lectura t\'ecnica fluida.
+
+\end{document}

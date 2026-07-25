@@ -29,6 +29,11 @@
       "Finales de carrera"
     ],
     "iot_embebidos": [
+      "KiCad (Diseño PCB/Esquemático)",
+      "Raspberry Pi Pico (RP2040)",
+      "MicroPython",
+      "Máquinas de Estados Finitos (FSM)",
+      "Wokwi (Simulación)",
       "ESP32",
       "STM32",
       "Arduino",
@@ -178,6 +183,19 @@
     }
   ],
   "proyectos": [
+    {
+      "nombre": "Sistema de Extracción Térmica para Gabinetes de Telecomunicaciones — Jaguar de México",
+      "descripcion": "Diseño integral (firmware, esquemático y PCB en KiCad) de un sistema de extracción térmica basado en RP2040. Implementación de Máquina de Estados Finitos (FSM) en MicroPython orientada a seguridad, adquisición analógica de sensores NTC con filtrado de ruido, control de compuertas vía puente H (TB6612FNG) y accionamiento de ventilador industrial de 48V mediante MOSFET. Validación mediante simulación interactiva en Wokwi y diseño tolerante a fallos con Watchdog Timer de hardware.",
+      "tecnologias": [
+        "KiCad",
+        "RP2040",
+        "MicroPython",
+        "Wokwi",
+        "Sensores NTC",
+        "FSM",
+        "Diseño PCB"
+      ]
+    },
     {
       "nombre": "CO.DE Aerospace — Sitio web corporativo (codeaerospace.com)",
       "descripcion": "Landing page corporativa con identidad visual aeroespacial/cyberpunk. Diseño con fondo animado de estrellas y partículas, gradientes deep space, efectos de paralaje con mousemove, tarjetas de servicios con hover luminoso y navegación fija con backdrop blur. Totalmente responsive con animaciones de entrada por scroll via IntersectionObserver.",

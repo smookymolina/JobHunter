@@ -87,3 +87,63 @@ PUNTOS CLAVE:
   5. Dashboard actualiza automáticamente (polling 3s)
 
 ===================================================================
+  PERFIL SECUNDARIO: MARIA DEL PILAR MARULANDA (user_id fijo)
+===================================================================
+
+user_id  : 538dfb32aa5443eb90e2abb133bd51af
+Perfil   : job_hunter/data/538dfb32aa5443eb90e2abb133bd51af_perfil.json
+Contexto : job_hunter/context/538dfb32aa5443eb90e2abb133bd51af_mi_perfil.md
+Outputs  : job_hunter/outputs/538dfb32aa5443eb90e2abb133bd51af/
+
+El servidor mcp_server.py NUNCA adivina de quién es el CV — usa SIEMPRE las env vars
+MCP_USER_ID / MCP_API_EMAIL / MCP_API_PASSWORD leídas al arrancar. Por default
+(sin configurar nada) apunta al perfil de Jair (`default_user`). Para que Claude
+Desktop genere CVs de Maria hay que registrar un SEGUNDO servidor MCP con sus
+propias credenciales — así ambos perfiles conviven sin pisarse.
+
+OPCIÓN A — Segundo servidor STDIO en Claude Desktop (recomendado para uso local):
+Añade esta entrada junto a "job-hunter" en claude_desktop_config.json:
+
+{
+  "mcpServers": {
+    "job-hunter": { ... perfil de Jair, sin tocar ... },
+
+    "job-hunter-marulanda": {
+      "command": "C:\\Users\\GIRTEC\\AppData\\Local\\Programs\\Python\\Python313\\python.exe",
+      "args": [
+        "C:\\Users\\GIRTEC\\Desktop\\CODEMAGA\\JobHunter\\job_hunter\\src\\mcp_server.py"
+      ],
+      "cwd": "C:\\Users\\GIRTEC\\Desktop\\CODEMAGA\\JobHunter\\job_hunter\\src",
+      "env": {
+        "API_BASE_URL": "http://127.0.0.1:8001",
+        "MCP_USER_ID": "538dfb32aa5443eb90e2abb133bd51af",
+        "MCP_API_EMAIL": "maria.marulanda@test.com",
+        "MCP_API_PASSWORD": "<password real de la cuenta de Maria>"
+      }
+    }
+  }
+}
+
+Después de guardar, reinicia Claude Desktop por completo. En el chat aparecerán las
+tools duplicadas bajo el prefijo "job-hunter-marulanda:" — úsalas solo para vacantes
+y CVs de Maria; usa las de "job-hunter:" solo para las de Jair.
+
+OPCIÓN B — Servicio Docker dedicado (ya existe en docker-compose.yml):
+El servicio "mcp-marulanda" ya está definido con MCP_USER_ID/MCP_API_EMAIL correctos,
+expuesto vía SSE en http://localhost:8003/sse. Requiere un cliente MCP que soporte
+transporte remoto (SSE), y que MCP_MARULANDA_PASSWORD (o el default "Marulanda2026!"
+en docker-compose.yml) coincida EXACTAMENTE con la contraseña real de la cuenta
+maria.marulanda@test.com en la tabla `usuarios`. Si no coincide, el login silencioso
+fallará y las tools que dependen de la API (get_vacancy_by_id, save_latex_cv, etc.)
+devolverán error 401 aunque get_my_profile/sync_profile sigan funcionando (leen el
+JSON local directo, sin pasar por auth).
+
+⚠ VERIFICACIÓN OBLIGATORIA ANTES DE GENERAR CVS DE MARIA:
+  1. Ejecuta la tool `get_my_profile` en el servidor de Maria y confirma que el
+     nombre devuelto es "Maria del Pilar Marulanda Villasmil" (NO Jair Molina Arce).
+  2. Si el login falla (STOP / HTTP 401 en get_vacancy_by_id), la contraseña
+     configurada no coincide con la real — resetéala o corrige MCP_API_PASSWORD.
+  3. Los .tex/.pdf generados deben caer en outputs/538dfb32aa5443eb90e2abb133bd51af/,
+     nunca en outputs/default_user/.
+
+===================================================================
