@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     texlive-fonts-recommended \
     texlive-fonts-extra \
     texlive-lang-european \
+    texlive-lang-spanish \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

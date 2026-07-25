@@ -37,7 +37,28 @@ logging.basicConfig(
 _log = logging.getLogger("mcp_server")
 _log.info("=== MCP server arrancando (PID %s) ===", os.getpid())
 
-server = Server("job-hunter")
+def _owner_label() -> str:
+    """
+    Nombre legible del titular de este MCP, leído de su perfil.
+    Sirve para que dos servidores MCP (uno por usuario) sean distinguibles:
+    sin esto ambos se anuncian como 'job-hunter' y el cliente no puede saber
+    a qué candidato pertenece cada juego de tools.
+    """
+    try:
+        data = _get_user_profile_structured(_MCP_USER_ID) or {}
+        nombre = str(data.get("nombre", "")).strip()
+        if nombre:
+            return nombre
+    except Exception as exc:  # perfil ausente o API caída: no es fatal
+        _log.warning("No se pudo resolver el titular del MCP: %s", exc)
+    return _MCP_USER_ID
+
+
+_OWNER       = _owner_label()
+_TOOL_PREFIX = f"[PERFIL: {_OWNER} · user_id={_MCP_USER_ID}] "
+_log.info("MCP sirviendo el perfil de %s (user_id=%s)", _OWNER, _MCP_USER_ID)
+
+server = Server(f"job-hunter · {_OWNER}")
 
 # ── HTTP helpers (evitan sqlite3 bloqueado por sandbox) ──────────────────────
 
@@ -133,7 +154,7 @@ def _http_patch(path: str, data: dict) -> dict:
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    return [
+    tools = [
         Tool(
             name="get_vacancy_by_id",
             description=(
@@ -262,6 +283,17 @@ async def list_tools() -> list[Tool]:
                 "required": ["vacante_id", "tex_content"],
             },
         ),
+    ]
+    # Cada descripción declara a qué candidato pertenece este servidor. Con varios
+    # MCP levantados (uno por usuario) las tools tienen nombres idénticos, así que
+    # esta marca es lo único que evita generar el CV con el perfil equivocado.
+    return [
+        Tool(
+            name=t.name,
+            description=_TOOL_PREFIX + (t.description or ""),
+            inputSchema=t.inputSchema,
+        )
+        for t in tools
     ]
 
 @server.call_tool()
@@ -413,7 +445,7 @@ async def _save_latex_cv(vacante_id: int, tex_content: str):
     # Candado de encabezado: detectar idioma e inyectar antes de escribir el .tex
     _lang = _detect_lang(titulo + " " + tex_content)
     _log.info("[MCP] Idioma detectado para vacante #%s: %s", vacante_id, _lang)
-    tex_content = _inject_fixed_header(tex_content, _build_header(_lang))
+    tex_content = _inject_fixed_header(tex_content, _build_header(_lang, _MCP_USER_ID))
 
     # Escribir .tex en el directorio del usuario correcto
     out_dir = get_user_outputs_dir(_MCP_USER_ID)
@@ -475,7 +507,7 @@ async def _save_latex_cl(vacante_id: int, tex_content: str):
 
     # Inyección de encabezado
     _lang = _detect_lang(titulo + " " + tex_content)
-    tex_content = _inject_fixed_header(tex_content, _build_header(_lang))
+    tex_content = _inject_fixed_header(tex_content, _build_header(_lang, _MCP_USER_ID))
 
     out_dir = get_user_outputs_dir(_MCP_USER_ID)
     tex_path = os.path.join(out_dir, f"cl_vacante_{vacante_id}.tex")

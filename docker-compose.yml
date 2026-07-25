@@ -48,11 +48,16 @@ services:
       - WHATSAPP_API_URL=http://whatsapp-bot:3001/send
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_ADMIN_ID=${TELEGRAM_ADMIN_ID:-}
+      - MCP_USER_ID=${MCP_USER_ID:-default_user}
+      - MCP_API_EMAIL=${MCP_API_EMAIL:-speedysmoking@gmail.com}
+      - MCP_API_PASSWORD=${MCP_API_PASSWORD:?define MCP_API_PASSWORD en el .env de la raiz}
     shm_size: '256m'
     volumes:
       - ./job_hunter/db:/app/db
       - ./job_hunter/outputs:/app/outputs
       - ./job_hunter/logs:/app/logs
+      - ./job_hunter/data:/app/data
+      - ./job_hunter/context:/app/context
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +91,28 @@ services:
       - AUTH_TRUST_HOST=true
       - NEXT_TELEMETRY_DISABLED=1
       - NODE_OPTIONS=--dns-result-order=ipv4first
+
+  mcp-marulanda:
+    build:
+      context: ./job_hunter
+      dockerfile: Dockerfile
+    command: ["sh", "-c", "cd /app/src && python mcp_server_http.py"]
+    ports:
+      - "8003:8002"
+    restart: unless-stopped
+    environment:
+      - API_BASE_URL=http://api:8000
+      - MCP_USER_ID=538dfb32aa5443eb90e2abb133bd51af
+      - MCP_API_EMAIL=maria.marulanda@test.com
+      - MCP_API_PASSWORD=${MCP_MARULANDA_PASSWORD:?define MCP_MARULANDA_PASSWORD en el .env de la raiz}
+    volumes:
+      - ./job_hunter/outputs:/app/outputs
+      - ./job_hunter/data:/app/data
+      - ./job_hunter/context:/app/context
+      - ./job_hunter/logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
 
   whatsapp-bot:
     build:
