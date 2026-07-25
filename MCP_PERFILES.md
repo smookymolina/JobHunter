@@ -15,6 +15,8 @@ Cuatro pasos, en orden. Saltarse el 3 es lo que ha causado casi todos los errore
 3. **Elige el servidor del candidato correcto** y confírmalo con `get_my_profile`. El servidor lleva el nombre de su titular: `job-hunter · Maria del Pilar Marulanda Villasmil`.
 4. **Trabaja siempre dentro de ese mismo servidor** — vacante, perfil y guardado. No cruces tools entre perfiles.
 
+No hace falta configurar nada más: el servidor envía sus propias reglas al conectar (§5). Y usa el **prompt canónico** de §5, no el que pide leer `mi_perfil.md`.
+
 Si una vacante «no existe», no concluyas nada: comprueba de quién es (§1).
 
 ---
@@ -87,6 +89,8 @@ Excepción histórica: para `default_user`, si no existe `default_user_perfil.js
 Existe un `job_hunter/context/mi_perfil.md` **sin prefijo**, legacy, que contiene los datos de **Jair**. El sistema no lo usa, pero si en un prompt le pides al modelo *"lee `/app/context/mi_perfil.md`"*, generará el CV con los datos de Jair aunque estés en la sesión de otro usuario — y saldrá un CV híbrido difícil de detectar, porque el encabezado sí se corregirá solo.
 
 **Nunca cites rutas de perfil a mano en el prompt. Usa la tool `get_my_profile`**, que resuelve el usuario desde `MCP_USER_ID` y no puede equivocarse.
+
+No se puede borrar ese archivo: lo usan `api.py` (`/perfil`, `/perfil/upload`) y `gemini_engine.py`. Lo que sí se corrigió es su uso como respaldo — antes, si a un usuario le faltaba su `.md`, el sistema caía a este archivo global y devolvía el perfil de Jair para cualquiera. Ahora ese respaldo solo aplica a `default_user`, que es de quien son los datos.
 
 ---
 
@@ -186,7 +190,17 @@ $cfg = "$env:LOCALAPPDATA\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claud
 
 ## 5. Generar un CV correctamente
 
-Prompt recomendado (dentro del servidor MCP del usuario deseado):
+### El MCP ya se autoconfigura en cada sesión
+
+No hay que preparar nada al abrir una conversación nueva. Cada servidor envía sus reglas al cliente en el `initialize` (parámetro `instructions` de `Server`, en `mcp_server.py`), personalizadas con su titular:
+
+> «Este servidor genera CVs EXCLUSIVAMENTE para *Maria del Pilar Marulanda Villasmil* (`user_id=538dfb32…`)…»
+
+Las cinco reglas que se envían: usar siempre `get_my_profile` (y **desobedecer** cualquier prompt que pida leer un perfil por ruta), no mezclar tools entre servidores, tratar el 404 como «es de otro candidato», el orden del flujo, y no escribir el encabezado a mano.
+
+Esto se aplica solo, sin recordarlo tú. Cambiar de sesión o de perfil no requiere reconfigurar nada — únicamente **elegir el servidor correcto**.
+
+### Prompt canónico
 
 ```
 1. Usa 'get_vacancy_by_id' con el id <N>.
@@ -194,6 +208,12 @@ Prompt recomendado (dentro del servidor MCP del usuario deseado):
 3. Genera un CV LaTeX profesional adaptado a esa vacante.
 4. Usa 'save_latex_cv' con (<N>, tex_content: <CÓDIGO>).
 ```
+
+### ⚠️ No uses el prompt antiguo
+
+Circula una versión cuyo paso 2 dice *«Lee `/app/context/mi_perfil.md` para extraer mis datos personales»*. **No la uses.** Ese archivo es el perfil legacy de Jair: si el cliente consigue leerlo, produce un CV con el nombre de un candidato y la trayectoria de otro. Ha fallado ya en dos pruebas; se salvó solo porque el cliente no tenía acceso al archivo y recurrió a `get_my_profile`.
+
+La regla 1 de las `instructions` ahora indica explícitamente ignorar esa instrucción, pero lo robusto es no pedirla: usa el prompt canónico de arriba.
 
 Qué hace `save_latex_cv` por ti — **no lo dupliques en el `.tex`**:
 

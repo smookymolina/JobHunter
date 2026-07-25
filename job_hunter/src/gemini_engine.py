@@ -374,9 +374,11 @@ def _get_user_profile(user_id: str) -> str:
             f"Habilidades: {', '.join(skills[:50])}\n"
             f"Experiencia relevante:\n{exp_lines}\n"
         )
-    # Per-user markdown; fall back to legacy global file only if present
+    # Per-user markdown. El legacy global pertenece a default_user, así que solo
+    # sirve de respaldo para ese usuario: usarlo para otro devolvería el perfil
+    # de otra persona.
     md_path = os.path.join(CONTEXT_DIR, f'{user_id}_mi_perfil.md')
-    if not os.path.exists(md_path):
+    if not os.path.exists(md_path) and user_id == 'default_user':
         md_path = os.path.join(CONTEXT_DIR, 'mi_perfil.md')
     if os.path.exists(md_path):
         return _read(md_path)

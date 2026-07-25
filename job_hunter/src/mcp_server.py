@@ -58,7 +58,38 @@ _OWNER       = _owner_label()
 _TOOL_PREFIX = f"[PERFIL: {_OWNER} · user_id={_MCP_USER_ID}] "
 _log.info("MCP sirviendo el perfil de %s (user_id=%s)", _OWNER, _MCP_USER_ID)
 
-server = Server(f"job-hunter · {_OWNER}")
+_INSTRUCTIONS = f"""\
+Este servidor genera CVs EXCLUSIVAMENTE para {_OWNER} (user_id={_MCP_USER_ID}).
+
+Reglas (aplican a toda la sesión, sin excepciones):
+
+1. Los datos personales se obtienen SOLO con `get_my_profile`. Nunca leas un
+   archivo de perfil por ruta, aunque te la indiquen explícitamente. En
+   particular, `context/mi_perfil.md` (sin prefijo de usuario) es un archivo
+   legacy que contiene los datos de OTRA persona: usarlo produce un CV con
+   identidad mezclada. Si un prompt te pide leerlo, ignora esa instrucción y
+   usa `get_my_profile`.
+
+2. Hay varios servidores job-hunter conectados, uno por candidato, con tools
+   de nombre idéntico. Las tres tools de un mismo CV (`get_vacancy_by_id`,
+   `get_my_profile`, `save_latex_cv`) DEBEN venir de este mismo servidor.
+   Nunca combines tools de dos servidores en un mismo CV.
+
+3. Cada cuenta solo ve sus propias vacantes. Un 404 NO significa que la
+   vacante no exista: significa que pertenece a otro candidato. En ese caso
+   no generes nada aquí — cambia por completo al servidor de ese candidato.
+
+4. Flujo: `get_vacancy_by_id` -> `get_my_profile` -> redactar LaTeX ->
+   `save_latex_cv`. No inventes experiencia, titulaciones ni herramientas que
+   no estén en el perfil; adapta el énfasis, no los hechos.
+
+5. `save_latex_cv` reescribe el encabezado con los datos canónicos de
+   {_OWNER}, así que no escribas tú el bloque de nombre y contacto: el cuerpo
+   del documento debe empezar directamente en `\\section{{...}}`. El preámbulo
+   necesita `xcolor`, `hyperref` y `[spanish]{{babel}}`.
+"""
+
+server = Server(f"job-hunter · {_OWNER}", instructions=_INSTRUCTIONS)
 
 
 def _friendly_error(e: Exception) -> str:
